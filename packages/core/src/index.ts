@@ -5,6 +5,9 @@
  */
 export const SPEC_VERSION = '0.1.0';
 
+export type { JiraProfile, VaultConfig } from './config.ts';
+export { DEFAULT_CONFIG, loadConfig } from './config.ts';
+export { openDb, resetDb, SCHEMA_VERSION } from './db.ts';
 export type { Eol, FrontmatterSplit, ParsedFrontmatter } from './frontmatter.ts';
 export {
   deleteFrontmatterKey,
@@ -13,6 +16,12 @@ export {
   setFrontmatterKey,
   splitFrontmatter,
 } from './frontmatter.ts';
+export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
+export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
 export type { HeadingRef, LinkKind, LinkRef, ScanOptions, ScanResult, TaskRef } from './scan.ts';
 export { maskInlineCode, scanMarkdown } from './scan.ts';
 export { generateUlid } from './ulid.ts';
+export type { VaultFile } from './vault.ts';
+export { matchesGlob, toPosix, walkVault, writeFileAtomic } from './vault.ts';
+export type { VaultWatcher } from './watch.ts';
+export { watchVault } from './watch.ts';
