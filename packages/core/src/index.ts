@@ -5,4 +5,12 @@
  */
 export const SPEC_VERSION = '0.1.0';
 
+export type { Eol, FrontmatterSplit, ParsedFrontmatter } from './frontmatter.ts';
+export {
+  deleteFrontmatterKey,
+  parseFrontmatter,
+  patchFrontmatter,
+  setFrontmatterKey,
+  splitFrontmatter,
+} from './frontmatter.ts';
 export { generateUlid } from './ulid.ts';

@@ -1,0 +1,127 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`parseFrontmatter (golden) > basic.md 1`] = `
+{
+  "body": "
+# Hello
+
+Body.
+",
+  "bodyLine": 4,
+  "bodyOffset": 34,
+  "data": {
+    "tags": [
+      "a",
+      "b",
+    ],
+    "title": "Hello",
+  },
+  "eol": ""\\n"",
+  "error": null,
+  "present": true,
+}
+`;
+
+exports[`parseFrontmatter (golden) > broken.md 1`] = `
+{
+  "body": "Body
+",
+  "bodyLine": 3,
+  "bodyOffset": 25,
+  "data": {},
+  "eol": ""\\n"",
+  "error": "Flow sequence in block collection must be sufficiently indented and end with a ] at line 2, column 1:
+
+title: [unclosed
+
+^
+",
+  "present": true,
+}
+`;
+
+exports[`parseFrontmatter (golden) > complex.md 1`] = `
+{
+  "body": "Body
+",
+  "bodyLine": 16,
+  "bodyOffset": 177,
+  "data": {
+    "date": "2026-08-30",
+    "empty": null,
+    "list": [
+      "one",
+      "two",
+    ],
+    "plan": {
+      "note": "multi
+line
+",
+      "rank": 3,
+      "sprint": "Sprint 39",
+    },
+    "title": "Quoted: title",
+  },
+  "eol": ""\\n"",
+  "error": null,
+  "present": true,
+}
+`;
+
+exports[`parseFrontmatter (golden) > crlf.md 1`] = `
+{
+  "body": "Body
+",
+  "bodyLine": 4,
+  "bodyOffset": 49,
+  "data": {
+    "status": "In Progress",
+    "title": "Windows",
+  },
+  "eol": ""\\r\\n"",
+  "error": null,
+  "present": true,
+}
+`;
+
+exports[`parseFrontmatter (golden) > empty-block.md 1`] = `
+{
+  "body": "Body only
+",
+  "bodyLine": 2,
+  "bodyOffset": 8,
+  "data": {},
+  "eol": ""\\n"",
+  "error": null,
+  "present": true,
+}
+`;
+
+exports[`parseFrontmatter (golden) > none.md 1`] = `
+{
+  "body": "# No frontmatter
+
+Just body.
+",
+  "bodyLine": 0,
+  "bodyOffset": 0,
+  "data": {},
+  "eol": ""\\n"",
+  "error": null,
+  "present": false,
+}
+`;
+
+exports[`parseFrontmatter (golden) > unterminated.md 1`] = `
+{
+  "body": "---
+title: x
+",
+  "bodyLine": 0,
+  "bodyOffset": 0,
+  "data": {},
+  "eol": ""\\n"",
+  "error": null,
+  "present": false,
+}
+`;
