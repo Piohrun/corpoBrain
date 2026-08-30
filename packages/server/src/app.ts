@@ -1,5 +1,6 @@
 import { SPEC_VERSION } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { GitService } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
 import { planRoutes } from './plan-routes.ts';
@@ -127,6 +128,11 @@ export function createApp(vault?: VaultService) {
   });
 
   app.get('/api/unresolved', (c) => c.json(v.indexer.unresolved()));
+
+  app.get('/api/history', async (c) => {
+    const git = new GitService(v.root);
+    return c.json(await git.log(Number(c.req.query('limit') ?? 20)));
+  });
 
   app.route('/api/jira', jiraRoutes(v));
   app.route('/api/plan', planRoutes(v));

@@ -11,6 +11,7 @@ import {
   resetDb,
   SPEC_VERSION,
 } from '@corpobrain/core';
+import { runMcpServer } from './mcp.ts';
 
 const args = process.argv.slice(2);
 const flags = new Map<string, string>();
@@ -123,6 +124,10 @@ switch (command) {
     break;
   }
 
+  case 'mcp':
+    runMcpServer(vaultRoot);
+    break;
+
   case 'jira': {
     const sub = positional[1];
     const config = loadConfig(vaultRoot);
@@ -181,6 +186,7 @@ Commands:
   backlinks <path>    list notes linking to <path> (vault-relative, with .md)
   links [--unresolved]  list link table / unresolved links
   tags                tag counts
+  mcp                 run a stdio MCP server over this vault (for agents)
   jira probe          check Jira connectivity and deployment type
   jira sync           run Jira sync (all profiles, or --profile <name>)
   version             print spec version

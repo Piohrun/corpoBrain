@@ -3,6 +3,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
+import { GitService, startAutoCommit } from './git-service.ts';
 import { startSyncScheduler } from './jira-routes.ts';
 import { VaultService } from './vault-service.ts';
 
@@ -13,6 +14,17 @@ const hostname = '127.0.0.1'; // never bind externally
 const vault = new VaultService(vaultRoot);
 vault.startWatching();
 startSyncScheduler(vault);
+if (vault.config.git.autoCommit) {
+  const git = new GitService(vaultRoot);
+  void git.ensureRepo().then((ok) => {
+    if (ok) {
+      startAutoCommit(git, vault.config.git.intervalMinutes);
+      console.log(`git auto-commit every ${vault.config.git.intervalMinutes}m`);
+    } else {
+      console.log('git not available — vault history disabled');
+    }
+  });
+}
 const app = createApp(vault);
 
 // Static UI: dist/ui next to the bundled server, or packages path in dev.
