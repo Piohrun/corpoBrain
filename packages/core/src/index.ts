@@ -13,4 +13,6 @@ export {
   setFrontmatterKey,
   splitFrontmatter,
 } from './frontmatter.ts';
+export type { HeadingRef, LinkKind, LinkRef, ScanOptions, ScanResult, TaskRef } from './scan.ts';
+export { maskInlineCode, scanMarkdown } from './scan.ts';
 export { generateUlid } from './ulid.ts';

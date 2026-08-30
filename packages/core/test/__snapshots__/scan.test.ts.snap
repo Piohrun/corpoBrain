@@ -1,0 +1,214 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`scanMarkdown (golden) > fences.md 1`] = `
+{
+  "blocks": [],
+  "headings": [],
+  "links": [
+    {
+      "alias": null,
+      "col": 5,
+      "fragment": null,
+      "kind": "link",
+      "line": 1,
+      "target": "one",
+    },
+    {
+      "alias": null,
+      "col": 0,
+      "fragment": null,
+      "kind": "link",
+      "line": 10,
+      "target": "four",
+    },
+  ],
+  "tags": [],
+  "tasks": [],
+}
+`;
+
+exports[`scanMarkdown (golden) > jira-region.md 1`] = `
+{
+  "blocks": [],
+  "headings": [
+    {
+      "level": 2,
+      "line": 10,
+      "text": "My notes",
+    },
+  ],
+  "links": [
+    {
+      "alias": null,
+      "col": 10,
+      "fragment": null,
+      "kind": "link",
+      "line": 11,
+      "target": "Kept",
+    },
+  ],
+  "tags": [
+    "realtag",
+  ],
+  "tasks": [
+    {
+      "blockId": null,
+      "done": false,
+      "due": null,
+      "line": 12,
+      "text": "follow up",
+    },
+  ],
+}
+`;
+
+exports[`scanMarkdown (golden) > links.md 1`] = `
+{
+  "blocks": [],
+  "headings": [],
+  "links": [
+    {
+      "alias": null,
+      "col": 6,
+      "fragment": null,
+      "kind": "link",
+      "line": 4,
+      "target": "Target",
+    },
+    {
+      "alias": "shown",
+      "col": 29,
+      "fragment": null,
+      "kind": "link",
+      "line": 4,
+      "target": "Target",
+    },
+    {
+      "alias": null,
+      "col": 58,
+      "fragment": "Section",
+      "kind": "link",
+      "line": 4,
+      "target": "Target",
+    },
+    {
+      "alias": null,
+      "col": 10,
+      "fragment": "^abc123",
+      "kind": "link",
+      "line": 5,
+      "target": "Target",
+    },
+    {
+      "alias": null,
+      "col": 39,
+      "fragment": null,
+      "kind": "embed",
+      "line": 5,
+      "target": "Image note",
+    },
+    {
+      "alias": null,
+      "col": 10,
+      "fragment": "Local heading",
+      "kind": "link",
+      "line": 6,
+      "target": "",
+    },
+    {
+      "alias": null,
+      "col": 2,
+      "fragment": null,
+      "kind": "md",
+      "line": 7,
+      "target": "notes/other",
+    },
+    {
+      "alias": null,
+      "col": 53,
+      "fragment": null,
+      "kind": "link",
+      "line": 13,
+      "target": "EXEC-77",
+    },
+    {
+      "alias": null,
+      "col": 8,
+      "fragment": null,
+      "kind": "mention",
+      "line": 13,
+      "target": "EXEC-1834",
+    },
+  ],
+  "tags": [],
+  "tasks": [],
+}
+`;
+
+exports[`scanMarkdown (golden) > tags-tasks.md 1`] = `
+{
+  "blocks": [
+    {
+      "blockId": "task1",
+      "line": 3,
+    },
+    {
+      "blockId": "para9",
+      "line": 7,
+    },
+    {
+      "blockId": "headblock",
+      "line": 9,
+    },
+  ],
+  "headings": [
+    {
+      "level": 1,
+      "line": 1,
+      "text": "Heading one #intag",
+    },
+    {
+      "level": 2,
+      "line": 9,
+      "text": "Second heading",
+    },
+  ],
+  "links": [],
+  "tags": [
+    "intag",
+    "alpha",
+    "nested/tag",
+    "paren",
+  ],
+  "tasks": [
+    {
+      "blockId": "task1",
+      "done": false,
+      "due": "2026-09-15",
+      "line": 3,
+      "text": "open task",
+    },
+    {
+      "blockId": null,
+      "done": true,
+      "due": "2026-10-01",
+      "line": 4,
+      "text": "done task",
+    },
+    {
+      "blockId": null,
+      "done": false,
+      "due": null,
+      "line": 5,
+      "text": "nested task",
+    },
+    {
+      "blockId": null,
+      "done": true,
+      "due": null,
+      "line": 6,
+      "text": "star task",
+    },
+  ],
+}
+`;
