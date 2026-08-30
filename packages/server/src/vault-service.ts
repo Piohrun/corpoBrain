@@ -149,7 +149,7 @@ export class VaultService {
     const p = this.assertSafe(relPath);
     const abs = join(this.root, p);
     if (existsSync(abs)) return { path: p };
-    const body = content ?? this.templateFor(p, title);
+    const body = content ?? this.templateFor(title);
     this.selfWrites.add(p);
     writeFileAtomic(abs, body);
     this.indexer.updatePaths([p]);
@@ -172,7 +172,7 @@ export class VaultService {
     return { path: p, created: true };
   }
 
-  private templateFor(p: string, title: string): string {
+  private templateFor(title: string): string {
     const today = new Date().toISOString().slice(0, 10);
     return `---\ntitle: ${JSON.stringify(title)}\ncreated: ${today}\n---\n\n# ${title}\n\n`;
   }

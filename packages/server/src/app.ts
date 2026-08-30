@@ -120,7 +120,7 @@ export function createApp(vault?: VaultService) {
   app.get('/api/unresolved', (c) => c.json(v.indexer.unresolved()));
 
   // Server-sent events: notify the UI when files change externally.
-  app.get('/api/events', (c) => {
+  app.get('/api/events', () => {
     let cleanup = () => {};
     const stream = new ReadableStream({
       start(controller) {

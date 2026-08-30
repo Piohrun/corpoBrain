@@ -1,17 +1,204 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api, type NoteListItem, type NoteResponse, type TagCount } from './api.ts';
+import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
+import { Editor } from './components/Editor.tsx';
+import { RightPanel } from './components/RightPanel.tsx';
+import { Sidebar } from './components/Sidebar.tsx';
+import { useVaultEvents } from './hooks.ts';
 
 export function App() {
-  const [health, setHealth] = useState<string>('…');
-  useEffect(() => {
-    fetch('/api/health')
-      .then((r) => r.json())
-      .then((j: { spec: string }) => setHealth(`spec ${j.spec}`))
-      .catch(() => setHealth('server unreachable'));
+  const [notes, setNotes] = useState<NoteListItem[]>([]);
+  const [tags, setTags] = useState<TagCount[]>([]);
+  const [note, setNote] = useState<NoteResponse | null>(null);
+  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const noteRef = useRef<NoteResponse | null>(null);
+  noteRef.current = note;
+
+  const refreshLists = useCallback(() => {
+    api
+      .notes()
+      .then(setNotes)
+      .catch(() => {});
+    api
+      .tags()
+      .then(setTags)
+      .catch(() => {});
   }, []);
+
+  useEffect(refreshLists, [refreshLists]);
+
+  const openPath = useCallback((path: string) => {
+    api
+      .note(path)
+      .then((n) => {
+        setNote(n);
+        setSaveState('saved');
+        window.location.hash = `#/${encodeURIComponent(path)}`;
+      })
+      .catch(() => {});
+  }, []);
+
+  // restore note from URL hash on load
+  useEffect(() => {
+    const fromHash = decodeURIComponent(window.location.hash.replace(/^#\//, ''));
+    if (fromHash) openPath(fromHash);
+  }, [openPath]);
+
+  // live updates from the vault watcher
+  useVaultEvents((paths) => {
+    refreshLists();
+    const current = noteRef.current;
+    if (current && paths.includes(current.path)) {
+      api
+        .note(current.path)
+        .then(setNote)
+        .catch(() => {});
+    }
+  });
+
+  const navigate = useCallback(
+    (target: string) => {
+      api
+        .resolve(target)
+        .then(async (r) => {
+          if (!r.exists) {
+            await api.create(r.path, target);
+            refreshLists();
+          }
+          openPath(r.path);
+        })
+        .catch(() => {});
+    },
+    [openPath, refreshLists],
+  );
+
+  const openDaily = useCallback(() => {
+    api
+      .daily()
+      .then((r) => {
+        if (r.created) refreshLists();
+        openPath(r.path);
+      })
+      .catch(() => {});
+  }, [openPath, refreshLists]);
+
+  const createNote = useCallback(
+    (title: string) => {
+      api
+        .resolve(title)
+        .then(async (r) => {
+          if (!r.exists) await api.create(r.path, title);
+          refreshLists();
+          openPath(r.path);
+        })
+        .catch(() => {});
+    },
+    [openPath, refreshLists],
+  );
+
+  // refresh backlinks/properties after a save settles
+  const onSaved = useCallback(() => {
+    refreshLists();
+    const current = noteRef.current;
+    if (current) {
+      api
+        .note(current.path)
+        .then((fresh) =>
+          setNote((prev) =>
+            prev && prev.path === fresh.path
+              ? { ...fresh, content: prev.content } // do not clobber the editor
+              : prev,
+          ),
+        )
+        .catch(() => {});
+    }
+  }, [refreshLists]);
+
+  // global shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'k')) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        openDaily();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [openDaily]);
+
+  const commands: PaletteCommand[] = [
+    { id: 'daily', label: 'Open today’s daily note', hint: 'Ctrl+D', run: openDaily },
+    {
+      id: 'reload',
+      label: 'Reload note lists',
+      run: refreshLists,
+    },
+  ];
+
+  const completions = useCallback(
+    () => notes.filter((n) => !n.protected).map((n) => ({ title: n.title, path: n.path })),
+    [notes],
+  );
+
   return (
-    <main style={{ fontFamily: 'system-ui', padding: '2rem' }}>
-      <h1>corpoBrain</h1>
-      <p>Phase 0 scaffold. Server: {health}</p>
-    </main>
+    <div className="app">
+      <Sidebar
+        notes={notes}
+        tags={tags}
+        currentPath={note?.path ?? null}
+        onOpen={openPath}
+        onDaily={openDaily}
+        onNew={() => setPaletteOpen(true)}
+        onPalette={() => setPaletteOpen(true)}
+      />
+      <div className="main">
+        {note ? (
+          <>
+            <div className="main-header">
+              <span className="title">{note.meta?.title ?? note.path}</span>
+              <span>{note.path}</span>
+              <span className="spacer" />
+              <span className="save-state">
+                {saveState === 'saved'
+                  ? '✓ saved'
+                  : saveState === 'saving'
+                    ? 'saving…'
+                    : '⚠ save failed'}
+              </span>
+            </div>
+            <Editor
+              path={note.path}
+              content={note.content}
+              completions={completions}
+              onNavigate={navigate}
+              onSaveState={setSaveState}
+              onSaved={onSaved}
+            />
+          </>
+        ) : (
+          <div className="empty-state">
+            <div>
+              <p>
+                <strong>corpoBrain</strong>
+              </p>
+              <p>Ctrl+P to open or create a note · Ctrl+D for today’s daily note</p>
+            </div>
+          </div>
+        )}
+      </div>
+      <RightPanel note={note} onOpen={openPath} />
+      <CommandPalette
+        open={paletteOpen}
+        notes={notes}
+        commands={commands}
+        onOpen={openPath}
+        onClose={() => setPaletteOpen(false)}
+        onCreate={createNote}
+      />
+    </div>
   );
 }
