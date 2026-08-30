@@ -161,3 +161,65 @@ describe('jira routes', () => {
     expect(res.status).toBe(502);
   });
 });
+
+describe('objects and tasks', () => {
+  it('lists types and typed notes with frontmatter', async () => {
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'people/zoe.md',
+        content: '---\ntype: person\ntitle: Zoe\nrole: SRE\ncapacity: 7\n---\n',
+      }),
+    });
+    const types = (await (await app.request('/api/objects/types')).json()) as {
+      type: string;
+      count: number;
+    }[];
+    expect(types).toContainEqual({ type: 'person', count: 1 });
+    const list = (await (await app.request('/api/objects/list?type=person')).json()) as {
+      title: string;
+      frontmatter: { role?: string };
+    }[];
+    expect(list).toMatchObject([{ title: 'Zoe', frontmatter: { role: 'SRE', capacity: 7 } }]);
+  });
+
+  it('toggles a task and detects drift', async () => {
+    const res = await app.request('/api/task/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/a.md', line: 7 }),
+    });
+    expect(res.status).toBe(200);
+    const note = (await (await app.request('/api/note?path=notes/a.md')).json()) as {
+      content: string;
+    };
+    expect(note.content).toContain('- [x] todo');
+    // wrong line → 409, file untouched
+    const bad = await app.request('/api/task/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/a.md', line: 2 }),
+    });
+    expect(bad.status).toBe(409);
+  });
+
+  it('creates a typed note from its template', async () => {
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'templates/meeting.md',
+        content:
+          '---\ntype: meeting\ntitle: "{{title}}"\ndate: {{date}}\nattendees: []\n---\n\n# {{title}}\n\n## Agenda\n\n## Decisions\n\n## Actions\n- [ ] \n',
+      }),
+    });
+    await app.request('/api/note', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/Weekly sync.md', title: 'Weekly sync', type: 'meeting' }),
+    });
+    const note = (await (await app.request('/api/note?path=notes/Weekly sync.md')).json()) as {
+      content: string;
+      meta: { type: string };
+    };
+    expect(note.meta.type).toBe('meeting');
+    expect(note.content).toContain('# Weekly sync');
+    expect(note.content).toContain('## Decisions');
+  });
+});

@@ -151,11 +151,11 @@ export class VaultService {
   }
 
   /** Create a note (from resolve() of an unresolved link, or explicitly). */
-  create(relPath: string, title: string, content?: string): { path: string } {
+  create(relPath: string, title: string, content?: string, type?: string): { path: string } {
     const p = this.assertSafe(relPath);
     const abs = join(this.root, p);
     if (existsSync(abs)) return { path: p };
-    const body = content ?? this.templateFor(title);
+    const body = content ?? this.templateFor(title, type);
     this.selfWrites.add(p);
     writeFileAtomic(abs, body);
     this.indexer.updatePaths([p]);
@@ -178,8 +178,18 @@ export class VaultService {
     return { path: p, created: true };
   }
 
-  private templateFor(title: string): string {
+  private templateFor(title: string, type?: string): string {
     const today = new Date().toISOString().slice(0, 10);
+    if (type) {
+      const tpl = join(this.root, this.config.folders.templates, `${type}.md`);
+      if (existsSync(tpl)) {
+        const raw = readFileSync(tpl, 'utf8')
+          .replace(/\{\{title\}\}/g, title)
+          .replace(/\{\{date\}\}/g, today);
+        return applyTemplate(raw, today).replace(/\{\{title\}\}/g, title);
+      }
+      return `---\ntype: ${type}\ntitle: ${JSON.stringify(title)}\ncreated: ${today}\n---\n\n# ${title}\n\n`;
+    }
     return `---\ntitle: ${JSON.stringify(title)}\ncreated: ${today}\n---\n\n# ${title}\n\n`;
   }
 }

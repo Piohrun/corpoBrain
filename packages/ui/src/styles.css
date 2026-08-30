@@ -730,3 +730,27 @@ button {
 .dep-node .done {
   text-decoration: line-through;
 }
+
+.task-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13.5px;
+}
+.done-task {
+  text-decoration: line-through;
+}
+.due-chip {
+  font-size: 11px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 8px;
+  padding: 1px 7px;
+}
+.plan-h2.overdue {
+  color: var(--danger);
+}
+.key-link.small {
+  font-size: 11.5px;
+}

@@ -1,6 +1,7 @@
 import { SPEC_VERSION } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { jiraRoutes } from './jira-routes.ts';
+import { objectRoutes, taskRoutes } from './object-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -51,9 +52,15 @@ export function createApp(vault?: VaultService) {
   });
 
   app.post('/api/note', async (c) => {
-    const { path, title } = (await c.req.json()) as { path?: string; title?: string };
+    const { path, title, type } = (await c.req.json()) as {
+      path?: string;
+      title?: string;
+      type?: string;
+    };
     if (!path) throw new HttpError(400, 'path required');
-    return c.json(v.create(path, title ?? path.replace(/^.*\//, '').replace(/\.md$/, '')));
+    return c.json(
+      v.create(path, title ?? path.replace(/^.*\//, '').replace(/\.md$/, ''), undefined, type),
+    );
   });
 
   app.delete('/api/note', (c) => {
@@ -123,6 +130,8 @@ export function createApp(vault?: VaultService) {
 
   app.route('/api/jira', jiraRoutes(v));
   app.route('/api/plan', planRoutes(v));
+  app.route('/api/objects', objectRoutes(v));
+  app.route('/api/task', taskRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.
   app.get('/api/events', () => {

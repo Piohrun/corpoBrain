@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type NoteListItem, type NoteResponse, type TagCount } from './api.ts';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
 import { Editor } from './components/Editor.tsx';
+import { ObjectsPage } from './components/ObjectsPage.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { TasksPage } from './components/TasksPage.tsx';
 import { useVaultEvents } from './hooks.ts';
 
 export function App() {
@@ -13,7 +15,7 @@ export function App() {
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [view, setView] = useState<'notes' | 'planning'>('notes');
+  const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects'>('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
 
@@ -173,9 +175,29 @@ export function App() {
         >
           ▦
         </button>
+        <button
+          type="button"
+          className={view === 'tasks' ? 'active' : ''}
+          onClick={() => setView('tasks')}
+          title="Tasks"
+        >
+          ☑
+        </button>
+        <button
+          type="button"
+          className={view === 'objects' ? 'active' : ''}
+          onClick={() => setView('objects')}
+          title="Objects"
+        >
+          ▤
+        </button>
       </nav>
       {view === 'planning' ? (
         <PlanningPage onOpenNote={openFromPlanning} />
+      ) : view === 'tasks' ? (
+        <TasksPage onOpenNote={openFromPlanning} />
+      ) : view === 'objects' ? (
+        <ObjectsPage onOpenNote={openFromPlanning} />
       ) : (
         <>
           <Sidebar

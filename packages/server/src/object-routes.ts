@@ -1,0 +1,64 @@
+/** Typed-object views and task roll-up (Phase 5). */
+import { Hono } from 'hono';
+import { HttpError, type VaultService } from './vault-service.ts';
+
+export function objectRoutes(v: VaultService): Hono {
+  const app = new Hono();
+
+  /** Distinct types with counts (excluding plumbing types). */
+  app.get('/types', (c) =>
+    c.json(
+      v.indexer.db
+        .prepare(
+          `SELECT type, COUNT(*) AS count FROM notes
+           WHERE protected = 0 AND type NOT IN ('view')
+           GROUP BY type ORDER BY count DESC, type`,
+        )
+        .all(),
+    ),
+  );
+
+  /** All notes of a type, with parsed frontmatter for table columns. */
+  app.get('/list', (c) => {
+    const type = c.req.query('type');
+    if (!type) throw new HttpError(400, 'type required');
+    const rows = v.indexer.db
+      .prepare(
+        `SELECT path, title, mtime, frontmatter_json FROM notes
+         WHERE type = ? AND protected = 0 ORDER BY title COLLATE NOCASE`,
+      )
+      .all(type) as { path: string; title: string; mtime: number; frontmatter_json: string }[];
+    return c.json(
+      rows.map((r) => ({
+        path: r.path,
+        title: r.title,
+        mtime: r.mtime,
+        frontmatter: JSON.parse(r.frontmatter_json) as Record<string, unknown>,
+      })),
+    );
+  });
+
+  return app;
+}
+
+export function taskRoutes(v: VaultService): Hono {
+  const app = new Hono();
+
+  /** Toggle a task checkbox in place, verified against the expected text. */
+  app.post('/toggle', async (c) => {
+    const body = (await c.req.json()) as { path?: string; line?: number };
+    if (!body.path || !body.line) throw new HttpError(400, 'path and line required');
+    const { content } = v.read(body.path);
+    const lines = content.split(/(?<=\n)/); // keep line endings
+    const idx = body.line - 1;
+    const line = lines[idx];
+    if (line === undefined) throw new HttpError(409, 'line out of range — note changed?');
+    const m = /^(\s*[-*+] \[)( |x|X)(\] )/.exec(line);
+    if (!m) throw new HttpError(409, 'not a task line — note changed?');
+    lines[idx] = line.replace(/^(\s*[-*+] \[)( |x|X)(\] )/, `$1${m[2] === ' ' ? 'x' : ' '}$3`);
+    v.write(body.path, lines.join(''));
+    return c.json({ ok: true, done: m[2] === ' ' });
+  });
+
+  return app;
+}
