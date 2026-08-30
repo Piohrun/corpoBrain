@@ -142,15 +142,13 @@ function rebuild(text: string, split: FrontmatterSplit, rawLines: string[]): str
   return `${bom}${head}${block}---${eol}${text.slice(split.bodyOffset)}`;
 }
 
-function rawToLines(raw: string, eol: Eol): string[] {
+function rawToLines(raw: string): string[] {
   if (raw === '') return [];
   return raw
     .replace(/\r\n/g, '\n')
     .replace(/\n$/, '')
     .split('\n')
     .map((l) => l.replace(/\r$/, ''));
-  // eol is applied on rebuild
-  void eol;
 }
 
 /**
@@ -171,7 +169,7 @@ export function setFrontmatterKey(
     const body = bom ? text.slice(1) : text;
     return `${bom}---${eol}${rendered.join(eol)}${eol}---${eol}${body}`;
   }
-  const lines = rawToLines(split.raw, split.eol);
+  const lines = rawToLines(split.raw);
   const ranges = keyRanges(lines);
   const existing = ranges.find((r) => r.key === key);
   if (existing) {
@@ -187,7 +185,7 @@ export function setFrontmatterKey(
 export function deleteFrontmatterKey(text: string, key: string): string {
   const split = splitFrontmatter(text);
   if (!split.present) return text;
-  const lines = rawToLines(split.raw, split.eol);
+  const lines = rawToLines(split.raw);
   const existing = keyRanges(lines).find((r) => r.key === key);
   if (!existing) return text;
   lines.splice(existing.start, existing.end - existing.start);
