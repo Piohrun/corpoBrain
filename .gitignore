@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+# local dev vault
+vault/
+.env

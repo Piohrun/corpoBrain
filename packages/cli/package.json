@@ -1,0 +1,12 @@
+{
+  "name": "@corpobrain/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "corpobrain": "./src/index.ts"
+  },
+  "dependencies": {
+    "@corpobrain/core": "*"
+  }
+}
