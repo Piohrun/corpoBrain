@@ -18,6 +18,25 @@ export {
 } from './frontmatter.ts';
 export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
 export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
+export type {
+  FetchFn,
+  JiraAuth,
+  JiraDeploymentInfo,
+  JiraSprint,
+  RawIssue,
+} from './jira/adapter.ts';
+export { JiraAdapter, JiraError } from './jira/adapter.ts';
+export { fence, jiraTextToMarkdown, wikiToMarkdown } from './jira/convert.ts';
+export type { MergeOutcome, NormalizedIssue } from './jira/render.ts';
+export {
+  mergeIssueFile,
+  neutralize,
+  normalizeIssue,
+  RENDER_VERSION,
+  renderIssueFile,
+} from './jira/render.ts';
+export type { AdapterLike, SyncReport } from './jira/sync.ts';
+export { JiraSync, jqlDate } from './jira/sync.ts';
 export type { HeadingRef, LinkKind, LinkRef, ScanOptions, ScanResult, TaskRef } from './scan.ts';
 export { maskInlineCode, scanMarkdown } from './scan.ts';
 export { generateUlid } from './ulid.ts';

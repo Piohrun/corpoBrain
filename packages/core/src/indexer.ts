@@ -59,6 +59,7 @@ export class Indexer {
   // ------------------------------------------------------------------ build
 
   rebuild(): UpdateSummary {
+    this.loadSprints();
     const files = walkVault(this.root, this.config);
     const known = new Set(files.map((f) => f.path));
     const stale = (this.db.prepare('SELECT path FROM notes').all() as { path: string }[]).filter(
@@ -102,6 +103,41 @@ export class Indexer {
       else removed.push(p);
     }
     return this.applyChanges(files, removed);
+  }
+
+  /** Sprints live in .corpobrain/jira-cache/sprints.json (written by sync). */
+  loadSprints(): number {
+    const file = join(this.root, '.corpobrain', 'jira-cache', 'sprints.json');
+    let sprints: {
+      id: number;
+      name: string;
+      state?: string;
+      startDate?: string;
+      endDate?: string;
+      originBoardId?: number;
+      goal?: string;
+    }[];
+    try {
+      sprints = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      return 0;
+    }
+    this.db.exec('DELETE FROM sprints');
+    const ins = this.db.prepare(
+      'INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    );
+    for (const s of sprints) {
+      ins.run(
+        s.id,
+        s.name,
+        s.state ?? null,
+        s.startDate ?? null,
+        s.endDate ?? null,
+        s.originBoardId ?? null,
+        s.goal ?? null,
+      );
+    }
+    return sprints.length;
   }
 
   private applyChanges(files: VaultFile[], removed: string[]): UpdateSummary {

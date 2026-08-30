@@ -1,0 +1,56 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderIssueFile / mergeIssueFile > renders a fresh file (golden) 1`] = `
+"---
+type: jira
+key: EXEC-42
+summary: Reduce tick-to-trade latency
+status: In Progress
+status_category: indeterminate
+issue_type: Story
+priority: High
+assignee: jdoe
+assignee_name: John Doe
+reporter: asmith
+sprint: Sprint 37
+sprint_id: 412
+labels:
+  - latency
+components:
+  - gateway
+estimate: 5
+estimate_field: customfield_10016
+created: 2026-08-01T09:00:00.000+0000
+updated: 2026-08-28T10:12:00.000+0000
+resolved: null
+url: https://jira.example.com/browse/EXEC-42
+links:
+  - type: blocks
+    dir: outward
+    key: "[[EXEC-50]]"
+jira:
+  synced: 2026-08-30T07:00:00.000Z
+  profile: team
+  render: 1
+---
+
+# EXEC-42 — Reduce tick-to-trade latency
+
+**Status:** In Progress · **Assignee:** John Doe · **Sprint:** Sprint 37 · **Estimate:** 5
+
+## Description
+
+## Goal
+
+Shave **2ms** from the gateway path.
+
+## Links
+
+- blocks [[EXEC-50]]
+
+<!-- jira:end -->
+
+## My notes
+
+"
+`;

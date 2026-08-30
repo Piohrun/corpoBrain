@@ -1,0 +1,191 @@
+/**
+ * Jira HTTP adapter per docs/PLAN.md: supports Data Center (/rest/api/2,
+ * startAt paging, Bearer PAT) and Cloud (/rest/api/3/search/jql,
+ * nextPageToken paging, Basic email+token). Deployment is probed once via
+ * /rest/api/2/serverInfo when config says "auto".
+ */
+
+export interface JiraAuth {
+  /** bearer: PAT. basic: email + token. */
+  mode: 'bearer' | 'basic';
+  token: string;
+  email?: string;
+}
+
+export interface RawIssue {
+  key: string;
+  fields: Record<string, unknown>;
+}
+
+export interface JiraSprint {
+  id: number;
+  name: string;
+  state: string;
+  startDate?: string;
+  endDate?: string;
+  goal?: string;
+  originBoardId?: number;
+}
+
+export interface JiraDeploymentInfo {
+  deployment: 'datacenter' | 'cloud';
+  version: string;
+}
+
+export type FetchFn = typeof fetch;
+
+const DEFAULT_FIELDS = [
+  'summary',
+  'description',
+  'status',
+  'issuetype',
+  'priority',
+  'assignee',
+  'reporter',
+  'labels',
+  'components',
+  'fixVersions',
+  'created',
+  'updated',
+  'resolutiondate',
+  'issuelinks',
+  'parent',
+  'comment',
+];
+
+export class JiraError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export class JiraAdapter {
+  private deployment: 'datacenter' | 'cloud' | null;
+
+  constructor(
+    readonly baseUrl: string,
+    readonly auth: JiraAuth,
+    deployment: 'auto' | 'datacenter' | 'cloud' = 'auto',
+    private readonly fetchFn: FetchFn = fetch,
+  ) {
+    this.deployment = deployment === 'auto' ? null : deployment;
+  }
+
+  private headers(): Record<string, string> {
+    const h: Record<string, string> = { Accept: 'application/json' };
+    if (this.auth.mode === 'bearer') {
+      h.Authorization = `Bearer ${this.auth.token}`;
+    } else {
+      const cred = Buffer.from(`${this.auth.email ?? ''}:${this.auth.token}`).toString('base64');
+      h.Authorization = `Basic ${cred}`;
+    }
+    return h;
+  }
+
+  private async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+    const url = new URL(path, this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    const res = await this.fetchFn(url, { headers: this.headers() });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new JiraError(
+        res.status,
+        `${res.status} ${res.statusText} for ${path}: ${body.slice(0, 300)}`,
+      );
+    }
+    return (await res.json()) as T;
+  }
+
+  /** Detect deployment type; also a cheap auth check. */
+  async probe(): Promise<JiraDeploymentInfo> {
+    const info = await this.get<{ deploymentType?: string; version?: string }>(
+      'rest/api/2/serverInfo',
+    );
+    const deployment = info.deploymentType === 'Cloud' ? 'cloud' : 'datacenter';
+    this.deployment = deployment;
+    return { deployment, version: info.version ?? 'unknown' };
+  }
+
+  private async ensureDeployment(): Promise<'datacenter' | 'cloud'> {
+    if (!this.deployment) await this.probe();
+    return this.deployment as 'datacenter' | 'cloud';
+  }
+
+  /** Run a JQL search, fully paginated. */
+  async search(jql: string, extraFields: string[] = []): Promise<RawIssue[]> {
+    const deployment = await this.ensureDeployment();
+    const fields = [...new Set([...DEFAULT_FIELDS, ...extraFields])].join(',');
+    const out: RawIssue[] = [];
+    if (deployment === 'datacenter') {
+      let startAt = 0;
+      for (;;) {
+        const page = await this.get<{ issues: RawIssue[]; total: number; startAt: number }>(
+          'rest/api/2/search',
+          { jql, fields, startAt: String(startAt), maxResults: '100' },
+        );
+        out.push(...page.issues);
+        startAt += page.issues.length;
+        if (page.issues.length === 0 || startAt >= page.total) break;
+      }
+    } else {
+      let token: string | undefined;
+      for (;;) {
+        const page = await this.get<{ issues: RawIssue[]; nextPageToken?: string }>(
+          'rest/api/3/search/jql',
+          { jql, fields, maxResults: '100', ...(token ? { nextPageToken: token } : {}) },
+        );
+        out.push(...page.issues);
+        token = page.nextPageToken;
+        if (!token || page.issues.length === 0) break;
+      }
+    }
+    return out;
+  }
+
+  /** Sprints for a board: active + future + last N closed. */
+  async sprints(boardId: number, closedLimit = 3): Promise<JiraSprint[]> {
+    const all: JiraSprint[] = [];
+    let startAt = 0;
+    for (;;) {
+      const page = await this.get<{ values: JiraSprint[]; isLast: boolean }>(
+        `rest/agile/1.0/board/${boardId}/sprint`,
+        { startAt: String(startAt), maxResults: '50' },
+      );
+      all.push(...page.values.map((s) => ({ ...s, originBoardId: s.originBoardId ?? boardId })));
+      if (page.isLast || page.values.length === 0) break;
+      startAt += page.values.length;
+    }
+    const closed = all.filter((s) => s.state === 'closed').slice(-closedLimit);
+    return [...closed, ...all.filter((s) => s.state !== 'closed')];
+  }
+
+  /** Issue keys per sprint (issue → sprint mapping comes from here on DC and Cloud alike). */
+  async sprintIssueKeys(sprintId: number): Promise<string[]> {
+    const keys: string[] = [];
+    let startAt = 0;
+    for (;;) {
+      const page = await this.get<{ issues: { key: string }[]; total: number }>(
+        `rest/agile/1.0/sprint/${sprintId}/issue`,
+        { startAt: String(startAt), maxResults: '100', fields: 'key' },
+      );
+      keys.push(...page.issues.map((i) => i.key));
+      startAt += page.issues.length;
+      if (page.issues.length === 0 || startAt >= page.total) break;
+    }
+    return keys;
+  }
+
+  /** Epic key lookup differs across deployments; epic link comes as a custom field on DC. */
+  async epicOf(issue: RawIssue, epicLinkField?: string): Promise<string | null> {
+    const parent = issue.fields.parent as { key?: string } | undefined;
+    if (parent?.key) return parent.key;
+    if (epicLinkField) {
+      const v = issue.fields[epicLinkField];
+      if (typeof v === 'string') return v;
+    }
+    return null;
+  }
+}
