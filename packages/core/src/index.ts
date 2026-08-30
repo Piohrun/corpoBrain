@@ -7,6 +7,19 @@ export const SPEC_VERSION = '0.1.0';
 
 export type { JiraProfile, VaultConfig } from './config.ts';
 export { DEFAULT_CONFIG, loadConfig } from './config.ts';
+export type { Keystore } from './crypto.ts';
+export {
+  CryptoError,
+  changePassphrase,
+  createKeystore,
+  decryptNote,
+  encryptNote,
+  keystorePath,
+  loadKeystore,
+  opaqueName,
+  saveKeystore,
+  unlockKeystore,
+} from './crypto.ts';
 export { openDb, resetDb, SCHEMA_VERSION } from './db.ts';
 export type { Eol, FrontmatterSplit, ParsedFrontmatter } from './frontmatter.ts';
 export {
