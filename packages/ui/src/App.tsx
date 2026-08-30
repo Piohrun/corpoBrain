@@ -4,6 +4,7 @@ import { CommandPalette, type PaletteCommand } from './components/CommandPalette
 import { Editor } from './components/Editor.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
+import { PrivatePage } from './components/PrivatePage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
@@ -15,7 +16,7 @@ export function App() {
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects'>('notes');
+  const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects' | 'private'>('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
 
@@ -191,6 +192,14 @@ export function App() {
         >
           ▤
         </button>
+        <button
+          type="button"
+          className={view === 'private' ? 'active' : ''}
+          onClick={() => setView('private')}
+          title="Protected notes"
+        >
+          🔒
+        </button>
       </nav>
       {view === 'planning' ? (
         <PlanningPage onOpenNote={openFromPlanning} />
@@ -198,6 +207,8 @@ export function App() {
         <TasksPage onOpenNote={openFromPlanning} />
       ) : view === 'objects' ? (
         <ObjectsPage onOpenNote={openFromPlanning} />
+      ) : view === 'private' ? (
+        <PrivatePage />
       ) : (
         <>
           <Sidebar

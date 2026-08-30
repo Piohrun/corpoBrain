@@ -189,3 +189,44 @@ export const viewApi = {
       body: JSON.stringify({ title, filter }),
     }),
 };
+
+// ----------------------------------------------------------------- private
+
+export interface PrivateStatus {
+  initialized: boolean;
+  unlocked: boolean;
+  lockAfterMinutes: number;
+}
+
+export const privateApi = {
+  status: () => req<PrivateStatus>('/api/private/status'),
+  init: (passphrase: string) =>
+    req<{ ok: boolean }>('/api/private/init', {
+      method: 'POST',
+      body: JSON.stringify({ passphrase }),
+    }),
+  unlock: (passphrase: string) =>
+    req<{ ok: boolean }>('/api/private/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ passphrase }),
+    }),
+  lock: () => req<{ ok: boolean }>('/api/private/lock', { method: 'POST', body: '{}' }),
+  list: () => req<{ file: string; title: string }[]>('/api/private/list'),
+  read: (file: string) =>
+    req<{ file: string; title: string; content: string }>(
+      `/api/private/note?file=${encodeURIComponent(file)}`,
+    ),
+  write: (file: string | null, content: string) =>
+    req<{ file: string }>('/api/private/note', {
+      method: 'PUT',
+      body: JSON.stringify({ file, content }),
+    }),
+  remove: (file: string) =>
+    req<{ ok: boolean }>(`/api/private/note?file=${encodeURIComponent(file)}`, {
+      method: 'DELETE',
+    }),
+  search: (q: string) =>
+    req<{ file: string; title: string; snippet: string }[]>(
+      `/api/private/search?q=${encodeURIComponent(q)}`,
+    ),
+};

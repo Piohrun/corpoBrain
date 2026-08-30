@@ -25,7 +25,7 @@ export function PlanningPage({ onOpenNote }: Props) {
   const [flagFilter, setFlagFilter] = useState<string | null>(null);
   const [sprintFilter, setSprintFilter] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [views, setViews] = useState<SavedView[]>([]);
+  const [views, _setViews] = useState<SavedView[]>([]);
 
   const refresh = useCallback(() => {
     planApi

@@ -495,6 +495,7 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* biome-ignore lint/style/noDescendingSpecificity: utility classes; earlier scoped .muted rules are intentional */
 .muted {
   color: var(--fg-muted);
 }
@@ -753,4 +754,57 @@ button {
 }
 .key-link.small {
   font-size: 11.5px;
+}
+
+/* ---------- protected notes ---------- */
+.unlock-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 320px;
+  text-align: center;
+}
+.unlock-box input {
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+}
+.plan-btn.lock {
+  background: var(--danger);
+}
+.private-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.private-list {
+  width: 220px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 6px;
+}
+.private-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.private-editor textarea {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px / 1.6 var(--sans);
+  padding: 20px 24px;
+}
+.private-editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
 }

@@ -189,7 +189,7 @@ export function runMcpServer(vaultRoot: string): void {
         if (!existsSync(abs)) throw new McpError('not found');
         const existing = readFileSync(abs, 'utf8');
         const sep = existing.endsWith('\n') ? '\n' : '\n\n';
-        writeFileAtomic(abs, existing + sep + String(a.content ?? '') + '\n');
+        writeFileAtomic(abs, `${existing + sep + String(a.content ?? '')}\n`);
         indexer.updatePaths([rel]);
         try {
           git('add', rel);

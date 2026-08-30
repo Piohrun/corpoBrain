@@ -127,6 +127,10 @@ section below the marker.
 Each phase ships something usable on its own and is a stable base for the next.
 Do not start a phase until the previous one is boring.
 
+> **Status (2026-08-30):** Phases 0–7 are implemented and tested (93 tests).
+> Remaining from Phase 8: desktop shell, graph view, Jira write-back staging,
+> semantic search. See git history for the phase-by-phase commits.
+
 ### Phase 0 — Spec and scaffold (½ day)
 - `docs/SPEC.md`: frontmatter schema, link grammar, marker semantics, index schema.
 - Monorepo: `packages/core` (pure TS, no I/O beyond fs), `packages/server`,

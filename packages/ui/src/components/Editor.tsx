@@ -58,7 +58,6 @@ export function Editor({ path, content, completions, onNavigate, onSaveState, on
   }, [path]);
 
   // External change to the open note (SSE): replace content, keep cursor.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reacts to content only; the view ref is stable
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
