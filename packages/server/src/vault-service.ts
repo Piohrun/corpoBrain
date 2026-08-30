@@ -41,6 +41,7 @@ export class VaultService {
       openDb(dbPath ?? join(root, '.corpobrain', 'index.sqlite')),
     );
     this.indexer.update();
+    this.indexer.loadSprints();
   }
 
   startWatching(): void {
