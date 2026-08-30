@@ -116,6 +116,8 @@ export interface BoardIssue {
   effectiveEffort: number | null;
   overridden: { sprint: boolean; assignee: boolean };
   riskFlags: string[];
+  dependsOn: string[];
+  blockedBy: string[];
 }
 
 export interface BoardPerson {
@@ -171,4 +173,19 @@ export const planApi = {
   }) => req<{ ok: boolean }>('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) }),
   jiraStatus: () => req<JiraStatus>('/api/jira/status'),
   jiraSync: () => req<{ ok: boolean }>('/api/jira/sync', { method: 'POST', body: '{}' }),
+};
+
+export interface SavedView {
+  path: string;
+  title: string;
+  filter: { text?: string; flag?: string; sprint?: string; assignee?: string };
+}
+
+export const viewApi = {
+  list: () => req<SavedView[]>('/api/plan/views'),
+  save: (title: string, filter: SavedView['filter']) =>
+    req<{ ok: boolean; path: string }>('/api/plan/views', {
+      method: 'POST',
+      body: JSON.stringify({ title, filter }),
+    }),
 };

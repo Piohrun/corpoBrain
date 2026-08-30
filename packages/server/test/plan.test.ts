@@ -157,3 +157,44 @@ describe('plan writes', () => {
     });
   });
 });
+
+describe('dependencies and saved views', () => {
+  it('derives dependsOn from plan.blocked_on and jira inward block links', () => {
+    writeFileSync(
+      join(root, 'jira', 'EXEC-3.md'),
+      jiraFile(
+        'EXEC-3',
+        'summary: Three\nstatus: To Do\nstatus_category: new\nupdated: 2026-08-29T00:00:00Z\nlinks:\n  - { type: is blocked by, dir: inward, key: "[[EXEC-1]]" }\n  - { type: blocks, dir: outward, key: "[[EXEC-2]]" }\n',
+      ),
+    );
+    vault.indexer.update();
+    const board = buildBoard(vault, new Date('2026-08-30T12:00:00Z'));
+    const three = board.issues.find((i) => i.key === 'EXEC-3');
+    expect(three?.dependsOn).toEqual(['EXEC-1']);
+    expect(three?.blockedBy).toEqual(['EXEC-1']); // EXEC-1 not done
+    expect(three?.riskFlags).toContain('blocked');
+    const two = board.issues.find((i) => i.key === 'EXEC-2');
+    expect(two?.dependsOn).toEqual(['EXEC-1']); // from plan.blocked_on
+  });
+
+  it('saves and lists views', async () => {
+    const res = await app.request('/api/plan/views', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Sprint 38 risks',
+        filter: { text: 'gateway', flag: 'blocked', sprint: 'Sprint 38' },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const views = (await (await app.request('/api/plan/views')).json()) as {
+      title: string;
+      filter: Record<string, unknown>;
+    }[];
+    expect(views).toMatchObject([
+      {
+        title: 'Sprint 38 risks',
+        filter: { text: 'gateway', flag: 'blocked', sprint: 'Sprint 38' },
+      },
+    ]);
+  });
+});

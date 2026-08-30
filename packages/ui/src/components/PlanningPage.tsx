@@ -1,3 +1,4 @@
+import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type BoardIssue,
@@ -5,6 +6,8 @@ import {
   type JiraStatus,
   type PlanPatch,
   planApi,
+  type SavedView,
+  viewApi,
 } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
 
@@ -20,7 +23,9 @@ export function PlanningPage({ onOpenNote }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [flagFilter, setFlagFilter] = useState<string | null>(null);
+  const [sprintFilter, setSprintFilter] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [views, setViews] = useState<SavedView[]>([]);
 
   const refresh = useCallback(() => {
     planApi
@@ -68,8 +73,9 @@ export function PlanningPage({ onOpenNote }: Props) {
           (i.effectiveAssignee ?? '').toLowerCase().includes(q) ||
           (i.plan.bucket ?? '').toLowerCase().includes(q),
       )
-      .filter((i) => !flagFilter || i.riskFlags.includes(flagFilter));
-  }, [board, filter, flagFilter]);
+      .filter((i) => !flagFilter || i.riskFlags.includes(flagFilter))
+      .filter((i) => !sprintFilter || i.effectiveSprint === sprintFilter);
+  }, [board, filter, flagFilter, sprintFilter]);
 
   if (!board) {
     return (
@@ -106,6 +112,54 @@ export function PlanningPage({ onOpenNote }: Props) {
         </button>
       </div>
 
+      <div className="views-bar">
+        <select
+          className="cell-input"
+          value={sprintFilter ?? ''}
+          onChange={(e) => setSprintFilter(e.target.value || null)}
+        >
+          <option value="">all sprints</option>
+          {board.columns.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+        {views.map((v) => (
+          <button
+            type="button"
+            key={v.path}
+            className="risk-chip"
+            title={v.path}
+            onClick={() => {
+              setFilter(v.filter.text ?? '');
+              setFlagFilter(v.filter.flag ?? null);
+              setSprintFilter(v.filter.sprint ?? null);
+            }}
+          >
+            {v.title}
+          </button>
+        ))}
+        {(filter || flagFilter || sprintFilter) && (
+          <button
+            type="button"
+            className="risk-chip"
+            onClick={() => {
+              const title = window.prompt('Save current filter as view:');
+              if (!title) return;
+              viewApi
+                .save(title, {
+                  ...(filter ? { text: filter } : {}),
+                  ...(flagFilter ? { flag: flagFilter } : {}),
+                  ...(sprintFilter ? { sprint: sprintFilter } : {}),
+                })
+                .then(refresh)
+                .catch((e: Error) => setError(e.message));
+            }}
+          >
+            + save view
+          </button>
+        )}
+      </div>
+
       {flagCounts.size > 0 && (
         <div className="risk-strip">
           {[...flagCounts.entries()].map(([flag, n]) => (
@@ -128,6 +182,7 @@ export function PlanningPage({ onOpenNote }: Props) {
 
       <div className="planning-scroll">
         <BandwidthGrid board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
+        <DependencyView board={board} onOpenNote={onOpenNote} />
         <SprintTable board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
       </div>
     </div>
@@ -447,6 +502,71 @@ function SprintTable({
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// ------------------------------------------------------------- dependencies
+
+function DependencyView({
+  board,
+  onOpenNote,
+}: {
+  board: BoardModel;
+  onOpenNote: (path: string) => void;
+}) {
+  const byKey = useMemo(() => new Map(board.issues.map((i) => [i.key, i])), [board]);
+  const dependents = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const i of board.issues) {
+      for (const dep of i.dependsOn) {
+        const arr = m.get(dep) ?? [];
+        arr.push(i.key);
+        m.set(dep, arr);
+      }
+    }
+    return m;
+  }, [board]);
+
+  const roots = useMemo(
+    () =>
+      board.issues.filter(
+        (i) =>
+          (dependents.get(i.key)?.length ?? 0) > 0 &&
+          i.dependsOn.filter((d) => byKey.has(d)).length === 0,
+      ),
+    [board, dependents, byKey],
+  );
+
+  if (roots.length === 0) return null;
+
+  const renderChain = (key: string, depth: number, seen: Set<string>): React.ReactNode => {
+    const issue = byKey.get(key);
+    if (!issue || seen.has(key) || depth > 6) return null;
+    const next = new Set(seen);
+    next.add(key);
+    const kids = dependents.get(key) ?? [];
+    return (
+      <div key={key} className="dep-node" style={{ marginLeft: depth * 22 }}>
+        <button type="button" className="chip" onClick={() => onOpenNote(issue.path)}>
+          {issue.key}
+        </button>
+        <span className={issue.statusCategory === 'done' ? 'muted small done' : 'muted small'}>
+          {issue.summary} · {issue.status ?? '?'} · {issue.effectiveSprint}
+        </span>
+        {kids.map((k) => renderChain(k, depth + 1, next))}
+      </div>
+    );
+  };
+
+  return (
+    <section>
+      <h2 className="plan-h2">Dependencies</h2>
+      <div className="dep-view">{roots.map((r) => renderChain(r.key, 0, new Set()))}</div>
+      <p className="muted small">
+        From Jira “is blocked by” links plus local <code>plan.blocked_on</code>. Children depend on
+        their parent.
+      </p>
     </section>
   );
 }

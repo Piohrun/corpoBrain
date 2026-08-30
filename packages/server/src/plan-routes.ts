@@ -40,6 +40,10 @@ export interface BoardIssue {
   effectiveEffort: number | null;
   overridden: { sprint: boolean; assignee: boolean };
   riskFlags: RiskFlag[];
+  /** issue keys this depends on: plan.blocked_on + Jira "is blocked by" links */
+  dependsOn: string[];
+  /** subset of dependsOn that are known and not done */
+  blockedBy: string[];
 }
 
 export interface BoardPerson {
@@ -125,10 +129,13 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
 
   const rows = db
     .prepare(
-      `SELECT j.*, p.sprint AS p_sprint, p.assignee AS p_assignee, p.rank AS p_rank,
+      `SELECT j.*, n.frontmatter_json AS fm_json,
+              p.sprint AS p_sprint, p.assignee AS p_assignee, p.rank AS p_rank,
               p.effort AS p_effort, p.risk AS p_risk, p.confidence AS p_confidence,
               p.bucket AS p_bucket, p.blocked_on_json AS p_blocked, p.note AS p_note
-       FROM jira j LEFT JOIN plan p ON p.key = j.key ORDER BY j.key`,
+       FROM jira j
+       LEFT JOIN notes n ON n.path = j.path
+       LEFT JOIN plan p ON p.key = j.key ORDER BY j.key`,
     )
     .all() as Record<string, unknown>[];
 
@@ -145,10 +152,9 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     const baseSprint = jiraSprint && sprintNames.has(jiraSprint) ? jiraSprint : 'Backlog';
     const effectiveSprint = planSprint && sprintNames.has(planSprint) ? planSprint : baseSprint;
     const blockedOn = safeArr(r.p_blocked as string | null);
-    const linksBlocked: string[] = []; // jira issue links live in files; local blocked_on is authoritative here
-    const blockedUnresolved = [...blockedOn, ...linksBlocked].filter(
-      (k) => allKeys.has(k) && !doneKeys.has(k),
-    );
+    const linksBlocked = extractBlockingLinks(r.fm_json as string | null);
+    const dependsOn = [...new Set([...blockedOn, ...linksBlocked])];
+    const blockedUnresolved = dependsOn.filter((k) => allKeys.has(k) && !doneKeys.has(k));
     const issue: BoardIssue = {
       key: r.key as string,
       path: r.path as string,
@@ -181,6 +187,8 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
         sprint: planSprint !== null && effectiveSprint !== baseSprint,
         assignee: r.p_assignee !== null && r.p_assignee !== r.assignee,
       },
+      dependsOn,
+      blockedBy: blockedUnresolved,
       riskFlags: issueRiskFlags(
         {
           statusCategory: r.status_category as string | null,
@@ -214,6 +222,26 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   }
 
   return { unit: cap.unit, sprints, columns, people, issues, loads };
+}
+
+const WIKILINK_VALUE = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/;
+
+/** Inward "blocked" links from the mirrored frontmatter `links:` list. */
+function extractBlockingLinks(fmJson: string | null): string[] {
+  if (!fmJson) return [];
+  try {
+    const fm = JSON.parse(fmJson) as { links?: { type?: string; dir?: string; key?: string }[] };
+    if (!Array.isArray(fm.links)) return [];
+    return fm.links
+      .filter((l) => l.dir === 'inward' && /block/i.test(l.type ?? ''))
+      .map((l) => {
+        const m = WIKILINK_VALUE.exec((l.key ?? '').trim());
+        return m ? (m[1] as string).trim() : (l.key ?? '');
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 }
 
 function safeArr(json: string | null): string[] {
@@ -271,6 +299,37 @@ export function planRoutes(v: VaultService): Hono {
       : deletePlan(content);
     v.write(row.path, updated);
     return c.json({ ok: true, plan });
+  });
+
+  /** Saved views: planning/<slug>.md with type: view frontmatter. */
+  app.get('/views', (c) => {
+    const rows = v.indexer.db
+      .prepare("SELECT path, title, frontmatter_json FROM notes WHERE type = 'view' ORDER BY title")
+      .all() as { path: string; title: string; frontmatter_json: string }[];
+    return c.json(
+      rows.map((r) => {
+        const fm = JSON.parse(r.frontmatter_json) as { filter?: unknown };
+        return { path: r.path, title: r.title, filter: fm.filter ?? {} };
+      }),
+    );
+  });
+
+  app.post('/views', async (c) => {
+    const body = (await c.req.json()) as { title?: string; filter?: Record<string, unknown> };
+    if (!body.title?.trim()) throw new HttpError(400, 'title required');
+    const slug = body.title
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
+      .replace(/^-|-$/g, '');
+    const path = `${v.config.folders.planning}/${slug || 'view'}.md`;
+    const content = `---\ntype: view\ntitle: ${JSON.stringify(body.title.trim())}\nfilter:\n${Object.entries(
+      body.filter ?? {},
+    )
+      .filter(([, val]) => val !== null && val !== undefined && val !== '')
+      .map(([k, val]) => `  ${k}: ${JSON.stringify(val)}`)
+      .join('\n')}\n---\n\nSaved planning view.\n`;
+    v.write(path, content);
+    return c.json({ ok: true, path });
   });
 
   /** Update a person's capacity / per-sprint overrides / active flag. */

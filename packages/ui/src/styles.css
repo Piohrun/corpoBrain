@@ -706,3 +706,27 @@ button {
   padding: 1px 6px;
   margin: 1px 2px 1px 0;
 }
+
+.views-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.dep-view {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.dep-node {
+  padding: 2px 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dep-node .done {
+  text-decoration: line-through;
+}
