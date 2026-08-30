@@ -1,0 +1,159 @@
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createApp } from '../src/app.ts';
+import { buildBoard } from '../src/plan-routes.ts';
+import { VaultService } from '../src/vault-service.ts';
+
+let root: string;
+let vault: VaultService;
+let app: ReturnType<typeof createApp>;
+
+function jiraFile(key: string, extra: string, user = ''): string {
+  return `---\ntype: jira\nkey: ${key}\n${extra}url: https://j/browse/${key}\njira:\n  synced: 2026-08-30T00:00:00Z\n  profile: team\n---\n\n# ${key}\n\n<!-- jira:end -->\n\n## My notes\n${user}`;
+}
+
+beforeEach(() => {
+  root = join(tmpdir(), `cb-plan-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(join(root, 'jira'), { recursive: true });
+  mkdirSync(join(root, 'people'), { recursive: true });
+  mkdirSync(join(root, '.corpobrain', 'jira-cache'), { recursive: true });
+  writeFileSync(
+    join(root, '.corpobrain', 'jira-cache', 'sprints.json'),
+    JSON.stringify([
+      { id: 2, name: 'Sprint 37', state: 'active', startDate: '2026-08-24', endDate: '2026-09-04' },
+      { id: 3, name: 'Sprint 38', state: 'future' },
+      { id: 1, name: 'Sprint 36', state: 'closed' },
+    ]),
+  );
+  writeFileSync(
+    join(root, 'jira', 'EXEC-1.md'),
+    jiraFile(
+      'EXEC-1',
+      'summary: One\nstatus: In Progress\nstatus_category: indeterminate\nassignee: anna\nsprint: Sprint 37\nestimate: 4\nupdated: 2026-08-29T00:00:00Z\n',
+    ),
+  );
+  writeFileSync(
+    join(root, 'jira', 'EXEC-2.md'),
+    jiraFile(
+      'EXEC-2',
+      'summary: Two\nstatus: To Do\nstatus_category: new\nupdated: 2026-08-01T00:00:00Z\npriority: High\nplan:\n  sprint: Sprint 38\n  assignee: john\n  effort: 3\n  blocked_on: ["[[EXEC-1]]"]\n  rank: 1\n',
+      'keep me\n',
+    ),
+  );
+  writeFileSync(
+    join(root, 'people', 'anna.md'),
+    '---\ntype: person\ntitle: Anna\njira: anna\ncapacity: 8\ncapacity_overrides:\n  Sprint 38: 4\n---\n',
+  );
+  writeFileSync(
+    join(root, 'people', 'john.md'),
+    '---\ntype: person\ntitle: John\njira: john\ncapacity: 10\n---\n',
+  );
+  vault = new VaultService(root, ':memory:');
+  vault.indexer.loadSprints();
+  app = createApp(vault);
+});
+
+afterEach(() => {
+  vault.stop();
+  rmSync(root, { recursive: true, force: true });
+});
+
+describe('buildBoard', () => {
+  it('computes columns, effective values, loads, risks', () => {
+    const board = buildBoard(vault, new Date('2026-08-30T12:00:00Z'));
+    expect(board.unit).toBe('days');
+    expect(board.columns).toEqual(['Sprint 37', 'Sprint 38', 'Backlog']);
+    const one = board.issues.find((i) => i.key === 'EXEC-1');
+    expect(one).toMatchObject({
+      effectiveSprint: 'Sprint 37',
+      effectiveAssignee: 'anna',
+      effectiveEffort: 4, // pointsPerDay=1
+      overridden: { sprint: false, assignee: false },
+      riskFlags: [],
+    });
+    const two = board.issues.find((i) => i.key === 'EXEC-2');
+    expect(two).toMatchObject({
+      effectiveSprint: 'Sprint 38',
+      effectiveAssignee: 'john',
+      effectiveEffort: 3,
+      overridden: { sprint: true, assignee: true },
+    });
+    expect(two?.riskFlags).toContain('stale');
+    expect(two?.riskFlags).toContain('blocked'); // EXEC-1 not done
+    expect(two?.riskFlags).toContain('high-priority-stale');
+    expect(board.loads['people/anna.md']).toEqual({ 'Sprint 37': 4 });
+    expect(board.loads['people/john.md']).toEqual({ 'Sprint 38': 3 });
+    const anna = board.people.find((p) => p.name === 'Anna');
+    expect(anna).toMatchObject({ capacity: 8, overrides: { 'Sprint 38': 4 } });
+  });
+});
+
+describe('plan writes', () => {
+  it('PUT /api/plan/issue/:key patches plan frontmatter and preserves user region', async () => {
+    const res = await app.request('/api/plan/issue/EXEC-2', {
+      method: 'PUT',
+      body: JSON.stringify({ sprint: 'Sprint 37', rank: 5, note: 'moved forward' }),
+    });
+    expect(res.status).toBe(200);
+    const text = readFileSync(join(root, 'jira', 'EXEC-2.md'), 'utf8');
+    expect(text).toContain('sprint: Sprint 37');
+    expect(text).toContain('note: moved forward');
+    expect(text).toContain('keep me');
+    expect(text).toContain('blocked_on:'); // untouched fields survive
+    const board = buildBoard(vault);
+    expect(board.issues.find((i) => i.key === 'EXEC-2')?.effectiveSprint).toBe('Sprint 37');
+  });
+
+  it('clearing all plan fields removes the plan block', async () => {
+    await app.request('/api/plan/issue/EXEC-2', {
+      method: 'PUT',
+      body: JSON.stringify({
+        sprint: null,
+        assignee: null,
+        effort: null,
+        blocked_on: null,
+        rank: null,
+      }),
+    });
+    const text = readFileSync(join(root, 'jira', 'EXEC-2.md'), 'utf8');
+    expect(text).not.toContain('plan:');
+    expect(text).toContain('keep me');
+  });
+
+  it('rejects unknown fields and unknown keys', async () => {
+    expect(
+      (
+        await app.request('/api/plan/issue/EXEC-2', {
+          method: 'PUT',
+          body: JSON.stringify({ evil: 1 }),
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await app.request('/api/plan/issue/NOPE-1', {
+          method: 'PUT',
+          body: JSON.stringify({ rank: 1 }),
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it('PUT /api/plan/person updates capacity and overrides', async () => {
+    const res = await app.request('/api/plan/person', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'people/john.md', capacity: 6, overrides: { 'Sprint 37': 0 } }),
+    });
+    expect(res.status).toBe(200);
+    const text = readFileSync(join(root, 'people', 'john.md'), 'utf8');
+    expect(text).toContain('capacity: 6');
+    expect(text).toContain('Sprint 37: 0');
+    const board = buildBoard(vault);
+    expect(board.people.find((p) => p.name === 'John')).toMatchObject({
+      capacity: 6,
+      overrides: { 'Sprint 37': 0 },
+    });
+  });
+});

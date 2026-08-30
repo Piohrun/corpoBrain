@@ -38,6 +38,8 @@ export {
 } from './jira/render.ts';
 export type { AdapterLike, SyncReport } from './jira/sync.ts';
 export { JiraSync, jqlDate } from './jira/sync.ts';
+export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';
+export { convertEffort, issueRiskFlags } from './planning.ts';
 export type { HeadingRef, LinkKind, LinkRef, ScanOptions, ScanResult, TaskRef } from './scan.ts';
 export { maskInlineCode, scanMarkdown } from './scan.ts';
 export { generateUlid } from './ulid.ts';
