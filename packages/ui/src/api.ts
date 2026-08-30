@@ -83,3 +83,92 @@ export const api = {
   tasks: (done?: boolean) =>
     req<TaskItem[]>(`/api/tasks${done === undefined ? '' : `?done=${done}`}`),
 };
+
+// ---------------------------------------------------------------- planning
+
+export interface BoardIssue {
+  key: string;
+  path: string;
+  summary: string | null;
+  status: string | null;
+  statusCategory: string | null;
+  issueType: string | null;
+  priority: string | null;
+  epic: string | null;
+  labels: string[];
+  updated: string | null;
+  jiraSprint: string | null;
+  jiraAssignee: string | null;
+  estimate: number | null;
+  plan: {
+    sprint: string | null;
+    assignee: string | null;
+    rank: number | null;
+    effort: number | null;
+    risk: string | null;
+    confidence: string | null;
+    bucket: string | null;
+    blockedOn: string[];
+    note: string | null;
+  };
+  effectiveSprint: string;
+  effectiveAssignee: string | null;
+  effectiveEffort: number | null;
+  overridden: { sprint: boolean; assignee: boolean };
+  riskFlags: string[];
+}
+
+export interface BoardPerson {
+  path: string;
+  name: string;
+  jiraIds: string[];
+  capacity: number | null;
+  overrides: Record<string, number>;
+  active: boolean;
+}
+
+export interface BoardModel {
+  unit: string;
+  sprints: { id: number; name: string; state: string; start: string | null; end: string | null }[];
+  columns: string[];
+  people: BoardPerson[];
+  issues: BoardIssue[];
+  loads: Record<string, Record<string, number>>;
+}
+
+export interface JiraStatus {
+  syncing: boolean;
+  configured: boolean;
+  baseUrl: string;
+  profiles: string[];
+  lastSynced: string | null;
+}
+
+export type PlanPatch = Partial<{
+  sprint: string | null;
+  assignee: string | null;
+  rank: number | null;
+  effort: number | null;
+  risk: string | null;
+  confidence: string | null;
+  bucket: string | null;
+  blocked_on: string[] | null;
+  note: string | null;
+}>;
+
+export const planApi = {
+  board: () => req<BoardModel>('/api/plan/board'),
+  patchIssue: (key: string, patch: PlanPatch) =>
+    req<{ ok: boolean }>(`/api/plan/issue/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
+  patchPerson: (body: {
+    path: string;
+    capacity?: number | null;
+    overrides?: Record<string, number>;
+    active?: boolean;
+  }) => req<{ ok: boolean }>('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) }),
+  jiraStatus: () => req<JiraStatus>('/api/jira/status'),
+  jiraSync: () => req<{ ok: boolean }>('/api/jira/sync', { method: 'POST', body: '{}' }),
+};

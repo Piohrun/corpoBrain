@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type NoteListItem, type NoteResponse, type TagCount } from './api.ts';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
 import { Editor } from './components/Editor.tsx';
+import { PlanningPage } from './components/PlanningPage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { useVaultEvents } from './hooks.ts';
@@ -12,6 +13,7 @@ export function App() {
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [view, setView] = useState<'notes' | 'planning'>('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
 
@@ -144,53 +146,85 @@ export function App() {
     [notes],
   );
 
+  const openFromPlanning = useCallback(
+    (path: string) => {
+      setView('notes');
+      openPath(path);
+    },
+    [openPath],
+  );
+
   return (
     <div className="app">
-      <Sidebar
-        notes={notes}
-        tags={tags}
-        currentPath={note?.path ?? null}
-        onOpen={openPath}
-        onDaily={openDaily}
-        onNew={() => setPaletteOpen(true)}
-        onPalette={() => setPaletteOpen(true)}
-      />
-      <div className="main">
-        {note ? (
-          <>
-            <div className="main-header">
-              <span className="title">{note.meta?.title ?? note.path}</span>
-              <span>{note.path}</span>
-              <span className="spacer" />
-              <span className="save-state">
-                {saveState === 'saved'
-                  ? '✓ saved'
-                  : saveState === 'saving'
-                    ? 'saving…'
-                    : '⚠ save failed'}
-              </span>
-            </div>
-            <Editor
-              path={note.path}
-              content={note.content}
-              completions={completions}
-              onNavigate={navigate}
-              onSaveState={setSaveState}
-              onSaved={onSaved}
-            />
-          </>
-        ) : (
-          <div className="empty-state">
-            <div>
-              <p>
-                <strong>corpoBrain</strong>
-              </p>
-              <p>Ctrl+P to open or create a note · Ctrl+D for today’s daily note</p>
-            </div>
+      <nav className="rail">
+        <button
+          type="button"
+          className={view === 'notes' ? 'active' : ''}
+          onClick={() => setView('notes')}
+          title="Notes"
+        >
+          ✎
+        </button>
+        <button
+          type="button"
+          className={view === 'planning' ? 'active' : ''}
+          onClick={() => setView('planning')}
+          title="Planning"
+        >
+          ▦
+        </button>
+      </nav>
+      {view === 'planning' ? (
+        <PlanningPage onOpenNote={openFromPlanning} />
+      ) : (
+        <>
+          <Sidebar
+            notes={notes}
+            tags={tags}
+            currentPath={note?.path ?? null}
+            onOpen={openPath}
+            onDaily={openDaily}
+            onNew={() => setPaletteOpen(true)}
+            onPalette={() => setPaletteOpen(true)}
+          />
+          <div className="main">
+            {note ? (
+              <>
+                <div className="main-header">
+                  <span className="title">{note.meta?.title ?? note.path}</span>
+                  <span>{note.path}</span>
+                  <span className="spacer" />
+                  <span className="save-state">
+                    {saveState === 'saved'
+                      ? '✓ saved'
+                      : saveState === 'saving'
+                        ? 'saving…'
+                        : '⚠ save failed'}
+                  </span>
+                </div>
+                <Editor
+                  path={note.path}
+                  content={note.content}
+                  completions={completions}
+                  onNavigate={navigate}
+                  onSaveState={setSaveState}
+                  onSaved={onSaved}
+                />
+              </>
+            ) : (
+              <div className="empty-state">
+                <div>
+                  <p>
+                    <strong>corpoBrain</strong>
+                  </p>
+                  <p>Ctrl+P to open or create a note · Ctrl+D for today’s daily note</p>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <RightPanel note={note} onOpen={openPath} />
+          <RightPanel note={note} onOpen={openPath} />
+        </>
+      )}
       <CommandPalette
         open={paletteOpen}
         notes={notes}
