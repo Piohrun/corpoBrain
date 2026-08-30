@@ -2,8 +2,10 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
+  createJiraAdapter,
   DEFAULT_CONFIG,
   Indexer,
+  JiraSync,
   loadConfig,
   openDb,
   resetDb,
@@ -121,6 +123,53 @@ switch (command) {
     break;
   }
 
+  case 'jira': {
+    const sub = positional[1];
+    const config = loadConfig(vaultRoot);
+    if (sub === 'probe') {
+      const adapter = createJiraAdapter(vaultRoot, config);
+      adapter
+        .probe()
+        .then((info) =>
+          console.log(
+            `jira ${info.deployment} (version ${info.version}) at ${config.jira.baseUrl}`,
+          ),
+        )
+        .catch((e: Error) => {
+          console.error(`probe failed: ${e.message}`);
+          process.exit(1);
+        });
+    } else if (sub === 'sync') {
+      const adapter = createJiraAdapter(vaultRoot, config);
+      const sync = new JiraSync(vaultRoot, config, adapter);
+      const profileFlag = flags.get('profile');
+      sync
+        .run(profileFlag)
+        .then((reports) => {
+          for (const r of reports) {
+            console.log(
+              `[${r.profile}] fetched ${r.fetched}: +${r.created.length} created, ~${r.updated.length} updated, ${r.unchanged} unchanged` +
+                (r.skipped.length ? `, ${r.skipped.length} SKIPPED (missing marker)` : '') +
+                (r.peopleCreated.length ? `, people: ${r.peopleCreated.join(', ')}` : ''),
+            );
+            for (const skip of r.skipped) console.log(`  ! ${skip.key}: ${skip.reason}`);
+          }
+          const idx = withIndexer();
+          idx.loadSprints();
+          const s = idx.update();
+          console.log(`reindexed ${s.indexed.length} files`);
+        })
+        .catch((e: Error) => {
+          console.error(`sync failed: ${e.message}`);
+          process.exit(1);
+        });
+    } else {
+      console.error('usage: corpobrain jira <probe|sync> [--profile <name>]');
+      process.exit(1);
+    }
+    break;
+  }
+
   default:
     console.log(`corpobrain <command> [--vault <path>]
 
@@ -132,6 +181,8 @@ Commands:
   backlinks <path>    list notes linking to <path> (vault-relative, with .md)
   links [--unresolved]  list link table / unresolved links
   tags                tag counts
+  jira probe          check Jira connectivity and deployment type
+  jira sync           run Jira sync (all profiles, or --profile <name>)
   version             print spec version
 `);
 }

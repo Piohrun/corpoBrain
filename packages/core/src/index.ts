@@ -27,6 +27,7 @@ export type {
 } from './jira/adapter.ts';
 export { JiraAdapter, JiraError } from './jira/adapter.ts';
 export { fence, jiraTextToMarkdown, wikiToMarkdown } from './jira/convert.ts';
+export { createJiraAdapter, loadJiraAuth } from './jira/credentials.ts';
 export type { MergeOutcome, NormalizedIssue } from './jira/render.ts';
 export {
   mergeIssueFile,

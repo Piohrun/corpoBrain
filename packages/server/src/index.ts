@@ -3,6 +3,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
+import { startSyncScheduler } from './jira-routes.ts';
 import { VaultService } from './vault-service.ts';
 
 const vaultRoot = resolve(process.env.CORPOBRAIN_VAULT ?? process.argv[2] ?? process.cwd());
@@ -11,6 +12,7 @@ const hostname = '127.0.0.1'; // never bind externally
 
 const vault = new VaultService(vaultRoot);
 vault.startWatching();
+startSyncScheduler(vault);
 const app = createApp(vault);
 
 // Static UI: dist/ui next to the bundled server, or packages path in dev.

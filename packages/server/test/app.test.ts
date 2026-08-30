@@ -143,3 +143,21 @@ describe('applyTemplate', () => {
     );
   });
 });
+
+describe('jira routes', () => {
+  it('status reports unconfigured vault', async () => {
+    const res = await app.request('/api/jira/status');
+    expect((await res.json()) as object).toMatchObject({ syncing: false, configured: false });
+  });
+
+  it('issues and sprints are empty but valid', async () => {
+    expect(await (await app.request('/api/jira/issues')).json()).toEqual([]);
+    expect(await (await app.request('/api/jira/sprints')).json()).toEqual([]);
+    expect(await (await app.request('/api/jira/people')).json()).toEqual([]);
+  });
+
+  it('sync without config fails cleanly', async () => {
+    const res = await app.request('/api/jira/sync', { method: 'POST', body: '{}' });
+    expect(res.status).toBe(502);
+  });
+});

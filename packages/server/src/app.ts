@@ -1,5 +1,6 @@
 import { SPEC_VERSION } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { jiraRoutes } from './jira-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
 export function createApp(vault?: VaultService) {
@@ -118,6 +119,8 @@ export function createApp(vault?: VaultService) {
   });
 
   app.get('/api/unresolved', (c) => c.json(v.indexer.unresolved()));
+
+  app.route('/api/jira', jiraRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.
   app.get('/api/events', () => {

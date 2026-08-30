@@ -60,6 +60,11 @@ export class VaultService {
     this.watcher = null;
   }
 
+  /** Broadcast that jira data changed (after a sync) so UIs refresh. */
+  notifyJiraChanged(_reports: unknown): void {
+    for (const fn of this.listeners) fn(['jira/*']);
+  }
+
   onChange(fn: (paths: string[]) => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
