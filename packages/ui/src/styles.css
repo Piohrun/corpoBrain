@@ -2331,3 +2331,20 @@ tr.wb-conflict td {
 .cal-search.floating .proj-add-list {
   max-height: min(320px, 45vh);
 }
+
+/* bank holidays: a third kind everywhere */
+.avail-chip.holiday {
+  color: var(--st-progress);
+  border-color: color-mix(in srgb, var(--st-progress) 40%, var(--border));
+}
+.av-cell.holiday {
+  background: color-mix(in srgb, var(--st-progress) 30%, var(--bg-panel));
+}
+.cal-away.holiday {
+  background: color-mix(in srgb, var(--st-progress) 14%, transparent);
+}
+.hol-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

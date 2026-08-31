@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SCHEMA_VERSION = '0.2.0/8';
+export const SCHEMA_VERSION = '0.2.0/9';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS people(
   path TEXT PRIMARY KEY, jira_id TEXT, name TEXT NOT NULL, capacity REAL,
   overrides_json TEXT, active INTEGER NOT NULL DEFAULT 1,
   region TEXT, team TEXT, load_overrides_json TEXT, color TEXT,
-  sort_order REAL
+  sort_order REAL, country TEXT
 );
 `;
 

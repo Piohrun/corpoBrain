@@ -7,6 +7,7 @@ import {
   type EffortUnit,
   endExclusive,
   layoutCalendar,
+  normalizeCountry,
   type ProjectDef,
   type ProjectIssue,
   type ProjectRollup,
@@ -18,6 +19,7 @@ import {
   weekdaysIn,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { readHolidays } from './availability.ts';
 import { applyPlanPatch, type BoardIssue, type BoardModel, buildBoard } from './plan-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -70,6 +72,7 @@ export interface CalendarModel {
     inRoster: boolean;
     ooo: number[];
     support: number[];
+    holiday: number[];
   }[];
   blocks: CalendarBlockOut[];
   rail: { key: string; summary: string | null; path: string; days: number; estimated: boolean }[];
@@ -172,16 +175,18 @@ function awayByAssignee(
 ): {
   ooo: Record<string, number[]>;
   support: Record<string, number[]>;
+  holiday: Record<string, number[]>;
   merged: Record<string, number[]>;
 } {
   const ooo: Record<string, number[]> = {};
   const support: Record<string, number[]> = {};
+  const holiday: Record<string, number[]> = {};
   const merged: Record<string, number[]> = {};
   let entries: ReturnType<typeof parseAvailability>['entries'] = [];
   try {
     entries = parseAvailability(v.read(v.config.availability.file).content).entries;
   } catch {
-    return { ooo, support, merged };
+    entries = [];
   }
   const daySet = new Map(days.map((d, i) => [d, i]));
   const norm = (x: string) => x.trim().toLowerCase();
@@ -211,7 +216,29 @@ function awayByAssignee(
       }
     }
   }
-  return { ooo, support, merged };
+  // country bank holidays shade and block everyone from that country
+  for (const h of readHolidays(v).entries) {
+    const c = normalizeCountry(h.country);
+    const hTo = new Date(`${h.to}T00:00:00Z`);
+    hTo.setUTCDate(hTo.getUTCDate() + 1);
+    const hitDays = dayList(new Date(`${h.from}T00:00:00Z`), hTo)
+      .map((d) => daySet.get(d))
+      .filter((i): i is number => i !== undefined);
+    if (!hitDays.length) continue;
+    for (const p of board.people) {
+      if (!p.country || normalizeCountry(p.country) !== c) continue;
+      const keys = p.jiraIds.length ? p.jiraIds : [`person:${p.path}`];
+      for (const id of keys) {
+        for (const idx of hitDays) {
+          if (!merged[id]) merged[id] = [];
+          merged[id]?.push(idx);
+          if (!holiday[id]) holiday[id] = [];
+          holiday[id]?.push(idx);
+        }
+      }
+    }
+  }
+  return { ooo, support, holiday, merged };
 }
 
 function calendarInput(
@@ -335,6 +362,7 @@ export function projectRoutes(v: VaultService): Hono {
         inRoster,
         ooo: away.ooo[assignee] ?? [],
         support: away.support[assignee] ?? [],
+        holiday: away.holiday[assignee] ?? [],
       });
     };
     // a roster person without a Jira id still deserves a row

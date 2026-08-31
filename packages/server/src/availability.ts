@@ -3,8 +3,13 @@ import {
   type Absence,
   type AvailabilityEntry,
   absencesBySprint,
+  BUILTIN_HOLIDAYS,
+  type HolidayEntry,
+  normalizeCountry,
   parseAvailability,
+  parseHolidays,
   replaceAvailabilityTable,
+  replaceHolidaysTable,
   type SprintSpan,
 } from '@corpobrain/core';
 import type { VaultService } from './vault-service.ts';
@@ -13,6 +18,7 @@ export interface PersonRef {
   path: string;
   name: string;
   jiraIds: string[];
+  country?: string | null;
 }
 
 export interface ResolvedAvailability {
@@ -70,11 +76,73 @@ export function resolveAvailability(
     byName.set(e.person, person.path);
     resolved.push({ ...e, person: person.path });
   }
+  // country-wide bank holidays become synthetic entries for everyone there
+  for (const h of readHolidays(v).entries) {
+    const c = normalizeCountry(h.country);
+    for (const p of people) {
+      if (!p.country || normalizeCountry(p.country) !== c) continue;
+      resolved.push({ person: p.path, from: h.from, to: h.to, kind: 'holiday', note: h.name });
+    }
+  }
   return {
     entries,
     warnings,
     byPerson: absencesBySprint(resolved, sprints, v.config.availability.supportFactor),
   };
+}
+
+export function readHolidays(v: VaultService): {
+  entries: HolidayEntry[];
+  warnings: string[];
+  content: string | null;
+} {
+  try {
+    const { content } = v.read(v.config.availability.holidaysFile);
+    const { entries, warnings } = parseHolidays(content);
+    return { entries, warnings, content };
+  } catch {
+    return { entries: [], warnings: [], content: null };
+  }
+}
+
+const HOLIDAYS_SCAFFOLD = `---
+type: holidays
+title: Bank holidays
+---
+
+# Bank holidays
+
+Country-wide holidays; everyone whose person note has that 'country:' is
+automatically away on these days. Dates are inclusive. Edit here or in the
+Availability page — both write this table.
+
+`;
+
+/** Write the holiday table back, creating the note if it does not exist yet. */
+export function saveHolidays(v: VaultService, entries: HolidayEntry[]): string {
+  const file = v.config.availability.holidaysFile;
+  const existing = readHolidays(v);
+  if (existing.content === null) {
+    v.create(
+      file,
+      'Bank holidays',
+      `${HOLIDAYS_SCAFFOLD}${replaceHolidaysTable('', entries).trim()}\n`,
+      'holidays',
+    );
+    return file;
+  }
+  v.write(file, replaceHolidaysTable(existing.content, entries));
+  return file;
+}
+
+/** Merge the built-in 2026–27 dataset into the table, never duplicating. */
+export function seedHolidays(v: VaultService): { added: number; file: string } {
+  const existing = readHolidays(v).entries;
+  const key = (h: HolidayEntry) => `${normalizeCountry(h.country)}|${h.from}|${h.to}`;
+  const seen = new Set(existing.map(key));
+  const fresh = BUILTIN_HOLIDAYS.filter((h) => !seen.has(key(h)));
+  const file = saveHolidays(v, [...existing, ...fresh]);
+  return { added: fresh.length, file };
 }
 
 /** Write the table back, creating the note if it does not exist yet. */

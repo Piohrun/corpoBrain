@@ -512,6 +512,13 @@ function Calendar({
                     style={{ left: d * DAY, width: DAY }}
                   />
                 ))}
+                {r.holiday.map((d) => (
+                  <i
+                    key={`h${d}`}
+                    className="cal-away holiday"
+                    style={{ left: d * DAY, width: DAY }}
+                  />
+                ))}
               </div>
             ))}
             {model.blocks.map((b) => {

@@ -70,7 +70,7 @@ describe('parseAvailability', () => {
     expect(parseAvailability(doc).entries.map((e) => e.kind)).toEqual([
       'support',
       'support',
-      'ooo',
+      'holiday',
     ]);
   });
 
@@ -132,6 +132,7 @@ describe('absencesBySprint', () => {
     const a = absencesBySprint([entry({})], SPRINTS);
     expect(a.get('Anna')?.get('Sprint 37')).toEqual({
       ooo: 5,
+      holiday: 0,
       support: 0,
       total: 10,
       available: 5,

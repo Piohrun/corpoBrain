@@ -8,7 +8,7 @@
  * sprint-health checks and the project forecast all read.
  */
 
-export type AbsenceKind = 'ooo' | 'support';
+export type AbsenceKind = 'ooo' | 'holiday' | 'support';
 
 export interface AvailabilityEntry {
   /** as written in the table: a name, a wikilink target, or a Jira id */
@@ -28,7 +28,7 @@ export interface AvailabilityParse {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function splitRow(line: string): string[] {
+export function splitRow(line: string): string[] {
   const body = line.trim().replace(/^\|/, '').replace(/\|$/, '');
   const cells: string[] = [];
   let cur = '';
@@ -48,7 +48,7 @@ function splitRow(line: string): string[] {
   return cells;
 }
 
-const isSeparator = (line: string): boolean => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(line);
+export const isSeparator = (line: string): boolean => /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/.test(line);
 
 /** Strip a wikilink or bold wrapper from a person cell. */
 export function personCell(raw: string): string {
@@ -56,7 +56,7 @@ export function personCell(raw: string): string {
   return (link?.[1] ?? raw).replace(/\*\*/g, '').trim();
 }
 
-function normalizeDate(raw: string): string | null {
+export function normalizeDate(raw: string): string | null {
   const s = raw.trim();
   if (DATE_RE.test(s)) return s;
   // tolerate what a spreadsheet paste produces
@@ -121,7 +121,11 @@ export function parseAvailability(markdown: string): AvailabilityParse {
     }
     const kindRaw = at('type').toLowerCase();
     const kind: AbsenceKind =
-      kindRaw.startsWith('sup') || kindRaw.startsWith('rota') ? 'support' : 'ooo';
+      kindRaw.startsWith('sup') || kindRaw.startsWith('rota')
+        ? 'support'
+        : kindRaw.startsWith('hol') || kindRaw.startsWith('bank')
+          ? 'holiday'
+          : 'ooo';
     entries.push({ person, from, to, kind, note: at('note') });
   }
   return { entries, warnings };
@@ -209,6 +213,8 @@ export function weekdaysIn(from: Date, to: Date): string[] {
 
 export interface Absence {
   ooo: number;
+  /** country-wide bank holidays */
+  holiday: number;
   support: number;
   /** working days in the sprint */
   total: number;
@@ -226,6 +232,8 @@ export interface SprintSpan {
  * Absence per person per sprint. A day that is both OOO and support counts
  * once, as OOO — nobody is doubly away.
  */
+const KIND_RANK: Record<AbsenceKind, number> = { ooo: 3, holiday: 2, support: 1 };
+
 export function absencesBySprint(
   entries: AvailabilityEntry[],
   sprints: SprintSpan[],
@@ -251,7 +259,9 @@ export function absencesBySprint(
       const perPerson = claimed.get(e.person) ?? new Map<string, Map<string, AbsenceKind>>();
       const perSprint = perPerson.get(sprint) ?? new Map<string, AbsenceKind>();
       for (const d of hits) {
-        if (perSprint.get(d) !== 'ooo') perSprint.set(d, e.kind); // OOO wins an overlap
+        // one day counts once: personal leave > bank holiday > support rota
+        const had = perSprint.get(d);
+        if (!had || KIND_RANK[e.kind] > KIND_RANK[had]) perSprint.set(d, e.kind);
       }
       perPerson.set(sprint, perSprint);
       claimed.set(e.person, perPerson);
@@ -265,12 +275,14 @@ export function absencesBySprint(
       const total = sprintDays.get(sprint)?.size ?? 0;
       const kinds = [...days.values()];
       const ooo = kinds.filter((k) => k === 'ooo').length;
-      const support = kinds.length - ooo;
+      const holiday = kinds.filter((k) => k === 'holiday').length;
+      const support = kinds.length - ooo - holiday;
       perSprint.set(sprint, {
         ooo,
+        holiday,
         support,
         total,
-        available: Math.round((total - ooo - support * (1 - supportFactor)) * 100) / 100,
+        available: Math.round((total - ooo - holiday - support * (1 - supportFactor)) * 100) / 100,
       });
     }
     out.set(person, perSprint);

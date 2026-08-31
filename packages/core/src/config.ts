@@ -56,6 +56,8 @@ export interface VaultConfig {
   availability: {
     /** the note holding the availability table */
     file: string;
+    /** the note holding the country bank-holiday table */
+    holidaysFile: string;
     /** share of their own work a person on support rota is still expected to do */
     supportFactor: number;
   };
@@ -110,7 +112,11 @@ export const DEFAULT_CONFIG: VaultConfig = {
     writeback: 'off',
     profiles: [],
   },
-  availability: { file: 'planning/availability.md', supportFactor: 0 },
+  availability: {
+    file: 'planning/availability.md',
+    holidaysFile: 'planning/holidays.md',
+    supportFactor: 0,
+  },
   health: { bigIssue: 8, staleDays: 5, underloadPct: 0.5 },
   private: { lockAfterMinutes: 10 },
   git: { autoCommit: true, intervalMinutes: 10 },

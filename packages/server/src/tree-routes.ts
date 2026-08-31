@@ -66,6 +66,7 @@ export function categoryFields(
     add('jira', 'text', 'builtin', true); // person's Jira account id — a real field here
     add('role', 'text', 'builtin');
     add('region', 'text', 'builtin');
+    add('country', 'text', 'builtin'); // bank holidays apply by country
     add('team', 'text', 'builtin');
     add('capacity', 'number', 'builtin');
     add('active', 'boolean', 'builtin');

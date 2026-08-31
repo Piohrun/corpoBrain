@@ -1,11 +1,14 @@
 /** The OOO / support-rota table and what it does to each sprint. */
-import { type AvailabilityEntry, adjustCapacity } from '@corpobrain/core';
+import { type AvailabilityEntry, adjustCapacity, type HolidayEntry } from '@corpobrain/core';
 import { Hono } from 'hono';
 import {
   archiveAvailability,
   readAvailability,
+  readHolidays,
   resolveAvailability,
   saveAvailability,
+  saveHolidays,
+  seedHolidays,
 } from './availability.ts';
 import { buildBoard } from './plan-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
@@ -16,6 +19,7 @@ export interface AvailabilityRow {
   path: string | null;
   sprint: string;
   ooo: number;
+  holiday: number;
   support: number;
   total: number;
   available: number;
@@ -31,9 +35,12 @@ export interface AvailabilityResponse {
   warnings: string[];
   unit: string;
   supportFactor: number;
-  people: { path: string; name: string; order: number | null }[];
+  people: { path: string; name: string; order: number | null; country: string | null }[];
   sprints: string[];
   rows: AvailabilityRow[];
+  holidaysFile: string;
+  holidays: HolidayEntry[];
+  holidayWarnings: string[];
 }
 
 const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -58,6 +65,7 @@ export function availabilityRoutes(v: VaultService): Hono {
           path: p.path,
           sprint: s.name,
           ooo: a.ooo,
+          holiday: a.holiday,
           support: a.support,
           total: a.total,
           available: a.available,
@@ -73,8 +81,16 @@ export function availabilityRoutes(v: VaultService): Hono {
       warnings: resolved.warnings,
       unit: board.unit,
       supportFactor: v.config.availability.supportFactor,
-      people: board.people.map((p) => ({ path: p.path, name: p.name, order: p.sortOrder })),
+      people: board.people.map((p) => ({
+        path: p.path,
+        name: p.name,
+        order: p.sortOrder,
+        country: p.country,
+      })),
       sprints: spans.map((s) => s.name),
+      holidaysFile: v.config.availability.holidaysFile,
+      holidays: readHolidays(v).entries,
+      holidayWarnings: readHolidays(v).warnings,
       rows: rows.sort((a, b) => {
         if (a.sprint !== b.sprint) return a.sprint.localeCompare(b.sprint);
         const oa =
@@ -110,6 +126,27 @@ export function availabilityRoutes(v: VaultService): Hono {
     const file = saveAvailability(v, entries);
     return c.json({ ok: true, file, count: entries.length });
   });
+
+  /** Replace the country bank-holiday table. */
+  app.put('/holidays', async (c) => {
+    const body = (await c.req.json()) as { entries?: unknown };
+    if (!Array.isArray(body.entries)) throw new HttpError(400, 'entries must be an array');
+    const entries: HolidayEntry[] = [];
+    for (const raw of body.entries) {
+      const e = raw as Record<string, unknown>;
+      const country = typeof e.country === 'string' ? e.country.trim() : '';
+      if (!country) throw new HttpError(400, 'every row needs a country');
+      if (!isDate(e.from)) throw new HttpError(400, `"${country}": from must be YYYY-MM-DD`);
+      const to = isDate(e.to) ? e.to : e.from;
+      if (to < e.from) throw new HttpError(400, `"${country}": ${to} is before ${e.from}`);
+      entries.push({ country, from: e.from, to, name: typeof e.name === 'string' ? e.name : '' });
+    }
+    const file = saveHolidays(v, entries);
+    return c.json({ ok: true, file, count: entries.length });
+  });
+
+  /** Merge the built-in 2026–27 bank holidays (CN/IN/PL/UK/US/CA) into the table. */
+  app.post('/holidays/seed', (c) => c.json({ ok: true, ...seedHolidays(v) }));
 
   /** Move entries older than `months` (default 3) into per-year archive notes. */
   app.post('/archive', async (c) => {

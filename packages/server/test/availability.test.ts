@@ -244,3 +244,55 @@ describe('POST /api/availability/archive', () => {
     expect(res.status).toBe(400);
   });
 });
+
+describe('country bank holidays', () => {
+  it('reduce bandwidth for everyone in that country and show up everywhere', async () => {
+    writeFileSync(
+      join(root, 'people', 'anna.md'),
+      '---\ntype: person\ntitle: Anna\njira: anna\ncapacity: 10\ncountry: Poland\n---\n',
+    );
+    writeFileSync(
+      join(root, 'planning', 'holidays.md'),
+      '---\ntype: holidays\n---\n\n| Country | From | To | Name |\n| --- | --- | --- | --- |\n| polska | 2026-09-08 | 2026-09-09 | Test Holiday |\n| UK | 2026-09-03 |  | Not Anna |\n',
+    );
+    vault.indexer.rebuild();
+    const body = await get();
+    const anna = body.rows.find((r) => r.name === 'Anna' && r.sprint === 'Sprint 37');
+    // 5d ooo (existing table) + 2d holiday outside it (alias 'polska' → Poland)
+    expect(anna).toMatchObject({ ooo: 5, holiday: 2, available: 3, adjusted: 3 });
+    expect(body.holidays).toHaveLength(2);
+    // bob has no country: untouched by holidays
+    const bob = body.rows.find((r) => r.name === 'Bob');
+    expect(bob?.holiday).toBe(0);
+  });
+
+  it('seeds the built-in set without duplicating on a second run', async () => {
+    const first = (await (
+      await app.request('/api/availability/holidays/seed', { method: 'POST' })
+    ).json()) as { added: number; file: string };
+    expect(first.added).toBeGreaterThan(60);
+    expect(readFileSync(join(root, first.file), 'utf8')).toContain('National Day');
+    const second = (await (
+      await app.request('/api/availability/holidays/seed', { method: 'POST' })
+    ).json()) as { added: number };
+    expect(second.added).toBe(0);
+  });
+
+  it('PUT /holidays rewrites the table and validates rows', async () => {
+    const res = await app.request('/api/availability/holidays', {
+      method: 'PUT',
+      body: JSON.stringify({
+        entries: [{ country: 'Poland', from: '2026-11-11', name: 'Independence Day' }],
+      }),
+    });
+    expect(res.status).toBe(200);
+    expect(readFileSync(join(root, 'planning', 'holidays.md'), 'utf8')).toContain(
+      '| Poland | 2026-11-11 | 2026-11-11 | Independence Day |',
+    );
+    const bad = await app.request('/api/availability/holidays', {
+      method: 'PUT',
+      body: JSON.stringify({ entries: [{ country: '', from: '2026-01-01' }] }),
+    });
+    expect(bad.status).toBe(400);
+  });
+});

@@ -54,6 +54,14 @@ export type {
   Severity,
 } from './health.ts';
 export { DEFAULT_HEALTH, sprintHealth } from './health.ts';
+export type { HolidayEntry, HolidaysParse } from './holidays.ts';
+export {
+  BUILTIN_HOLIDAYS,
+  normalizeCountry,
+  parseHolidays,
+  renderHolidaysTable,
+  replaceHolidaysTable,
+} from './holidays.ts';
 export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
 export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
 export type {

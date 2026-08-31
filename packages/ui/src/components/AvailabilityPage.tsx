@@ -3,6 +3,7 @@ import {
   type AvailabilityEntry,
   type AvailabilityResponse,
   availabilityApi,
+  type HolidayEntry,
   planApi,
 } from '../api.ts';
 
@@ -31,6 +32,8 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   const [data, setData] = useState<AvailabilityResponse | null>(null);
   const [draft, setDraft] = useState<DraftEntry[]>([]);
   const [dirty, setDirty] = useState(false);
+  const [holidays, setHolidays] = useState<(HolidayEntry & { rowId: string })[]>([]);
+  const [holidaysDirty, setHolidaysDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -41,6 +44,8 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
         setData(d);
         setDraft(d.entries.map(withId));
         setDirty(false);
+        setHolidays(d.holidays.map((h) => ({ ...h, rowId: `h${++rowSeq}` })));
+        setHolidaysDirty(false);
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
@@ -64,6 +69,25 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
         setSaving(false);
         setError(e.message);
       });
+  };
+
+  const saveHolidays = () => {
+    availabilityApi
+      .saveHolidays(holidays.map(({ rowId: _r, ...h }) => h))
+      .then(load)
+      .catch((e: Error) => setError(e.message));
+  };
+
+  const seed = () => {
+    availabilityApi
+      .seedHolidays()
+      .then(load)
+      .catch((e: Error) => setError(e.message));
+  };
+
+  const editHoliday = (idx: number, patch: Partial<HolidayEntry>) => {
+    setHolidays((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+    setHolidaysDirty(true);
   };
 
   const archivable = useMemo(() => {
@@ -241,6 +265,122 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
           + entry
         </button>
 
+        <h2 className="plan-h2">
+          Bank holidays
+          <span className="muted small">
+            {' '}
+            — apply to everyone with that country on their person note
+          </span>
+        </h2>
+        {data.holidayWarnings.map((w) => (
+          <p key={w} className="avail-warn">
+            ⚠ {w}
+          </p>
+        ))}
+        <div className="grid-wrap">
+          <table className="issue-table avail-table">
+            <thead>
+              <tr>
+                <th>Country</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Name</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {holidays.map((h, i) => (
+                <tr key={h.rowId}>
+                  <td>
+                    <input
+                      className="cell-input"
+                      list="hol-countries"
+                      value={h.country}
+                      onChange={(ev) => editHoliday(i, { country: ev.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="cell-input"
+                      type="date"
+                      value={h.from}
+                      onChange={(ev) => editHoliday(i, { from: ev.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="cell-input"
+                      type="date"
+                      value={h.to}
+                      onChange={(ev) => editHoliday(i, { to: ev.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      className="cell-input wide"
+                      value={h.name}
+                      onChange={(ev) => editHoliday(i, { name: ev.target.value })}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="row-del"
+                      title="Remove this holiday"
+                      onClick={() => {
+                        setHolidays((rows) => rows.filter((_, j) => j !== i));
+                        setHolidaysDirty(true);
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <datalist id="hol-countries">
+            {['China', 'India', 'Poland', 'UK', 'USA', 'Canada'].map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        </div>
+        <div className="hol-actions">
+          <button
+            type="button"
+            className="plan-btn add-row"
+            onClick={() => {
+              setHolidays((rows) => [
+                ...rows,
+                { country: '', from: todayISO(), to: todayISO(), name: '', rowId: `h${++rowSeq}` },
+              ]);
+              setHolidaysDirty(true);
+            }}
+          >
+            + holiday
+          </button>
+          {holidaysDirty && (
+            <button type="button" className="plan-btn add-row" onClick={saveHolidays}>
+              save holidays
+            </button>
+          )}
+          <button
+            type="button"
+            className="plan-btn add-row"
+            onClick={seed}
+            title="Merge the built-in 2026–27 bank holidays for China, India, Poland, UK, USA and Canada (no duplicates)"
+          >
+            🌍 add built-in 2026–27 set
+          </button>
+          <button
+            type="button"
+            className="plan-btn add-row"
+            onClick={() => onOpenNote(data.holidaysFile)}
+          >
+            open holidays note
+          </button>
+        </div>
+
         <h2 className="plan-h2">What this does to bandwidth</h2>
         {impact.length === 0 ? (
           <p className="health-empty">
@@ -274,6 +414,9 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     </td>
                     <td>
                       {r.ooo > 0 && <span className="avail-chip ooo">{r.ooo}d out</span>}
+                      {r.holiday > 0 && (
+                        <span className="avail-chip holiday">{r.holiday}d holiday</span>
+                      )}
                       {r.support > 0 && (
                         <span className="avail-chip support">{r.support}d support</span>
                       )}
@@ -356,24 +499,34 @@ function MonthGrid({
     return out;
   }, [month]);
 
-  // person path → date → entry (ooo wins over support)
+  // person path → date → entry; precedence: leave > bank holiday > support
   const cover = useMemo(() => {
+    const RANK = { ooo: 3, holiday: 2, support: 1 } as const;
     const norm = (s: string) => s.trim().toLowerCase();
     const basename = (p: string) => (p.split('/').pop() ?? p).replace(/\.md$/i, '');
     const m = new Map<string, Map<string, AvailabilityEntry>>();
+    const put = (path: string, e: AvailabilityEntry) => {
+      const per = m.get(path) ?? new Map<string, AvailabilityEntry>();
+      for (const d of days) {
+        if (d.date < e.from || d.date > e.to) continue;
+        const had = per.get(d.date);
+        if (!had || RANK[e.kind] > RANK[had.kind]) per.set(d.date, e);
+      }
+      m.set(path, per);
+    };
     for (const e of data.entries) {
       const n = norm(e.person);
       const person = data.people.find(
         (p) => norm(p.name) === n || norm(p.path) === n || norm(basename(p.path)) === n,
       );
-      if (!person) continue;
-      const per = m.get(person.path) ?? new Map<string, AvailabilityEntry>();
-      for (const d of days) {
-        if (d.date < e.from || d.date > e.to) continue;
-        const had = per.get(d.date);
-        if (!had || (had.kind === 'support' && e.kind === 'ooo')) per.set(d.date, e);
+      if (person) put(person.path, e);
+    }
+    for (const h of data.holidays) {
+      const c = norm(h.country);
+      for (const p of data.people) {
+        if (!p.country || norm(p.country) !== c) continue;
+        put(p.path, { person: p.path, from: h.from, to: h.to, kind: 'holiday', note: h.name });
       }
-      m.set(person.path, per);
     }
     return m;
   }, [data, days]);
@@ -407,6 +560,7 @@ function MonthGrid({
         </button>
         <span className="health-stat">
           <i className="avail-chip ooo">out of office</i>
+          <i className="avail-chip holiday">bank holiday</i>
           <i className="avail-chip support">support rota</i>
         </span>
       </div>
@@ -440,7 +594,13 @@ function MonthGrid({
                     }`}
                     title={
                       e
-                        ? `${p.name} · ${e.kind === 'ooo' ? 'out of office' : 'support rota'} ${e.from} → ${e.to}${e.note ? ` · ${e.note}` : ''}`
+                        ? `${p.name} · ${
+                            e.kind === 'ooo'
+                              ? 'out of office'
+                              : e.kind === 'holiday'
+                                ? 'bank holiday'
+                                : 'support rota'
+                          } ${e.from} → ${e.to}${e.note ? ` · ${e.note}` : ''}`
                         : undefined
                     }
                   />

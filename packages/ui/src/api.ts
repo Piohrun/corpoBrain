@@ -139,6 +139,7 @@ export interface BoardPerson {
   loadOverrides: Record<string, number>;
   color: string | null;
   sortOrder: number | null;
+  country: string | null;
   suggested: Record<string, number>;
   absence: Record<string, { ooo: number; support: number; total: number; available: number }>;
 }
@@ -325,6 +326,7 @@ export interface CalendarModel {
     inRoster: boolean;
     ooo: number[];
     support: number[];
+    holiday: number[];
   }[];
   blocks: CalendarBlock[];
   rail: { key: string; summary: string | null; path: string; days: number; estimated: boolean }[];
@@ -338,8 +340,15 @@ export interface AvailabilityEntry {
   person: string;
   from: string;
   to: string;
-  kind: 'ooo' | 'support';
+  kind: 'ooo' | 'holiday' | 'support';
   note: string;
+}
+
+export interface HolidayEntry {
+  country: string;
+  from: string;
+  to: string;
+  name: string;
 }
 
 export interface AvailabilityRow {
@@ -348,6 +357,7 @@ export interface AvailabilityRow {
   path: string | null;
   sprint: string;
   ooo: number;
+  holiday: number;
   support: number;
   total: number;
   available: number;
@@ -362,13 +372,25 @@ export interface AvailabilityResponse {
   warnings: string[];
   unit: string;
   supportFactor: number;
-  people: { path: string; name: string; order: number | null }[];
+  people: { path: string; name: string; order: number | null; country: string | null }[];
   sprints: string[];
   rows: AvailabilityRow[];
+  holidaysFile: string;
+  holidays: HolidayEntry[];
+  holidayWarnings: string[];
 }
 
 export const availabilityApi = {
   get: () => req<AvailabilityResponse>('/api/availability'),
+  saveHolidays: (entries: HolidayEntry[]) =>
+    req<{ ok: boolean; file: string; count: number }>('/api/availability/holidays', {
+      method: 'PUT',
+      body: JSON.stringify({ entries }),
+    }),
+  seedHolidays: () =>
+    req<{ ok: boolean; added: number; file: string }>('/api/availability/holidays/seed', {
+      method: 'POST',
+    }),
   archive: (months = 3) =>
     req<{ ok: boolean; archived: number; files: string[] }>('/api/availability/archive', {
       method: 'POST',
