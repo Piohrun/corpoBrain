@@ -2317,3 +2317,18 @@ tr.wb-conflict td {
 .av-cell.support {
   background: color-mix(in srgb, var(--st-ready) 32%, var(--bg-panel));
 }
+
+/* the jira search popover floats above everything, never clipped by the grid */
+.cal-search-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 98;
+}
+.cal-search.floating {
+  position: fixed;
+  z-index: 99;
+  width: 336px;
+}
+.cal-search.floating .proj-add-list {
+  max-height: min(320px, 45vh);
+}

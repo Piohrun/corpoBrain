@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   type BoardModel,
   type CalendarModel,
@@ -235,12 +236,15 @@ function Calendar({
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   dragRef.current = drag;
-  const [search, setSearch] = useState<{ day: number; row: number; x: number; y: number } | null>(
-    null,
-  );
+  const [search, setSearch] = useState<{
+    day: number;
+    row: number;
+    cx: number;
+    cy: number;
+  } | null>(null);
 
   const width = model.days.length * DAY;
-  const height = model.rows.length * ROW;
+  const height = Math.max(model.rows.length, 8) * ROW;
   const rowIndex = useMemo(() => new Map(model.rows.map((r, i) => [r.assignee, i])), [model.rows]);
   const mondays = useMemo(
     () =>
@@ -346,13 +350,12 @@ function Calendar({
     if (dragRef.current) return; // a drag is being committed
     if ((e.target as HTMLElement).closest('.cal-block')) return;
     const { day, row } = pointToCell(e);
-    if (day < 0 || day >= model.days.length || row < 0 || row >= model.rows.length) return;
-    const rect = bodyRef.current?.getBoundingClientRect();
+    if (day < 0 || day >= model.days.length || row < 0) return;
     setSearch({
       day,
-      row,
-      x: Math.min(day * DAY, (rect ? rect.width : width) - 280),
-      y: row * ROW + ROW,
+      row: Math.min(row, model.rows.length - 1),
+      cx: e.clientX,
+      cy: e.clientY,
     });
   };
 
@@ -514,20 +517,23 @@ function Calendar({
                   : `${model.days[drag.day] ?? ''}`}
               </div>
             )}
-            {search && (
-              <IssueSearch
-                model={model}
-                at={search}
-                onClose={() => setSearch(null)}
-                onPick={(key, body) => {
-                  setSearch(null);
-                  onPatch(key, body);
-                }}
-              />
-            )}
           </div>
         </div>
       </div>
+
+      {search &&
+        createPortal(
+          <IssueSearch
+            model={model}
+            at={search}
+            onClose={() => setSearch(null)}
+            onPick={(key, body) => {
+              setSearch(null);
+              onPatch(key, body);
+            }}
+          />,
+          document.body,
+        )}
 
       {model.rail.length > 0 && (
         <section>
@@ -572,7 +578,7 @@ function IssueSearch({
   onPick,
 }: {
   model: CalendarModel;
-  at: { day: number; row: number; x: number; y: number };
+  at: { day: number; row: number; cx: number; cy: number };
   onClose: () => void;
   onPick: (key: string, body: PlanPatch) => void;
 }) {
@@ -616,52 +622,59 @@ function IssueSearch({
     onPick(key, body);
   };
 
+  const left = Math.max(8, Math.min(at.cx, window.innerWidth - 344));
+  const top = Math.max(8, Math.min(at.cy + 6, window.innerHeight - 380));
+
   return (
-    <div
-      className="cal-search"
-      style={{ left: at.x, top: at.y }}
-      onPointerUp={(e) => e.stopPropagation()}
-    >
-      <div className="cal-search-head">
-        <b>{row?.name}</b> · {shortDate(day ?? null)}
-        {sprint ? ` · ${sprint}` : ''}
-        <span className="spacer" />
-        <button type="button" className="row-del" onClick={onClose}>
-          ✕
-        </button>
-      </div>
-      <input
-        ref={inputRef}
-        className="plan-filter"
-        placeholder="find a jira by key or text…"
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') onClose();
-          if (e.key === 'Enter' && matches[0]) {
-            const first = matches[0];
-            pick(first.key, first.plan.project === model.project.title);
-          }
-        }}
-      />
-      <div className="proj-add-list">
-        {matches.map((i) => (
-          <button
-            type="button"
-            key={i.key}
-            className="proj-add-row"
-            onClick={() => pick(i.key, i.plan.project === model.project.title)}
-          >
-            <b>{i.key}</b> {i.summary}
-            <span className="muted small">
-              {i.effectiveEffort !== null ? ` · ${i.effectiveEffort}d` : ' · no estimate'}
-              {i.epic ? ` · ${i.epic}` : ''}
-            </span>
+    <>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: click-away backdrop; Escape works too */}
+      <div className="cal-search-backdrop" onPointerDown={onClose} />
+      <div
+        className="cal-search floating"
+        style={{ left, top }}
+        onPointerUp={(e) => e.stopPropagation()}
+      >
+        <div className="cal-search-head">
+          <b>{row?.name}</b> · {shortDate(day ?? null)}
+          {sprint ? ` · ${sprint}` : ''}
+          <span className="spacer" />
+          <button type="button" className="row-del" onClick={onClose}>
+            ✕
           </button>
-        ))}
-        {board && matches.length === 0 && <span className="muted small">no matches</span>}
+        </div>
+        <input
+          ref={inputRef}
+          className="plan-filter"
+          placeholder="find a jira by key or text…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onClose();
+            if (e.key === 'Enter' && matches[0]) {
+              const first = matches[0];
+              pick(first.key, first.plan.project === model.project.title);
+            }
+          }}
+        />
+        <div className="proj-add-list">
+          {matches.map((i) => (
+            <button
+              type="button"
+              key={i.key}
+              className="proj-add-row"
+              onClick={() => pick(i.key, i.plan.project === model.project.title)}
+            >
+              <b>{i.key}</b> {i.summary}
+              <span className="muted small">
+                {i.effectiveEffort !== null ? ` · ${i.effectiveEffort}d` : ' · no estimate'}
+                {i.epic ? ` · ${i.epic}` : ''}
+              </span>
+            </button>
+          ))}
+          {board && matches.length === 0 && <span className="muted small">no matches</span>}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
