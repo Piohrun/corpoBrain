@@ -300,6 +300,10 @@ function BandwidthGrid({
   onOpenNote: (path: string) => void;
 }) {
   const [dragKey, setDragKey] = useState<string | null>(null);
+  const [backlogCollapsed, setBacklogCollapsed] = useState(
+    () => lsGet('cb.plan.backlogCollapsed', 'true') === 'true',
+  );
+  useEffect(() => lsSet('cb.plan.backlogCollapsed', String(backlogCollapsed)), [backlogCollapsed]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     try {
       return new Set(JSON.parse(lsGet('cb.plan.groups', '[]')) as string[]);
@@ -565,10 +569,12 @@ function BandwidthGrid({
         const cap = capOf(row, col);
         const pct = cap ? plannedLoad / cap : null;
         const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
+        const collapsedCol = col === 'Backlog' && backlogCollapsed;
+        const cellCards = cellIssues.get(cKey) ?? [];
         return (
           <td
             key={col}
-            className={`bw-cell${cls}`}
+            className={`bw-cell${cls}${collapsedCol ? ' backlog-col' : ''}`}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => drop(row, col)}
           >
@@ -626,36 +632,44 @@ function BandwidthGrid({
                 />
               </div>
             )}
-            <div className="chips">
-              {(cellIssues.get(cKey) ?? []).map((i) => {
-                const moved = i.overridden.sprint || i.overridden.assignee;
-                return (
-                  <button
-                    type="button"
-                    key={i.key}
-                    className={`chip${moved ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
-                    draggable
-                    onDragStart={() => setDragKey(i.key)}
-                    onDragEnd={() => setDragKey(null)}
-                    onClick={() => onOpenNote(i.path)}
-                    title={`${statusTitle(i.status, i.statusCategory)} — ${i.summary ?? ''}${
-                      moved
-                        ? `\nUNCOMMITTED: Jira has ${i.jiraSprint ?? 'Backlog'} / ${personName(board, i.jiraAssignee)}`
-                        : ''
-                    }${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
-                  >
-                    <span
-                      className="status-dot"
-                      style={{ background: statusColor(i.status, i.statusCategory) }}
-                    />
-                    {i.key}
-                    {i.effectiveEffort !== null && (
-                      <span className="chip-effort">{i.effectiveEffort}</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            {collapsedCol ? (
+              cellCards.length > 0 && (
+                <div className="muted small backlog-count" title="Expand via the Backlog header">
+                  {cellCards.length} card{cellCards.length === 1 ? '' : 's'}
+                </div>
+              )
+            ) : (
+              <div className="chips">
+                {cellCards.map((i) => {
+                  const moved = i.overridden.sprint || i.overridden.assignee;
+                  return (
+                    <button
+                      type="button"
+                      key={i.key}
+                      className={`chip${moved ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
+                      draggable
+                      onDragStart={() => setDragKey(i.key)}
+                      onDragEnd={() => setDragKey(null)}
+                      onClick={() => onOpenNote(i.path)}
+                      title={`${statusTitle(i.status, i.statusCategory)} — ${i.summary ?? ''}${
+                        moved
+                          ? `\nUNCOMMITTED: Jira has ${i.jiraSprint ?? 'Backlog'} / ${personName(board, i.jiraAssignee)}`
+                          : ''
+                      }${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
+                    >
+                      <span
+                        className="status-dot"
+                        style={{ background: statusColor(i.status, i.statusCategory) }}
+                      />
+                      {i.key}
+                      {i.effectiveEffort !== null && (
+                        <span className="chip-effort">{i.effectiveEffort}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </td>
         );
       })}
@@ -672,6 +686,22 @@ function BandwidthGrid({
               <th>Person</th>
               {columns.map((c) => {
                 const sprint = board.sprints.find((s) => s.name === c);
+                if (c === 'Backlog') {
+                  return (
+                    <th key={c} className={backlogCollapsed ? 'backlog-col' : ''}>
+                      <button
+                        type="button"
+                        className="group-toggle"
+                        title={
+                          backlogCollapsed ? 'Expand backlog cards' : 'Collapse backlog to counts'
+                        }
+                        onClick={() => setBacklogCollapsed((v) => !v)}
+                      >
+                        {backlogCollapsed ? '▸' : '▾'} Backlog
+                      </button>
+                    </th>
+                  );
+                }
                 return (
                   <th key={c}>
                     {c}

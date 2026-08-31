@@ -1416,3 +1416,12 @@ button {
   background: none;
   cursor: pointer;
 }
+
+.bw-cell.backlog-col,
+th.backlog-col {
+  min-width: 84px;
+  max-width: 110px;
+}
+.backlog-count {
+  padding: 2px 0;
+}
