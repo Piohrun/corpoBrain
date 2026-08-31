@@ -20,7 +20,7 @@ export function folderForCategory(v: VaultService, category: string | null): str
 }
 
 /** The frontmatter type a note should carry in a given folder (null = none). */
-function typeForFolder(v: VaultService, folder: string): string | null {
+export function typeForFolder(v: VaultService, folder: string): string | null {
   const f = v.config.folders;
   if (folder === f.people) return 'person';
   if (folder === f.notes || folder === f.daily || folder === f.templates || folder === f.planning)
@@ -188,6 +188,8 @@ export function treeRoutes(v: VaultService): Hono {
       order?: number | null;
       /** full replacement of frontmatter tags; [] or null clears the key */
       tags?: string[] | null;
+      /** generic frontmatter property writes; null deletes a key */
+      set?: Record<string, unknown>;
     };
     if (!body.path) throw new HttpError(400, 'path required');
     let workingPath = v.read(body.path).path;
@@ -226,6 +228,16 @@ export function treeRoutes(v: VaultService): Hono {
       text = cleaned.length
         ? setFrontmatterKey(text, 'tags', cleaned)
         : deleteFrontmatterKey(text, 'tags');
+    }
+
+    if (body.set !== undefined) {
+      for (const [key, value] of Object.entries(body.set)) {
+        if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(key) || RESERVED_PROP_KEYS.has(key))
+          throw new HttpError(400, `cannot set property: ${key}`);
+        if (!isPlainValue(value)) throw new HttpError(400, `unsupported value for ${key}`);
+        text =
+          value === null ? deleteFrontmatterKey(text, key) : setFrontmatterKey(text, key, value);
+      }
     }
 
     if (body.order !== undefined) {
@@ -322,4 +334,29 @@ function findNode(tree: TreeModel, path: string): TreeNode | null {
     stack.push(...n.children);
   }
   return null;
+}
+
+const RESERVED_PROP_KEYS = new Set([
+  'id',
+  'type',
+  'title',
+  'parent',
+  'order',
+  'tags',
+  'created',
+  'updated',
+  'template',
+  'aliases',
+  'jira',
+  'plan',
+  'key',
+]);
+
+/** scalars, arrays of scalars, or flat records of scalars */
+function isPlainValue(v: unknown): boolean {
+  const scalar = (x: unknown) => x === null || ['string', 'number', 'boolean'].includes(typeof x);
+  if (scalar(v)) return true;
+  if (Array.isArray(v)) return v.every(scalar);
+  if (typeof v === 'object' && v !== null) return Object.values(v).every(scalar);
+  return false;
 }

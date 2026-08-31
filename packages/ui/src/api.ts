@@ -259,9 +259,23 @@ export const treeApi = {
     parent?: string | null;
     order?: number | null;
     tags?: string[] | null;
+    set?: Record<string, unknown>;
   }) =>
     req<{ ok: boolean; path: string }>('/api/tree/meta', {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+};
+
+export interface CategoryField {
+  key: string;
+  kind: 'text' | 'number' | 'boolean' | 'list';
+  source: 'builtin' | 'template' | 'seen';
+}
+
+export const fieldsApi = {
+  forCategory: (category: string) =>
+    req<{ fields: CategoryField[]; sprintOverrides: string[] | null }>(
+      `/api/objects/fields?category=${encodeURIComponent(category)}`,
+    ),
 };

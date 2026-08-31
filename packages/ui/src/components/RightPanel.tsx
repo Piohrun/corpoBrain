@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { type NoteListItem, type NoteResponse, treeApi } from '../api.ts';
+import {
+  type CategoryField,
+  fieldsApi,
+  type NoteListItem,
+  type NoteResponse,
+  treeApi,
+} from '../api.ts';
 
 interface Props {
   note: NoteResponse | null;
@@ -11,13 +17,37 @@ interface Props {
 
 export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
+  const [fields, setFields] = useState<CategoryField[]>([]);
+  const [sprintOverrides, setSprintOverrides] = useState<string[] | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: clear stale errors when switching notes
   useEffect(() => setError(null), [note?.path]);
 
+  const category = note ? categoryOf(note.path) : null;
+  useEffect(() => {
+    if (!category || category === 'jira') {
+      setFields([]);
+      setSprintOverrides(null);
+      return;
+    }
+    fieldsApi
+      .forCategory(category)
+      .then((r) => {
+        setFields(r.fields);
+        setSprintOverrides(r.sprintOverrides);
+      })
+      .catch(() => {
+        setFields([]);
+        setSprintOverrides(null);
+      });
+  }, [category]);
+
   if (!note) return <div className="right" />;
   const fm = note.meta?.frontmatter ?? {};
+  const fieldKeys = new Set(fields.map((f) => f.key));
   const props = Object.entries(fm).filter(
-    ([k]) => !['id', 'title', 'type', 'parent', 'order', 'tags'].includes(k),
+    ([k]) =>
+      !['id', 'title', 'type', 'parent', 'order', 'tags', 'capacity_overrides'].includes(k) &&
+      !fieldKeys.has(k),
   );
   const fmTags = (Array.isArray(fm.tags) ? fm.tags : typeof fm.tags === 'string' ? [fm.tags] : [])
     .filter((t): t is string => typeof t === 'string')
@@ -34,6 +64,7 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
     parent?: string | null;
     order?: number | null;
     tags?: string[];
+    set?: Record<string, unknown>;
   }) => {
     setError(null);
     treeApi
@@ -131,6 +162,55 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
                 }}
               />
             </div>
+            {fields.length > 0 && (
+              <>
+                <label htmlFor="cb-field-0">{category} fields</label>
+                {fields.map((f, idx) => (
+                  <FieldEditor
+                    key={`${note.path}:${f.key}`}
+                    id={idx === 0 ? 'cb-field-0' : undefined}
+                    field={f}
+                    value={fm[f.key]}
+                    onCommit={(v) => patch({ set: { [f.key]: v } })}
+                  />
+                ))}
+              </>
+            )}
+            {sprintOverrides && sprintOverrides.length > 0 && (
+              <>
+                <label htmlFor="cb-ov-0">capacity overrides</label>
+                {sprintOverrides.map((sprint, idx) => {
+                  const overrides =
+                    fm.capacity_overrides && typeof fm.capacity_overrides === 'object'
+                      ? (fm.capacity_overrides as Record<string, number>)
+                      : {};
+                  return (
+                    <label key={sprint} className="field-row">
+                      <span className="field-key">{sprint}</span>
+                      <input
+                        id={idx === 0 ? 'cb-ov-0' : undefined}
+                        type="number"
+                        step="0.5"
+                        defaultValue={overrides[sprint] ?? ''}
+                        placeholder="default"
+                        onBlur={(e) => {
+                          const v = e.target.value === '' ? null : Number(e.target.value);
+                          if (v === (overrides[sprint] ?? null)) return;
+                          const next = { ...overrides };
+                          if (v === null) delete next[sprint];
+                          else next[sprint] = v;
+                          patch({
+                            set: {
+                              capacity_overrides: Object.keys(next).length ? next : null,
+                            },
+                          });
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </>
+            )}
             {error && <div className="plan-error">{error}</div>}
           </div>
         </>
@@ -179,4 +259,65 @@ function formatValue(v: unknown): string {
 
 function categoryOf(path: string): string {
   return path.includes('/') ? (path.split('/')[0] as string) : 'notes';
+}
+
+function FieldEditor({
+  id,
+  field,
+  value,
+  onCommit,
+}: {
+  id?: string | undefined;
+  field: CategoryField;
+  value: unknown;
+  onCommit: (v: unknown) => void;
+}) {
+  if (field.kind === 'boolean') {
+    return (
+      <label className="field-row">
+        <span className="field-key">{field.key}</span>
+        <input
+          id={id}
+          type="checkbox"
+          checked={value === true}
+          onChange={(e) => onCommit(e.target.checked)}
+        />
+      </label>
+    );
+  }
+  const display =
+    value === null || value === undefined
+      ? ''
+      : Array.isArray(value)
+        ? value.join(', ')
+        : String(value);
+  return (
+    <label className="field-row" title={`source: ${field.source}`}>
+      <span className="field-key">{field.key}</span>
+      <input
+        id={id}
+        type={field.kind === 'number' ? 'number' : 'text'}
+        step={field.kind === 'number' ? '0.5' : undefined}
+        defaultValue={display}
+        placeholder="—"
+        onBlur={(e) => {
+          const raw = e.target.value.trim();
+          if (raw === display.trim()) return;
+          if (raw === '') return onCommit(null);
+          if (field.kind === 'number') {
+            const n = Number(raw);
+            return onCommit(Number.isFinite(n) ? n : null);
+          }
+          if (field.kind === 'list')
+            return onCommit(
+              raw
+                .split(',')
+                .map((x) => x.trim())
+                .filter(Boolean),
+            );
+          onCommit(raw);
+        }}
+      />
+    </label>
+  );
 }

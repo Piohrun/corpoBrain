@@ -216,3 +216,49 @@ describe('tags via meta endpoint', () => {
     expect(readFileSync(join(root, 'notes', 'loose.md'), 'utf8')).not.toContain('tags:');
   });
 });
+
+describe('generic property writes and category fields', () => {
+  it('meta set writes, updates and deletes properties; reserved keys rejected', async () => {
+    const put = (body: object) =>
+      app.request('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) });
+    const r = await put({
+      path: 'notes/loose.md',
+      set: { role: 'SRE', capacity: 6, active: true },
+    });
+    expect(r.status).toBe(200);
+    let text = readFileSync(join(root, 'notes', 'loose.md'), 'utf8');
+    expect(text).toContain('role: SRE');
+    expect(text).toContain('capacity: 6');
+    await put({
+      path: 'notes/loose.md',
+      set: { role: null, capacity_overrides: { 'Sprint 9': 2 } },
+    });
+    text = readFileSync(join(root, 'notes', 'loose.md'), 'utf8');
+    expect(text).not.toContain('role:');
+    expect(text).toContain('Sprint 9: 2');
+    expect((await put({ path: 'notes/loose.md', set: { id: 'evil' } })).status).toBe(400);
+    expect((await put({ path: 'notes/loose.md', set: { plan: 'evil' } })).status).toBe(400);
+  });
+
+  it('people category exposes builtin fields; templates and seen keys add more', async () => {
+    const { categoryFields } = await import('../src/object-routes.ts');
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'zoe.md'), note('Zoe', 'type: person\nlocation: Warsaw\n'));
+    mkdirSync(join(root, 'templates'), { recursive: true });
+    writeFileSync(
+      join(root, 'templates', 'person.md'),
+      '---\ntype: person\ntitle: "{{title}}"\nstart_date: ""\n---\n',
+    );
+    vault.indexer.update();
+    const { fields, sprintOverrides } = categoryFields(vault, 'people');
+    const byKey = Object.fromEntries(fields.map((f) => [f.key, f]));
+    expect(byKey.region).toMatchObject({ source: 'builtin', kind: 'text' });
+    expect(byKey.capacity).toMatchObject({ kind: 'number' });
+    expect(byKey.active).toMatchObject({ kind: 'boolean' });
+    expect(byKey.start_date).toMatchObject({ source: 'template' });
+    expect(byKey.location).toMatchObject({ source: 'seen' });
+    expect(sprintOverrides).toEqual([]); // no sprint cache in this fixture
+    const none = categoryFields(vault, 'notes');
+    expect(none.sprintOverrides).toBeNull();
+  });
+});

@@ -1089,3 +1089,29 @@ button {
   opacity: 1;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
 }
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+}
+.field-row .field-key {
+  color: var(--fg-muted);
+  min-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-row input[type="text"],
+.field-row input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
