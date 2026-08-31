@@ -1,6 +1,6 @@
 import { SPEC_VERSION } from '@corpobrain/core';
 import { Hono } from 'hono';
-import { GitService } from './git-service.ts';
+import { gitFor } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
 import { planRoutes } from './plan-routes.ts';
@@ -136,8 +136,26 @@ export function createApp(vault?: VaultService) {
   app.get('/api/unresolved', (c) => c.json(v.indexer.unresolved()));
 
   app.get('/api/history', async (c) => {
-    const git = new GitService(v.root);
-    return c.json(await git.log(Number(c.req.query('limit') ?? 20)));
+    return c.json(await gitFor(v.root).log(Number(c.req.query('limit') ?? 20)));
+  });
+
+  app.get('/api/git/status', async (c) => {
+    const git = gitFor(v.root);
+    return c.json({
+      ...(await git.status()),
+      autoCommit: v.config.git.autoCommit,
+      intervalMinutes: v.config.git.intervalMinutes,
+    });
+  });
+
+  /** Initialize the vault repo (if needed) and commit everything now. */
+  app.post('/api/git/commit', async (c) => {
+    const git = gitFor(v.root);
+    const ok = await git.ensureRepo();
+    if (!ok) throw new HttpError(502, git.lastError ?? 'git is not available');
+    const hash = await git.commitAll('vault: manual commit');
+    if (git.lastError) throw new HttpError(502, git.lastError);
+    return c.json({ ok: true, hash });
   });
 
   app.route('/api/jira', jiraRoutes(v));

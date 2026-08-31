@@ -3,7 +3,7 @@ import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
-import { GitService, startAutoCommit } from './git-service.ts';
+import { gitFor, startAutoCommit } from './git-service.ts';
 import { startSyncScheduler } from './jira-routes.ts';
 import { VaultService } from './vault-service.ts';
 
@@ -15,7 +15,7 @@ const vault = new VaultService(vaultRoot);
 vault.startWatching();
 startSyncScheduler(vault);
 if (vault.config.git.autoCommit) {
-  const git = new GitService(vaultRoot);
+  const git = gitFor(vaultRoot);
   void git.ensureRepo().then((ok) => {
     if (ok) {
       startAutoCommit(git, vault.config.git.intervalMinutes);

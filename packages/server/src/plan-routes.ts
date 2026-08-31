@@ -381,7 +381,7 @@ export function planRoutes(v: VaultService): Hono {
       text = body.team ? setFrontmatterKey(text, 'team', body.team) : deleteKey(text, 'team');
     }
     v.write(body.path, text);
-    if (body.region !== undefined) syncRegionParent(v, body.path);
+    if (body.region !== undefined || body.team !== undefined) syncRegionParent(v, body.path);
     return c.json({ ok: true });
   });
 

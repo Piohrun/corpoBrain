@@ -1,0 +1,151 @@
+import { useCallback, useEffect, useState } from 'react';
+import { type GitStatus, gitApi } from '../api.ts';
+
+type Theme = 'system' | 'light' | 'dark';
+const ACCENTS = [
+  { id: '', label: 'indigo', color: '#5b6ee1' },
+  { id: 'teal', label: 'teal', color: '#0e9488' },
+  { id: 'amber', label: 'amber', color: '#b45309' },
+  { id: 'rose', label: 'rose', color: '#be3455' },
+  { id: 'violet', label: 'violet', color: '#7c5cd6' },
+];
+
+function lsGet(key: string): string {
+  try {
+    return localStorage.getItem(key) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+export function SettingsPage() {
+  const [theme, setTheme] = useState<Theme>(() => (lsGet('cb.theme') as Theme) || 'system');
+  const [accent, setAccent] = useState(() => lsGet('cb.accent'));
+  const [git, setGit] = useState<GitStatus | null>(null);
+  const [gitMsg, setGitMsg] = useState<string | null>(null);
+
+  const applyTheme = (t: Theme) => {
+    setTheme(t);
+    try {
+      if (t === 'system') {
+        localStorage.removeItem('cb.theme');
+        delete document.documentElement.dataset.theme;
+      } else {
+        localStorage.setItem('cb.theme', t);
+        document.documentElement.dataset.theme = t;
+      }
+    } catch {
+      /* storage unavailable */
+    }
+  };
+
+  const applyAccent = (a: string) => {
+    setAccent(a);
+    try {
+      if (a) {
+        localStorage.setItem('cb.accent', a);
+        document.documentElement.dataset.accent = a;
+      } else {
+        localStorage.removeItem('cb.accent');
+        delete document.documentElement.dataset.accent;
+      }
+    } catch {
+      /* storage unavailable */
+    }
+  };
+
+  const refreshGit = useCallback(() => {
+    gitApi
+      .status()
+      .then(setGit)
+      .catch(() => {});
+  }, []);
+  useEffect(refreshGit, [refreshGit]);
+
+  return (
+    <div className="planning">
+      <div className="planning-header">
+        <span className="title">Settings</span>
+        <span className="muted small">appearance is per browser; the vault is untouched</span>
+      </div>
+      <div className="planning-scroll">
+        <section>
+          <h2 className="plan-h2">Appearance</h2>
+          <div className="settings-card">
+            <div className="settings-grid">
+              <label htmlFor="s-theme">theme</label>
+              <select
+                id="s-theme"
+                value={theme}
+                onChange={(e) => applyTheme(e.target.value as Theme)}
+              >
+                <option value="system">follow system</option>
+                <option value="light">light</option>
+                <option value="dark">dark</option>
+              </select>
+              <label htmlFor="s-accent">accent</label>
+              <div className="swatch-row" id="s-accent">
+                {ACCENTS.map((a) => (
+                  <button
+                    type="button"
+                    key={a.id || 'default'}
+                    className={`swatch${accent === a.id ? ' active' : ''}`}
+                    style={{ background: a.color }}
+                    title={a.label}
+                    onClick={() => applyAccent(a.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="plan-h2">Vault history (git)</h2>
+          <div className="settings-card git-card">
+            {!git ? (
+              <span className="muted">loading…</span>
+            ) : !git.available ? (
+              <p className="plan-error">git is not installed or not on PATH — history disabled.</p>
+            ) : (
+              <>
+                <p className="muted small">
+                  {git.isRepo
+                    ? `repo OK · auto-commit ${git.autoCommit ? `every ${git.intervalMinutes}m` : 'off'} · ${git.dirtyFiles} uncommitted file(s)`
+                    : 'the vault is not a git repository yet'}
+                </p>
+                {git.head && (
+                  <p className="muted small">
+                    last commit: <code>{git.head.hash}</code> · {git.head.date.slice(0, 16)} ·{' '}
+                    {git.head.message}
+                  </p>
+                )}
+                {git.lastError && <p className="plan-error">last git error: {git.lastError}</p>}
+                <button
+                  type="button"
+                  className="plan-btn"
+                  onClick={() => {
+                    setGitMsg('committing…');
+                    gitApi
+                      .commit()
+                      .then((r) => {
+                        setGitMsg(r.hash ? `committed ${r.hash}` : 'nothing to commit');
+                        refreshGit();
+                      })
+                      .catch((e: Error) => {
+                        setGitMsg(e.message);
+                        refreshGit();
+                      });
+                  }}
+                >
+                  {git.isRepo ? 'Commit now' : 'Initialize repo + commit'}
+                </button>
+                {gitMsg && <span className="probe-result ok"> {gitMsg}</span>}
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}

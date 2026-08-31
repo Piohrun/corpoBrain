@@ -14,6 +14,7 @@ import { ObjectsPage } from './components/ObjectsPage.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { PrivatePage } from './components/PrivatePage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
+import { SettingsPage } from './components/SettingsPage.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
 import { useVaultEvents } from './hooks.ts';
@@ -26,9 +27,9 @@ export function App() {
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects' | 'jira' | 'private'>(
-    'notes',
-  );
+  const [view, setView] = useState<
+    'notes' | 'planning' | 'tasks' | 'objects' | 'jira' | 'private' | 'settings'
+  >('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
 
@@ -223,6 +224,14 @@ export function App() {
         </button>
         <button
           type="button"
+          className={view === 'settings' ? 'active' : ''}
+          onClick={() => setView('settings')}
+          title="Settings: appearance, vault history"
+        >
+          ◐
+        </button>
+        <button
+          type="button"
           className={view === 'private' ? 'active' : ''}
           onClick={() => setView('private')}
           title="Protected notes"
@@ -238,6 +247,8 @@ export function App() {
         <ObjectsPage onOpenNote={openFromPlanning} />
       ) : view === 'jira' ? (
         <JiraPage onOpenNote={openFromPlanning} />
+      ) : view === 'settings' ? (
+        <SettingsPage />
       ) : view === 'private' ? (
         <PrivatePage />
       ) : (

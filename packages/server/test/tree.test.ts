@@ -334,3 +334,57 @@ describe('region hubs', () => {
     expect(lee).toContain('parent:');
   });
 });
+
+describe('team hubs', () => {
+  const put = (body: object) =>
+    app.request('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) });
+
+  it('region + team builds a two-level hierarchy: region ▸ team ▸ person', async () => {
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'kim.md'), note('Kim', 'type: person\n'));
+    vault.indexer.update();
+    await put({ path: 'people/kim.md', set: { region: 'APAC', team: 'Gateway' } });
+    const kim = readFileSync(join(root, 'people', 'kim.md'), 'utf8');
+    expect(kim).toContain('parent: "[[people/Gateway]]"');
+    const teamHub = readFileSync(join(root, 'people', 'Gateway.md'), 'utf8');
+    expect(teamHub).toContain('team: "Gateway"');
+    expect(teamHub).toContain('active: false');
+    expect(teamHub).toContain('region: APAC');
+    expect(teamHub).toContain('parent: "[[people/APAC]]"');
+    const tree = buildTree(vault);
+    const apac = tree.folders
+      .find((f) => f.folder === 'people')
+      ?.roots.find((r) => r.title === 'APAC');
+    const gateway = apac?.children.find((c) => c.title === 'Gateway');
+    expect(gateway?.children.map((c) => c.title)).toEqual(['Kim']);
+  });
+
+  it('dropping a person on a team hub adopts team and region', async () => {
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'lee.md'), note('Lee', 'type: person\n'));
+    writeFileSync(
+      join(root, 'people', 'Data.md'),
+      '---\ntitle: "Data"\nteam: "Data"\nregion: EMEA\nactive: false\n---\n\n# Data\n',
+    );
+    vault.indexer.update();
+    const place = (body: object) =>
+      app.request('/api/tree/place', { method: 'POST', body: JSON.stringify(body) });
+    expect(
+      (await place({ path: 'people/lee.md', parent: 'people/Data.md', index: 0 })).status,
+    ).toBe(200);
+    const lee = readFileSync(join(root, 'people', 'lee.md'), 'utf8');
+    expect(lee).toContain('team: Data');
+    expect(lee).toContain('region: EMEA');
+  });
+
+  it('team-only person nests under the team hub at root', async () => {
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'pat.md'), note('Pat', 'type: person\n'));
+    vault.indexer.update();
+    await put({ path: 'people/pat.md', set: { team: 'Platform' } });
+    expect(readFileSync(join(root, 'people', 'pat.md'), 'utf8')).toContain(
+      'parent: "[[people/Platform]]"',
+    );
+    expect(readFileSync(join(root, 'people', 'Platform.md'), 'utf8')).toContain('team: "Platform"');
+  });
+});

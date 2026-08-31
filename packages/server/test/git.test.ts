@@ -35,3 +35,21 @@ describe('GitService', () => {
     expect(await git.log()).toEqual([]);
   });
 });
+
+describe('git status and error tracking', () => {
+  it('status reports repo state, head, dirty count; errors are recorded', async () => {
+    const { gitFor } = await import('../src/git-service.ts');
+    const git = gitFor(root);
+    expect((await git.status()).isRepo).toBe(false);
+    writeFileSync(join(root, 'a.md'), 'x\n');
+    await git.ensureRepo();
+    const st = await git.status();
+    expect(st.isRepo).toBe(true);
+    expect(st.head?.message).toContain('initial commit');
+    expect(st.lastError).toBeNull();
+    writeFileSync(join(root, 'b.md'), 'y\n');
+    expect((await git.status()).dirtyFiles).toBe(1);
+    await git.commitAll('vault: change');
+    expect(git.lastCommit?.message).toBe('vault: change');
+  });
+});

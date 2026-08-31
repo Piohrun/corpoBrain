@@ -203,62 +203,120 @@ function personFm(v: VaultService, path: string): Record<string, unknown> | null
   }
 }
 
-export function isRegionHub(v: VaultService, path: string): boolean {
-  if (!path.startsWith(`${v.config.folders.people}/`)) return false;
+function hubKind(v: VaultService, path: string): 'region' | 'team' | null {
+  if (!path.startsWith(`${v.config.folders.people}/`)) return null;
   const fm = personFm(v, path);
-  if (!fm) return false;
-  const region = typeof fm.region === 'string' ? fm.region.trim() : '';
-  if (!region) return false;
+  if (!fm) return null;
   const base = (path.split('/').pop() as string).replace(/\.md$/, '');
   const title = typeof fm.title === 'string' ? fm.title : base;
-  return title === region;
+  const region = typeof fm.region === 'string' ? fm.region.trim() : '';
+  const team = typeof fm.team === 'string' ? fm.team.trim() : '';
+  if (region && title === region) return 'region';
+  if (team && title === team) return 'team';
+  return null;
 }
 
-/** region property → parent link (creates the hub note on demand). */
+export function isRegionHub(v: VaultService, path: string): boolean {
+  return hubKind(v, path) === 'region';
+}
+
+function hubPath(v: VaultService, name: string): string {
+  return `${v.config.folders.people}/${name.replace(/[\\/:*?"<>|]/g, '-')}.md`;
+}
+
+function ensureHub(v: VaultService, name: string, kind: 'region' | 'team'): string {
+  const rel = hubPath(v, name);
+  v.create(
+    rel,
+    name,
+    `---\ntitle: ${JSON.stringify(name)}\n${kind}: ${JSON.stringify(name)}\nactive: false\n---\n\n# ${name}\n\n`,
+  );
+  return rel;
+}
+
+function parentHubOf(v: VaultService, fm: Record<string, unknown>): string | null {
+  const rawParent = typeof fm.parent === 'string' ? fm.parent : null;
+  if (!rawParent) return null;
+  const m = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim());
+  const resolved = v.resolve(m ? (m[1] as string).trim() : rawParent);
+  if (!resolved.exists) return null;
+  return hubKind(v, resolved.path) ? resolved.path : null;
+}
+
+/**
+ * region/team properties → hub notes + parent links.
+ * People nest under their team hub; team hubs nest under the region hub; a
+ * person with a region but no team nests directly under the region hub.
+ */
 export function syncRegionParent(v: VaultService, path: string): void {
   const people = v.config.folders.people;
-  if (!path.startsWith(`${people}/`) || isRegionHub(v, path)) return;
+  if (!path.startsWith(`${people}/`)) return;
+  const selfKind = hubKind(v, path);
   const fm = personFm(v, path);
   if (!fm) return;
   const region = typeof fm.region === 'string' ? fm.region.trim() : '';
+  const team = typeof fm.team === 'string' ? fm.team.trim() : '';
+
+  if (selfKind === 'region') return;
+  if (selfKind === 'team') {
+    // a team hub itself nests under its region hub when known
+    const { content } = v.read(path);
+    let text = content;
+    if (region) {
+      const regionHub = ensureHub(v, region, 'region');
+      text = setFrontmatterKey(text, 'parent', `[[${regionHub.replace(/\.md$/, '')}]]`);
+    }
+    if (text !== content) v.write(path, text);
+    return;
+  }
+
   const { content } = v.read(path);
   let text = content;
-  if (region) {
-    const hubRel = `${people}/${region}.md`;
-    v.create(
-      hubRel,
-      region,
-      `---\ntitle: ${JSON.stringify(region)}\nregion: ${JSON.stringify(region)}\nactive: false\n---\n\n# ${region}\n\n`,
-    );
-    text = setFrontmatterKey(text, 'parent', `[[${people}/${region}]]`);
-  } else {
-    const rawParent = typeof fm.parent === 'string' ? fm.parent : null;
-    if (rawParent) {
-      const m = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim());
-      const resolved = v.resolve(m ? (m[1] as string).trim() : rawParent);
-      if (resolved.exists && isRegionHub(v, resolved.path)) {
-        text = deleteFrontmatterKey(text, 'parent');
-      }
+  if (team) {
+    const teamHub = ensureHub(v, team, 'team');
+    // keep the team hub's region in sync so it nests under the region hub
+    const hubFm = personFm(v, teamHub);
+    if (region && hubFm?.region !== region) {
+      const hubText = v.read(teamHub).content;
+      let ht = setFrontmatterKey(hubText, 'region', region);
+      const regionHub = ensureHub(v, region, 'region');
+      ht = setFrontmatterKey(ht, 'parent', `[[${regionHub.replace(/\.md$/, '')}]]`);
+      if (ht !== hubText) v.write(teamHub, ht);
     }
+    text = setFrontmatterKey(text, 'parent', `[[${teamHub.replace(/\.md$/, '')}]]`);
+  } else if (region) {
+    const regionHub = ensureHub(v, region, 'region');
+    text = setFrontmatterKey(text, 'parent', `[[${regionHub.replace(/\.md$/, '')}]]`);
+  } else if (parentHubOf(v, fm)) {
+    text = deleteFrontmatterKey(text, 'parent');
   }
   if (text !== content) v.write(path, text);
 }
 
-/** parent link → region property (dropping a person under a hub). */
+/** parent link → region/team properties (dropping a person onto a hub). */
 export function adoptRegionFromParent(v: VaultService, path: string): void {
   const people = v.config.folders.people;
-  if (!path.startsWith(`${people}/`) || isRegionHub(v, path)) return;
+  if (!path.startsWith(`${people}/`) || hubKind(v, path)) return;
   const fm = personFm(v, path);
-  const rawParent = typeof fm?.parent === 'string' ? fm.parent : null;
-  if (!rawParent) return;
-  const m = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim());
-  const resolved = v.resolve(m ? (m[1] as string).trim() : rawParent);
-  if (!resolved.exists || !isRegionHub(v, resolved.path)) return;
-  const hubFm = personFm(v, resolved.path);
-  const region = typeof hubFm?.region === 'string' ? hubFm.region.trim() : '';
-  if (!region || fm?.region === region) return;
+  if (!fm) return;
+  const hub = parentHubOf(v, fm);
+  if (!hub) return;
+  const kind = hubKind(v, hub);
+  const hubFm = personFm(v, hub);
   const { content } = v.read(path);
-  v.write(path, setFrontmatterKey(content, 'region', region));
+  let text = content;
+  if (kind === 'team') {
+    const team = typeof hubFm?.team === 'string' ? hubFm.team.trim() : '';
+    if (team && fm.team !== team) text = setFrontmatterKey(text, 'team', team);
+    const region = typeof hubFm?.region === 'string' ? hubFm.region.trim() : '';
+    if (region && fm.region !== region) text = setFrontmatterKey(text, 'region', region);
+  } else if (kind === 'region') {
+    const region = typeof hubFm?.region === 'string' ? hubFm.region.trim() : '';
+    if (region && fm.region !== region) text = setFrontmatterKey(text, 'region', region);
+    // dropped directly on a region = out of any team
+    if (typeof fm.team === 'string' && fm.team.trim()) text = deleteFrontmatterKey(text, 'team');
+  }
+  if (text !== content) v.write(path, text);
 }
 
 export interface TreeNode {
@@ -442,7 +500,7 @@ export function treeRoutes(v: VaultService): Hono {
     }
 
     if (text !== content) v.write(path, text);
-    if (body.set && 'region' in body.set) syncRegionParent(v, path);
+    if (body.set && ('region' in body.set || 'team' in body.set)) syncRegionParent(v, path);
     if (body.parent !== undefined) adoptRegionFromParent(v, path);
     const fm = parseFrontmatter(v.read(path).content).data;
     return c.json({ ok: true, path, type: fm.type ?? 'note', parent: fm.parent ?? null });

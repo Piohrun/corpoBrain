@@ -135,7 +135,14 @@ export interface BoardPerson {
 
 export interface BoardModel {
   unit: string;
-  sprints: { id: number; name: string; state: string; start: string | null; end: string | null }[];
+  sprints: {
+    id: number;
+    name: string;
+    state: string;
+    start: string | null;
+    end: string | null;
+    source: string;
+  }[];
   columns: string[];
   people: BoardPerson[];
   issues: BoardIssue[];
@@ -374,4 +381,19 @@ export const jiraApi = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+};
+
+export interface GitStatus {
+  available: boolean;
+  isRepo: boolean;
+  head: { hash: string; date: string; message: string } | null;
+  dirtyFiles: number;
+  lastError: string | null;
+  autoCommit: boolean;
+  intervalMinutes: number;
+}
+
+export const gitApi = {
+  status: () => req<GitStatus>('/api/git/status'),
+  commit: () => req<{ ok: boolean; hash: string | null }>('/api/git/commit', { method: 'POST' }),
 };
