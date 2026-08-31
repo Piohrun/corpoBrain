@@ -20,6 +20,7 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+import { tablesField } from './tables.ts';
 
 export interface LivePreviewConfig {
   onNavigate: (target: string) => void;
@@ -41,7 +42,7 @@ export const livePreviewConfig = Facet.define<LivePreviewConfig, LivePreviewConf
 
 const WIKILINK = /(!?)\[\[([^[\]|#]*)(#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
 const TAG = /(^|[\s(,;])#([A-Za-z0-9_/-]*[A-Za-z_/-][A-Za-z0-9_/-]*)/g;
-const INLINE_SECRET = /`\u{1F512}([A-Za-z0-9+/=]{8,})`/gu;
+export const INLINE_SECRET = /`\u{1F512}([A-Za-z0-9+/=]{8,})`/gu;
 const CHECKBOX = /^(\s*[-*+] )\[( |x|X)\] /;
 
 class CheckboxWidget extends WidgetType {
@@ -442,6 +443,7 @@ export function livePreview(config: LivePreviewConfig): Extension {
     livePreviewConfig.of(config),
     plugin,
     secretField,
+    tablesField,
     // mousedown so the editor does not move the cursor first
     ViewPlugin.define(() => ({}), {
       eventHandlers: { mousedown: (e, view) => clickHandler(view, e) },

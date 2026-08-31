@@ -49,3 +49,26 @@ describe('inline secret tokens', () => {
     expect(tr.state.doc.lines).toBe(4);
   });
 });
+
+describe('table rendering field', () => {
+  const TDOC =
+    '# Team\n\n| Name | Pay |\n| :--- | ---: |\n| [[Anna]] | `🔒Q0JWMWFiY2RlZmdo` |\n| Bob | 100 |\n\nafter\n';
+
+  it('a doc with a table constructs and updates cleanly', () => {
+    const state = stateWith(TDOC);
+    expect(state.doc.toString()).toBe(TDOC);
+    const tr = state.update({ changes: { from: 0, insert: 'x' } });
+    expect(tr.state.doc.toString().startsWith('x')).toBe(true);
+  });
+
+  it('cursor inside the table keeps it raw (constructs without widget conflict)', () => {
+    const inside = TDOC.indexOf('Bob');
+    const state = stateWith(TDOC, inside);
+    expect(state.doc.toString()).toBe(TDOC);
+  });
+
+  it('tables inside code fences are ignored', () => {
+    const state = stateWith('```\n| a | b |\n| --- | --- |\n```\n');
+    expect(state.doc.lines).toBe(5);
+  });
+});
