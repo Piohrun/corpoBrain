@@ -33,6 +33,7 @@ export interface SyncReport {
   skipped: { key: string; reason: string }[];
   peopleCreated: string[];
   sprints: number;
+  warnings: string[];
 }
 
 interface SyncState {
@@ -101,6 +102,12 @@ export class JiraSync {
     // Sprints + membership come from the Agile API (no custom-field guessing).
     const sprintByKey = new Map<string, { id: number; name: string }>();
     const allSprints: JiraSprint[] = [];
+    const warnings: string[] = [];
+    if (profile.boards.length === 0) {
+      warnings.push(
+        'no agile board ids configured on this profile — sprints were NOT fetched (add your Scrum board id in Jira settings)',
+      );
+    }
     let boardIdx = 0;
     for (const boardId of profile.boards) {
       boardIdx++;
@@ -111,7 +118,15 @@ export class JiraSync {
         total: profile.boards.length,
         detail: `board ${boardId}`,
       });
-      const sprints = await this.adapter.sprints(boardId);
+      let sprints: JiraSprint[];
+      try {
+        sprints = await this.adapter.sprints(boardId);
+      } catch (e) {
+        warnings.push(
+          `board ${boardId}: ${e instanceof Error ? e.message : String(e)} — is it a Scrum board? (Kanban boards have no sprints)`,
+        );
+        continue;
+      }
       allSprints.push(...sprints);
       const considered = sprints
         .filter((s) => s.state !== 'closed')
@@ -150,6 +165,7 @@ export class JiraSync {
       skipped: [],
       peopleCreated: [],
       sprints: allSprints.length,
+      warnings,
     };
 
     const syncedAt = syncStart.toISOString();

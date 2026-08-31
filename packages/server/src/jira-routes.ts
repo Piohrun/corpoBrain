@@ -105,6 +105,17 @@ export function jiraRoutes(v: VaultService): Hono {
     return c.json(sanitizedConfig());
   });
 
+  /** Discover agile boards (for the settings page board-id picker). */
+  app.get('/boards', async (c) => {
+    try {
+      const adapter = createJiraAdapter(v.root, v.config);
+      const project = c.req.query('project') || v.config.jira.projectKeys[0];
+      return c.json(await adapter.boards(project));
+    } catch (e) {
+      throw new HttpError(502, e instanceof Error ? e.message : 'board lookup failed');
+    }
+  });
+
   app.post('/probe', async (c) => {
     try {
       const adapter = createJiraAdapter(v.root, v.config);

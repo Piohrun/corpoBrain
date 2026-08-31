@@ -85,6 +85,7 @@ describe('JiraSync', () => {
       skipped: [],
       peopleCreated: ['people/anna.md'],
       sprints: 3,
+      warnings: [],
     });
     const one = readFileSync(join(root, 'jira/EXEC-1.md'), 'utf8');
     expect(one).toContain('key: EXEC-1');
@@ -164,5 +165,30 @@ describe('sync progress', () => {
     expect(events.some((e) => e.startsWith('membership:'))).toBe(true);
     expect(events).toContain('issues:5/5');
     expect(events[events.length - 1]).toBe('done:5/5');
+  });
+});
+
+describe('sync warnings', () => {
+  it('warns when a profile has no boards and when a board fails', async () => {
+    adapter.issues = [issue('EXEC-1', 'x')];
+    const noBoards = new JiraSync(
+      root,
+      {
+        ...config,
+        jira: { ...config.jira, profiles: [{ ...config.jira.profiles[0]!, boards: [] }] },
+      },
+      adapter,
+      () => new Date('2026-08-31T12:00:00Z'),
+    );
+    const [r1] = await noBoards.run();
+    expect(r1?.warnings.some((w) => w.includes('NOT fetched'))).toBe(true);
+
+    adapter.sprints = async () => {
+      throw new Error('The board does not support sprints');
+    };
+    const [r2] = await sync.run();
+    expect(r2?.warnings.some((w) => w.includes('Kanban'))).toBe(true);
+    // issues still synced despite the board failure (created on first run → unchanged here)
+    expect((r2?.created.length ?? 0) + (r2?.unchanged ?? 0)).toBeGreaterThan(0);
   });
 });

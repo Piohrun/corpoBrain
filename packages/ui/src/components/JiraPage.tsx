@@ -61,6 +61,15 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
         </button>
       </div>
       <SyncProgressBar status={syncStatus} />
+      {(syncStatus?.lastReports ?? []).flatMap((r) => r.warnings ?? []).length > 0 && (
+        <div className="sync-warnings">
+          {(syncStatus?.lastReports ?? [])
+            .flatMap((r) => r.warnings ?? [])
+            .map((w) => (
+              <div key={w}>⚠ {w}</div>
+            ))}
+        </div>
+      )}
       <div className="planning-scroll">
         {configError && (
           <section>
@@ -276,6 +285,27 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               </button>
             </div>
           ))}
+          <button
+            type="button"
+            className="risk-chip"
+            onClick={() => {
+              setProbe('looking up boards…');
+              setProbeOk(false);
+              jiraApi
+                .boards(draft.projectKeys[0])
+                .then((boards) => {
+                  setProbeOk(true);
+                  setProbe(
+                    boards.length
+                      ? `boards: ${boards.map((b) => `${b.id} = ${b.name} (${b.type})`).join(' · ')} — put the Scrum board id in the boards column`
+                      : 'no boards visible for this project/token',
+                  );
+                })
+                .catch((e: Error) => setProbe(e.message));
+            }}
+          >
+            🔍 find board ids
+          </button>
           <button
             type="button"
             className="risk-chip"

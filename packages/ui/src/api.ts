@@ -159,6 +159,8 @@ export interface SyncReportSummary {
   unchanged: number;
   skipped: { key: string; reason: string }[];
   peopleCreated: string[];
+  sprints: number;
+  warnings: string[];
 }
 
 export interface JiraStatus {
@@ -363,6 +365,10 @@ export const jiraApi = {
     }),
   issues: () => req<JiraIssueRow[]>('/api/jira/issues'),
   sprints: () => req<SprintRow[]>('/api/jira/sprints'),
+  boards: (project?: string) =>
+    req<{ id: number; name: string; type: string }[]>(
+      `/api/jira/boards${project ? `?project=${encodeURIComponent(project)}` : ''}`,
+    ),
   createSprint: (body: { name: string; start?: string; end?: string; goal?: string }) =>
     req<{ ok: boolean; path: string }>('/api/jira/sprints', {
       method: 'POST',

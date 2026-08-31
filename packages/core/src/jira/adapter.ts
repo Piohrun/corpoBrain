@@ -172,6 +172,26 @@ export class JiraAdapter {
     return [...closed, ...all.filter((s) => s.state !== 'closed')];
   }
 
+  /** Agile boards visible to the token, optionally filtered by project. */
+  async boards(projectKey?: string): Promise<{ id: number; name: string; type: string }[]> {
+    const out: { id: number; name: string; type: string }[] = [];
+    let startAt = 0;
+    for (;;) {
+      const page = await this.get<{
+        values: { id: number; name: string; type: string }[];
+        isLast: boolean;
+      }>('rest/agile/1.0/board', {
+        startAt: String(startAt),
+        maxResults: '50',
+        ...(projectKey ? { projectKeyOrId: projectKey } : {}),
+      });
+      out.push(...page.values.map((b) => ({ id: b.id, name: b.name, type: b.type })));
+      if (page.isLast || page.values.length === 0) break;
+      startAt += page.values.length;
+    }
+    return out;
+  }
+
   /** Issue keys per sprint (issue → sprint mapping comes from here on DC and Cloud alike). */
   async sprintIssueKeys(sprintId: number): Promise<string[]> {
     const keys: string[] = [];

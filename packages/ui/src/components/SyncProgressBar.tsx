@@ -32,5 +32,5 @@ export function lastSyncSummary(status: JiraStatus | null): string | null {
   if (!reports?.length) return null;
   const r = reports[0];
   if (!r) return null;
-  return `last sync: ${r.fetched} fetched · +${r.created.length} new · ~${r.updated.length} updated · ${r.unchanged} unchanged${r.skipped.length ? ` · ${r.skipped.length} SKIPPED` : ''}`;
+  return `last sync: ${r.fetched} fetched · +${r.created.length} new · ~${r.updated.length} updated · ${r.unchanged} unchanged · ${r.sprints ?? 0} sprints${r.skipped.length ? ` · ${r.skipped.length} SKIPPED` : ''}${r.warnings?.length ? ` · ⚠ ${r.warnings.length}` : ''}`;
 }
