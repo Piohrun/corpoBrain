@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { gitFor } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
+import { personRoutes } from './person-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { privateRoutes } from './private-routes.ts';
 import { treeRoutes } from './tree-routes.ts';
@@ -171,6 +172,7 @@ export function createApp(vault?: VaultService) {
 
   app.route('/api/jira', jiraRoutes(v));
   app.route('/api/plan', planRoutes(v));
+  app.route('/api/person', personRoutes(v));
   app.route('/api/objects', objectRoutes(v));
   app.route('/api/private', privateRoutes(v).app);
   app.route('/api/tree', treeRoutes(v));

@@ -293,3 +293,25 @@ describe('hub colors', () => {
     ).toBe(400);
   });
 });
+
+describe('person overview', () => {
+  it('composes issues, dated mentions with snippets, and linked tasks', async () => {
+    mkdirSync(join(root, 'notes'), { recursive: true });
+    writeFileSync(
+      join(root, 'notes', 'oneonone.md'),
+      '---\nid: OO1\ntitle: 1:1 notes\n---\nTalked with [[Anna]] about the gateway.\n- [ ] follow up with [[Anna]] 📅 2026-09-10\n- [ ] unrelated task\n',
+    );
+    vault.indexer.update();
+    const { personOverview } = await import('../src/person-routes.ts');
+    const o = personOverview(vault, 'people/anna.md');
+    expect(o.person.name).toBe('Anna');
+    expect(o.issues.map((i) => i.key)).toEqual(['EXEC-1']); // effective assignee anna
+    const mention = o.mentions.find((m) => m.srcPath === 'notes/oneonone.md');
+    expect(mention?.snippet).toContain('about the gateway');
+    // only the task line that links to her — not the unrelated one
+    expect(o.tasks).toMatchObject([{ text: 'follow up with [[Anna]]', due: '2026-09-10' }]);
+    const app2 = createApp(vault);
+    expect((await app2.request('/api/person?path=people/anna.md')).status).toBe(200);
+    expect((await app2.request('/api/person?path=notes/oneonone.md')).status).toBe(404);
+  });
+});

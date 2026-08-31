@@ -11,6 +11,7 @@ import { CommandPalette, type PaletteCommand } from './components/CommandPalette
 import { Editor } from './components/Editor.tsx';
 import { JiraPage } from './components/JiraPage.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
+import { PersonPanel } from './components/PersonPanel.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { PrivatePage } from './components/PrivatePage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
@@ -316,6 +317,9 @@ export function App() {
                         : '⚠ save failed'}
                   </span>
                 </div>
+                {note.path.startsWith('people/') && (
+                  <PersonPanel path={note.path} onOpen={openPath} />
+                )}
                 <Editor
                   path={note.path}
                   content={note.content}

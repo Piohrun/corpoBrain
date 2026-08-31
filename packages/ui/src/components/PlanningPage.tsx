@@ -547,7 +547,18 @@ function BandwidthGrid({
             style={{ background: hubColor(row.region) }}
             title={row.region ?? 'no region'}
           />
-          {row.name}
+          {row.path ? (
+            <button
+              type="button"
+              className="person-link"
+              title="Open person overview"
+              onClick={() => onOpenNote(row.path as string)}
+            >
+              {row.name}
+            </button>
+          ) : (
+            row.name
+          )}
         </div>
         {row.editable && row.path && (
           <div className="muted small">

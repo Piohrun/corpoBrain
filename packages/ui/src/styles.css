@@ -1482,3 +1482,43 @@ tr.wb-conflict td {
   font-size: 10.5px;
   color: var(--fg-muted);
 }
+
+/* ---------- person overview panel ---------- */
+.person-panel {
+  border-bottom: 1px solid var(--border);
+  padding: 4px 16px 8px;
+  background: var(--bg-panel);
+}
+.person-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+.person-cols {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.person-col {
+  min-width: 140px;
+}
+.person-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mention-date {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+.person-link {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.person-link:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
