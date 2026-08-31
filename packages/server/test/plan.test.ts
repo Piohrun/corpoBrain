@@ -44,7 +44,7 @@ beforeEach(() => {
   );
   writeFileSync(
     join(root, 'people', 'anna.md'),
-    '---\ntype: person\ntitle: Anna\njira: anna\ncapacity: 8\ncapacity_overrides:\n  Sprint 38: 4\n---\n',
+    '---\ntype: person\ntitle: Anna\njira: anna\ncapacity: 8\nregion: EMEA\nteam: Gateway\ncapacity_overrides:\n  Sprint 38: 4\n---\n',
   );
   writeFileSync(
     join(root, 'people', 'john.md'),
@@ -86,7 +86,12 @@ describe('buildBoard', () => {
     expect(board.loads['people/anna.md']).toEqual({ 'Sprint 37': 4 });
     expect(board.loads['people/john.md']).toEqual({ 'Sprint 38': 3 });
     const anna = board.people.find((p) => p.name === 'Anna');
-    expect(anna).toMatchObject({ capacity: 8, overrides: { 'Sprint 38': 4 } });
+    expect(anna).toMatchObject({
+      capacity: 8,
+      overrides: { 'Sprint 38': 4 },
+      region: 'EMEA',
+      team: 'Gateway',
+    });
   });
 });
 

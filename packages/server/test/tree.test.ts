@@ -154,7 +154,7 @@ describe('POST /api/tree/place', () => {
       ?.children.find((c) => c.title === 'Gateway');
     expect(gateway?.children).toEqual([]);
     // backlink-style resolution by title still works: link from another note
-    writeFileSync(join(root, 'notes', 'ref.md'), note('Ref', '') + 'See [[Latency work]].\n');
+    writeFileSync(join(root, 'notes', 'ref.md'), `${note('Ref', '')}See [[Latency work]].\n`);
     vault.indexer.update();
     const links = vault.indexer.db
       .prepare("SELECT dst_path FROM links WHERE src_path='notes/ref.md'")

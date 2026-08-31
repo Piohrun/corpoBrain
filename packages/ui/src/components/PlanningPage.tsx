@@ -1,4 +1,3 @@
-import type React from 'react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type BoardIssue,
@@ -16,6 +15,22 @@ interface Props {
 }
 
 const UNASSIGNED = '(unassigned)';
+type GroupBy = 'region' | 'team' | 'region-team' | 'none';
+
+function lsGet(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+function lsSet(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* unavailable */
+  }
+}
 
 export function PlanningPage({ onOpenNote }: Props) {
   const [board, setBoard] = useState<BoardModel | null>(null);
@@ -25,7 +40,14 @@ export function PlanningPage({ onOpenNote }: Props) {
   const [flagFilter, setFlagFilter] = useState<string | null>(null);
   const [sprintFilter, setSprintFilter] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [views, _setViews] = useState<SavedView[]>([]);
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [groupBy, setGroupBy] = useState<GroupBy>(
+    () => lsGet('cb.plan.groupBy', 'region') as GroupBy,
+  );
+  const [horizon, setHorizon] = useState<number>(() => Number(lsGet('cb.plan.horizon', '3')));
+
+  useEffect(() => lsSet('cb.plan.groupBy', groupBy), [groupBy]);
+  useEffect(() => lsSet('cb.plan.horizon', String(horizon)), [horizon]);
 
   const refresh = useCallback(() => {
     planApi
@@ -35,6 +57,10 @@ export function PlanningPage({ onOpenNote }: Props) {
     planApi
       .jiraStatus()
       .then(setStatus)
+      .catch(() => {});
+    viewApi
+      .list()
+      .then(setViews)
       .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
@@ -50,6 +76,16 @@ export function PlanningPage({ onOpenNote }: Props) {
     [refresh],
   );
 
+  const patchPerson = useCallback(
+    (body: Parameters<typeof planApi.patchPerson>[0]) => {
+      planApi
+        .patchPerson(body)
+        .then(refresh)
+        .catch((e: Error) => setError(e.message));
+    },
+    [refresh],
+  );
+
   const sync = useCallback(() => {
     setSyncing(true);
     setError(null);
@@ -59,6 +95,13 @@ export function PlanningPage({ onOpenNote }: Props) {
       .catch((e: Error) => setError(e.message))
       .finally(() => setSyncing(false));
   }, [refresh]);
+
+  /** Visible sprint columns: first N sprints, Backlog always last. */
+  const visibleColumns = useMemo(() => {
+    if (!board) return [];
+    const sprints = board.columns.filter((c) => c !== 'Backlog').slice(0, horizon);
+    return [...sprints, 'Backlog'];
+  }, [board, horizon]);
 
   const issues = useMemo(() => {
     if (!board) return [];
@@ -90,6 +133,7 @@ export function PlanningPage({ onOpenNote }: Props) {
     if (i.statusCategory === 'done') continue;
     for (const f of i.riskFlags) flagCounts.set(f, (flagCounts.get(f) ?? 0) + 1);
   }
+  const maxSprints = board.columns.filter((c) => c !== 'Backlog').length;
 
   return (
     <div className="planning">
@@ -113,6 +157,33 @@ export function PlanningPage({ onOpenNote }: Props) {
       </div>
 
       <div className="views-bar">
+        <label className="muted small">
+          group{' '}
+          <select
+            className="cell-input"
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+          >
+            <option value="region">by region</option>
+            <option value="team">by team</option>
+            <option value="region-team">region · team</option>
+            <option value="none">flat</option>
+          </select>
+        </label>
+        <label className="muted small">
+          sprints{' '}
+          <select
+            className="cell-input"
+            value={horizon}
+            onChange={(e) => setHorizon(Number(e.target.value))}
+          >
+            {Array.from({ length: Math.max(maxSprints, 1) }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n} ahead
+              </option>
+            ))}
+          </select>
+        </label>
         <select
           className="cell-input"
           value={sprintFilter ?? ''}
@@ -158,35 +229,53 @@ export function PlanningPage({ onOpenNote }: Props) {
             + save view
           </button>
         )}
+        {flagCounts.size > 0 && <span className="views-sep" />}
+        {[...flagCounts.entries()].map(([flag, n]) => (
+          <button
+            type="button"
+            key={flag}
+            className={`risk-chip${flagFilter === flag ? ' active' : ''}`}
+            onClick={() => setFlagFilter(flagFilter === flag ? null : flag)}
+          >
+            {flag} <b>{n}</b>
+          </button>
+        ))}
       </div>
 
-      {flagCounts.size > 0 && (
-        <div className="risk-strip">
-          {[...flagCounts.entries()].map(([flag, n]) => (
-            <button
-              type="button"
-              key={flag}
-              className={`risk-chip${flagFilter === flag ? ' active' : ''}`}
-              onClick={() => setFlagFilter(flagFilter === flag ? null : flag)}
-            >
-              {flag} <b>{n}</b>
-            </button>
-          ))}
-          {flagFilter && (
-            <button type="button" className="risk-chip clear" onClick={() => setFlagFilter(null)}>
-              ✕ clear
-            </button>
-          )}
-        </div>
-      )}
-
       <div className="planning-scroll">
-        <BandwidthGrid board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
-        <DependencyView board={board} onOpenNote={onOpenNote} />
+        <BandwidthGrid
+          board={board}
+          issues={issues}
+          columns={visibleColumns}
+          groupBy={groupBy}
+          onPatch={patch}
+          onPatchPerson={patchPerson}
+          onOpenNote={onOpenNote}
+        />
+        <ChangesPanel board={board} onPatch={patch} onOpenNote={onOpenNote} />
         <SprintTable board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------- helpers
+
+interface Row {
+  id: string;
+  name: string;
+  jiraId: string | null;
+  capacity: number | null;
+  overrides: Record<string, number>;
+  region: string | null;
+  team: string | null;
+  editable: boolean;
+  path: string | null;
+}
+
+function personName(board: BoardModel, assignee: string | null): string {
+  if (!assignee) return '—';
+  return board.people.find((p) => p.jiraIds.includes(assignee))?.name ?? assignee;
 }
 
 // ------------------------------------------------------------------- grid
@@ -194,18 +283,36 @@ export function PlanningPage({ onOpenNote }: Props) {
 function BandwidthGrid({
   board,
   issues,
+  columns,
+  groupBy,
   onPatch,
+  onPatchPerson,
   onOpenNote,
 }: {
   board: BoardModel;
   issues: BoardIssue[];
+  columns: string[];
+  groupBy: GroupBy;
   onPatch: (key: string, p: PlanPatch) => void;
+  onPatchPerson: (body: {
+    path: string;
+    capacity?: number | null;
+    overrides?: Record<string, number>;
+  }) => void;
   onOpenNote: (path: string) => void;
 }) {
   const [dragKey, setDragKey] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(lsGet('cb.plan.groups', '[]')) as string[]);
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => lsSet('cb.plan.groups', JSON.stringify([...collapsed])), [collapsed]);
 
-  const rows = useMemo(() => {
-    const known = board.people
+  const rows = useMemo<Row[]>(() => {
+    const known: Row[] = board.people
       .filter((p) => p.active)
       .map((p) => ({
         id: p.path,
@@ -213,51 +320,132 @@ function BandwidthGrid({
         jiraId: p.jiraIds[0] ?? null,
         capacity: p.capacity,
         overrides: p.overrides,
+        region: p.region,
+        team: p.team,
+        editable: true,
+        path: p.path,
       }));
-    const extra = Object.keys(board.loads)
-      .filter((k) => k !== UNASSIGNED && !known.some((r) => r.id === k))
-      .map((id) => ({
-        id,
-        name: id,
-        jiraId: id as string | null,
-        capacity: null as number | null,
-        overrides: {} as Record<string, number>,
-      }));
+    const knownIds = new Set(board.people.flatMap((p) => p.jiraIds));
+    const extraIds = new Set<string>();
+    for (const i of issues) {
+      const a = i.effectiveAssignee ?? i.jiraAssignee;
+      if (a && !knownIds.has(a)) extraIds.add(a);
+    }
+    const extras: Row[] = [...extraIds].map((id) => ({
+      id,
+      name: id,
+      jiraId: id,
+      capacity: null,
+      overrides: {},
+      region: null,
+      team: null,
+      editable: false,
+      path: null,
+    }));
     return [
       ...known,
-      ...extra,
+      ...extras,
       {
         id: UNASSIGNED,
         name: 'Unassigned',
-        jiraId: null as string | null,
-        capacity: null as number | null,
-        overrides: {} as Record<string, number>,
+        jiraId: null,
+        capacity: null,
+        overrides: {},
+        region: null,
+        team: null,
+        editable: false,
+        path: null,
       },
     ];
-  }, [board]);
+  }, [board, issues]);
 
-  const issuesFor = (rowId: string, col: string): BoardIssue[] => {
-    const row = rows.find((r) => r.id === rowId);
-    return issues.filter((i) => {
-      if (i.effectiveSprint !== col) return false;
-      if (rowId === UNASSIGNED) return !i.effectiveAssignee;
-      if (!i.effectiveAssignee) return false;
-      const person = board.people.find((p) => p.path === rowId);
-      return person
-        ? person.jiraIds.includes(i.effectiveAssignee)
-        : i.effectiveAssignee === row?.jiraId;
+  const rowIdOf = useCallback(
+    (assignee: string | null): string => {
+      if (!assignee) return UNASSIGNED;
+      const person = board.people.find((p) => p.jiraIds.includes(assignee));
+      return person ? person.path : assignee;
+    },
+    [board],
+  );
+
+  const colSet = useMemo(() => new Set(columns), [columns]);
+  const colOf = useCallback(
+    (sprint: string | null): string | null => {
+      if (!sprint) return 'Backlog';
+      return colSet.has(sprint) ? sprint : null; // null = outside the horizon
+    },
+    [colSet],
+  );
+
+  /** committed = where Jira has it; planned = where the local plan puts it */
+  const { committed, planned, cellIssues } = useMemo(() => {
+    const committed = new Map<string, number>();
+    const planned = new Map<string, number>();
+    const cellIssues = new Map<string, BoardIssue[]>();
+    const add = (m: Map<string, number>, k: string, v: number) =>
+      m.set(k, Math.round(((m.get(k) ?? 0) + v) * 100) / 100);
+    for (const i of issues) {
+      const effort = i.effectiveEffort ?? 0;
+      const cCol = colOf(i.jiraSprint);
+      if (cCol) add(committed, `${rowIdOf(i.jiraAssignee)}|${cCol}`, effort);
+      const pCol = colOf(i.effectiveSprint === 'Backlog' ? null : i.effectiveSprint);
+      if (pCol) {
+        const key = `${rowIdOf(i.effectiveAssignee)}|${pCol}`;
+        add(planned, key, effort);
+        const arr = cellIssues.get(key) ?? [];
+        arr.push(i);
+        cellIssues.set(key, arr);
+      }
+    }
+    return { committed, planned, cellIssues };
+  }, [issues, colOf, rowIdOf]);
+
+  const groups = useMemo(() => {
+    const keyOf = (r: Row): string => {
+      if (r.id === UNASSIGNED || !r.editable) return '(other)';
+      switch (groupBy) {
+        case 'region':
+          return r.region ?? '(no region)';
+        case 'team':
+          return r.team ?? '(no team)';
+        case 'region-team':
+          return `${r.region ?? '(no region)'} · ${r.team ?? '(no team)'}`;
+        default:
+          return '';
+      }
+    };
+    const m = new Map<string, Row[]>();
+    for (const r of rows) {
+      const k = keyOf(r);
+      const arr = m.get(k) ?? [];
+      arr.push(r);
+      m.set(k, arr);
+    }
+    return [...m.entries()].sort(([a], [b]) => {
+      if (a.startsWith('(') !== b.startsWith('(')) return a.startsWith('(') ? 1 : -1;
+      return a.localeCompare(b);
     });
-  };
+  }, [rows, groupBy]);
 
-  const drop = (rowId: string, col: string) => {
+  const capOf = (row: Row, col: string): number | null =>
+    col === 'Backlog' ? null : (row.overrides[col] ?? row.capacity);
+
+  const drop = (row: Row, col: string) => {
     if (!dragKey) return;
-    const row = rows.find((r) => r.id === rowId);
     const patch: PlanPatch = { sprint: col };
-    if (rowId === UNASSIGNED) patch.assignee = null;
-    else if (row?.jiraId) patch.assignee = row.jiraId;
+    if (row.id === UNASSIGNED) patch.assignee = null;
+    else if (row.jiraId) patch.assignee = row.jiraId;
     onPatch(dragKey, patch);
     setDragKey(null);
   };
+
+  const toggleGroup = (g: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g);
+      else next.add(g);
+      return next;
+    });
 
   return (
     <section>
@@ -267,7 +455,7 @@ function BandwidthGrid({
           <thead>
             <tr>
               <th>Person</th>
-              {board.columns.map((c) => {
+              {columns.map((c) => {
                 const sprint = board.sprints.find((s) => s.name === c);
                 return (
                   <th key={c}>
@@ -282,72 +470,339 @@ function BandwidthGrid({
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.id}>
-                <td className="person-cell">
-                  <div>{row.name}</div>
-                  {row.capacity !== null && (
-                    <div className="muted small">
-                      {row.capacity} {board.unit}/sprint
-                    </div>
-                  )}
-                </td>
-                {board.columns.map((col) => {
-                  const load = board.loads[row.id]?.[col] ?? 0;
-                  const cap = col === 'Backlog' ? null : (row.overrides[col] ?? row.capacity);
-                  const pct = cap ? load / cap : null;
-                  const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
-                  return (
-                    <td
-                      key={col}
-                      className={`bw-cell${cls}`}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => drop(row.id, col)}
-                    >
-                      <div className="cell-load">
-                        {load > 0 && <b>{load}</b>}
-                        {cap !== null && <span className="muted"> / {cap}</span>}
-                        {pct !== null && pct > 1 && <span className="over-flag"> over</span>}
-                      </div>
-                      {cap !== null && (
-                        <div className="cap-bar">
-                          <div
-                            className="cap-fill"
-                            style={{ width: `${Math.min(100, (pct ?? 0) * 100)}%` }}
-                          />
-                        </div>
-                      )}
-                      <div className="chips">
-                        {issuesFor(row.id, col).map((i) => (
-                          <button
-                            type="button"
-                            key={i.key}
-                            className={`chip${i.overridden.sprint || i.overridden.assignee ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
-                            draggable
-                            onDragStart={() => setDragKey(i.key)}
-                            onDragEnd={() => setDragKey(null)}
-                            onClick={() => onOpenNote(i.path)}
-                            title={`${i.summary ?? ''}${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
-                          >
-                            {i.key}
-                            {i.effectiveEffort !== null && (
-                              <span className="chip-effort">{i.effectiveEffort}</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
+            {groups.map(([group, members]) => (
+              <GroupRows
+                key={group || '(all)'}
+                group={group}
+                members={members}
+                columns={columns}
+                board={board}
+                committed={committed}
+                planned={planned}
+                cellIssues={cellIssues}
+                collapsed={collapsed.has(group)}
+                capOf={capOf}
+                onToggle={() => toggleGroup(group)}
+                onDrop={drop}
+                onDragKey={setDragKey}
+                onPatchPerson={onPatchPerson}
+                onOpenNote={onOpenNote}
+              />
             ))}
           </tbody>
         </table>
       </div>
       <p className="muted small">
-        Drag a card into a cell to plan it locally (writes <code>plan.sprint</code> /{' '}
-        <code>plan.assignee</code> — Jira is never modified). Dashed border = locally overridden.
+        Drag a card to plan it locally (dashed = uncommitted, Jira is never modified). Click a
+        capacity number to adjust bandwidth for that sprint; click a load like{' '}
+        <span className="load-planned">3 → 5</span> to spot moved work.
       </p>
+    </section>
+  );
+}
+
+function GroupRows({
+  group,
+  members,
+  columns,
+  board,
+  committed,
+  planned,
+  cellIssues,
+  collapsed,
+  capOf,
+  onToggle,
+  onDrop,
+  onDragKey,
+  onPatchPerson,
+  onOpenNote,
+}: {
+  group: string;
+  members: Row[];
+  columns: string[];
+  board: BoardModel;
+  committed: Map<string, number>;
+  planned: Map<string, number>;
+  cellIssues: Map<string, BoardIssue[]>;
+  collapsed: boolean;
+  capOf: (row: Row, col: string) => number | null;
+  onToggle: () => void;
+  onDrop: (row: Row, col: string) => void;
+  onDragKey: (key: string | null) => void;
+  onPatchPerson: (body: {
+    path: string;
+    capacity?: number | null;
+    overrides?: Record<string, number>;
+  }) => void;
+  onOpenNote: (path: string) => void;
+}) {
+  const sum = (m: Map<string, number>, col: string) =>
+    Math.round(members.reduce((acc, r) => acc + (m.get(`${r.id}|${col}`) ?? 0), 0) * 100) / 100;
+  const capSum = (col: string) =>
+    members.reduce<number | null>((acc, r) => {
+      const c = capOf(r, col);
+      if (c === null) return acc;
+      return (acc ?? 0) + c;
+    }, null);
+
+  return (
+    <>
+      {group && (
+        <tr className="group-row">
+          <td>
+            <button type="button" className="group-toggle" onClick={onToggle}>
+              {collapsed ? '▸' : '▾'} {group} <span className="muted">({members.length})</span>
+            </button>
+          </td>
+          {columns.map((col) => {
+            const c = sum(committed, col);
+            const p = sum(planned, col);
+            const cap = capSum(col);
+            const over = cap !== null && p > cap;
+            return (
+              <td key={col} className={`group-cell${over ? ' over' : ''}`}>
+                <LoadLine committedLoad={c} plannedLoad={p} cap={cap} />
+              </td>
+            );
+          })}
+        </tr>
+      )}
+      {!collapsed &&
+        members.map((row) => (
+          <tr key={row.id}>
+            <td className="person-cell">
+              <div>{row.name}</div>
+              {row.editable && row.path && (
+                <div className="muted small">
+                  <EditableNumber
+                    value={row.capacity}
+                    title="Default capacity per sprint"
+                    onCommit={(v) => onPatchPerson({ path: row.path as string, capacity: v })}
+                  />{' '}
+                  {board.unit}/sprint
+                </div>
+              )}
+            </td>
+            {columns.map((col) => {
+              const cKey = `${row.id}|${col}`;
+              const committedLoad = committed.get(cKey) ?? 0;
+              const plannedLoad = planned.get(cKey) ?? 0;
+              const cap = capOf(row, col);
+              const pct = cap ? plannedLoad / cap : null;
+              const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
+              return (
+                <td
+                  key={col}
+                  className={`bw-cell${cls}`}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => onDrop(row, col)}
+                >
+                  <div className="cell-load">
+                    <LoadLine committedLoad={committedLoad} plannedLoad={plannedLoad} cap={cap} />
+                    {row.editable && row.path && col !== 'Backlog' && (
+                      <span className="cap-edit">
+                        <EditableNumber
+                          value={row.overrides[col] ?? null}
+                          placeholder={row.capacity !== null ? String(row.capacity) : '—'}
+                          title={`Bandwidth override for ${col} (empty = default)`}
+                          onCommit={(v) => {
+                            const overrides = { ...row.overrides };
+                            if (v === null) delete overrides[col];
+                            else overrides[col] = v;
+                            onPatchPerson({ path: row.path as string, overrides });
+                          }}
+                        />
+                      </span>
+                    )}
+                  </div>
+                  {cap !== null && (
+                    <div className="cap-bar">
+                      <div
+                        className="cap-fill"
+                        style={{ width: `${Math.min(100, (pct ?? 0) * 100)}%` }}
+                      />
+                    </div>
+                  )}
+                  <div className="chips">
+                    {(cellIssues.get(cKey) ?? []).map((i) => {
+                      const moved = i.overridden.sprint || i.overridden.assignee;
+                      return (
+                        <button
+                          type="button"
+                          key={i.key}
+                          className={`chip${moved ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
+                          draggable
+                          onDragStart={() => onDragKey(i.key)}
+                          onDragEnd={() => onDragKey(null)}
+                          onClick={() => onOpenNote(i.path)}
+                          title={`${i.summary ?? ''}${
+                            moved
+                              ? `\nUNCOMMITTED: Jira has ${i.jiraSprint ?? 'Backlog'} / ${personName(board, i.jiraAssignee)}`
+                              : ''
+                          }${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
+                        >
+                          {i.key}
+                          {i.effectiveEffort !== null && (
+                            <span className="chip-effort">{i.effectiveEffort}</span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+    </>
+  );
+}
+
+function LoadLine({
+  committedLoad,
+  plannedLoad,
+  cap,
+}: {
+  committedLoad: number;
+  plannedLoad: number;
+  cap: number | null;
+}) {
+  const differs = committedLoad !== plannedLoad;
+  return (
+    <span>
+      {differs ? (
+        <>
+          <span className="load-committed">{committedLoad}</span>
+          {' → '}
+          <b className="load-planned">{plannedLoad}</b>
+        </>
+      ) : (
+        plannedLoad > 0 && <b>{plannedLoad}</b>
+      )}
+      {cap !== null && <span className="muted"> / {cap}</span>}
+      {cap !== null && plannedLoad > cap && <span className="over-flag"> over</span>}
+    </span>
+  );
+}
+
+function EditableNumber({
+  value,
+  placeholder,
+  title,
+  onCommit,
+}: {
+  value: number | null;
+  placeholder?: string;
+  title?: string;
+  onCommit: (v: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="cap-value"
+        title={title ?? 'Click to edit'}
+        onClick={() => setEditing(true)}
+      >
+        {value ?? placeholder ?? '—'}
+      </button>
+    );
+  }
+  return (
+    <input
+      className="cap-input"
+      type="number"
+      step="0.5"
+      ref={(el) => el?.focus()}
+      defaultValue={value ?? ''}
+      placeholder={placeholder}
+      onBlur={(e) => {
+        setEditing(false);
+        const v = e.target.value === '' ? null : Number(e.target.value);
+        if (v !== value) onCommit(v);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') setEditing(false);
+      }}
+    />
+  );
+}
+
+// ------------------------------------------------------------ changes
+
+function ChangesPanel({
+  board,
+  onPatch,
+  onOpenNote,
+}: {
+  board: BoardModel;
+  onPatch: (key: string, p: PlanPatch) => void;
+  onOpenNote: (path: string) => void;
+}) {
+  const changes = board.issues.filter(
+    (i) =>
+      i.statusCategory !== 'done' &&
+      (i.plan.sprint !== null || i.plan.assignee !== null || i.plan.effort !== null),
+  );
+  if (changes.length === 0) return null;
+  return (
+    <section>
+      <h2 className="plan-h2">
+        Uncommitted changes ({changes.length}){' '}
+        <span className="muted small">local only — Jira is untouched</span>
+        <button
+          type="button"
+          className="risk-chip clear"
+          onClick={() => {
+            if (window.confirm(`Revert all ${changes.length} local changes?`)) {
+              for (const i of changes)
+                onPatch(i.key, { sprint: null, assignee: null, effort: null });
+            }
+          }}
+        >
+          revert all
+        </button>
+      </h2>
+      <div className="changes-panel">
+        {changes.map((i) => (
+          <div key={i.key} className="change-row">
+            <button type="button" className="key-link" onClick={() => onOpenNote(i.path)}>
+              {i.key}
+            </button>
+            <span className="change-diffs">
+              {i.plan.sprint !== null && (
+                <span className="change-diff">
+                  <span className="load-committed">{i.jiraSprint ?? 'Backlog'}</span> →{' '}
+                  <b className="load-planned">{i.plan.sprint}</b>
+                </span>
+              )}
+              {i.plan.assignee !== null && (
+                <span className="change-diff">
+                  <span className="load-committed">{personName(board, i.jiraAssignee)}</span> →{' '}
+                  <b className="load-planned">{personName(board, i.plan.assignee)}</b>
+                </span>
+              )}
+              {i.plan.effort !== null && (
+                <span className="change-diff">
+                  effort <span className="load-committed">{i.estimate ?? '—'}</span> →{' '}
+                  <b className="load-planned">{i.plan.effort}</b>
+                </span>
+              )}
+              {i.plan.note && <span className="muted small">“{i.plan.note}”</span>}
+            </span>
+            <button
+              type="button"
+              className="risk-chip clear"
+              title="Clear local sprint/assignee/effort for this issue"
+              onClick={() => onPatch(i.key, { sprint: null, assignee: null, effort: null })}
+            >
+              revert
+            </button>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -502,71 +957,6 @@ function SprintTable({
           </tbody>
         </table>
       </div>
-    </section>
-  );
-}
-
-// ------------------------------------------------------------- dependencies
-
-function DependencyView({
-  board,
-  onOpenNote,
-}: {
-  board: BoardModel;
-  onOpenNote: (path: string) => void;
-}) {
-  const byKey = useMemo(() => new Map(board.issues.map((i) => [i.key, i])), [board]);
-  const dependents = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const i of board.issues) {
-      for (const dep of i.dependsOn) {
-        const arr = m.get(dep) ?? [];
-        arr.push(i.key);
-        m.set(dep, arr);
-      }
-    }
-    return m;
-  }, [board]);
-
-  const roots = useMemo(
-    () =>
-      board.issues.filter(
-        (i) =>
-          (dependents.get(i.key)?.length ?? 0) > 0 &&
-          i.dependsOn.filter((d) => byKey.has(d)).length === 0,
-      ),
-    [board, dependents, byKey],
-  );
-
-  if (roots.length === 0) return null;
-
-  const renderChain = (key: string, depth: number, seen: Set<string>): React.ReactNode => {
-    const issue = byKey.get(key);
-    if (!issue || seen.has(key) || depth > 6) return null;
-    const next = new Set(seen);
-    next.add(key);
-    const kids = dependents.get(key) ?? [];
-    return (
-      <div key={key} className="dep-node" style={{ marginLeft: depth * 22 }}>
-        <button type="button" className="chip" onClick={() => onOpenNote(issue.path)}>
-          {issue.key}
-        </button>
-        <span className={issue.statusCategory === 'done' ? 'muted small done' : 'muted small'}>
-          {issue.summary} · {issue.status ?? '?'} · {issue.effectiveSprint}
-        </span>
-        {kids.map((k) => renderChain(k, depth + 1, next))}
-      </div>
-    );
-  };
-
-  return (
-    <section>
-      <h2 className="plan-h2">Dependencies</h2>
-      <div className="dep-view">{roots.map((r) => renderChain(r.key, 0, new Set()))}</div>
-      <p className="muted small">
-        From Jira “is blocked by” links plus local <code>plan.blocked_on</code>. Children depend on
-        their parent.
-      </p>
     </section>
   );
 }

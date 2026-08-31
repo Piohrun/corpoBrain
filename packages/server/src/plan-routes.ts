@@ -53,6 +53,8 @@ export interface BoardPerson {
   capacity: number | null;
   overrides: Record<string, number>;
   active: boolean;
+  region: string | null;
+  team: string | null;
 }
 
 export interface BoardModel {
@@ -99,7 +101,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   const people = (
     db
       .prepare(
-        'SELECT path, jira_id, name, capacity, overrides_json, active FROM people ORDER BY name',
+        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team FROM people ORDER BY name',
       )
       .all() as {
       path: string;
@@ -108,6 +110,8 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
       capacity: number | null;
       overrides_json: string | null;
       active: number;
+      region: string | null;
+      team: string | null;
     }[]
   ).map((p) => ({
     path: p.path,
@@ -116,6 +120,8 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     capacity: p.capacity,
     overrides: safeObj(p.overrides_json),
     active: p.active === 1,
+    region: p.region,
+    team: p.team,
   }));
 
   const doneKeys = new Set(
@@ -339,6 +345,8 @@ export function planRoutes(v: VaultService): Hono {
       capacity?: number | null;
       overrides?: Record<string, number>;
       active?: boolean;
+      region?: string | null;
+      team?: string | null;
     };
     if (!body.path) throw new HttpError(400, 'path required');
     const { content } = v.read(body.path);
@@ -355,6 +363,14 @@ export function planRoutes(v: VaultService): Hono {
         : deleteKey(text, 'capacity_overrides');
     }
     if (body.active !== undefined) text = setFrontmatterKey(text, 'active', body.active);
+    if (body.region !== undefined) {
+      text = body.region
+        ? setFrontmatterKey(text, 'region', body.region)
+        : deleteKey(text, 'region');
+    }
+    if (body.team !== undefined) {
+      text = body.team ? setFrontmatterKey(text, 'team', body.team) : deleteKey(text, 'team');
+    }
     v.write(body.path, text);
     return c.json({ ok: true });
   });

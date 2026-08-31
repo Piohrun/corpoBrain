@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import { type TreeModel, type TreeNode, treeApi } from '../api.ts';
+import type { TreeModel, TreeNode } from '../api.ts';
 
 interface Props {
   tree: TreeModel;
