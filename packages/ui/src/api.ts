@@ -317,6 +317,7 @@ export interface CalendarModel {
   sprints: { name: string; from: number; span: number; state: string }[];
   rows: {
     assignee: string;
+    jiraId: string | null;
     name: string;
     path: string | null;
     color: string | null;

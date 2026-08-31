@@ -161,6 +161,25 @@ describe('GET /api/projects/timeline', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('gives a roster person without a Jira id a row instead of dropping them', async () => {
+    writeFileSync(
+      join(root, 'people', 'newbie.md'),
+      '---\ntype: person\ntitle: Newbie\ncapacity: 8\n---\n',
+    );
+    vault.indexer.rebuild();
+    await app.request('/api/projects/roster', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'projects/falcon.md', people: ['Newbie'] }),
+    });
+    const t = await timeline();
+    const row = t.rows.find((r) => r.name === 'Newbie');
+    expect(row).toMatchObject({
+      inRoster: true,
+      jiraId: null,
+      assignee: 'person:people/newbie.md',
+    });
+  });
+
   it('marks away days on rows and stretches blocks over them', async () => {
     mkdirSync(join(root, 'planning'), { recursive: true });
     writeFileSync(

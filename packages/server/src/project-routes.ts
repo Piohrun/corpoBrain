@@ -60,7 +60,10 @@ export interface CalendarModel {
   months: { label: string; from: number; span: number }[];
   sprints: { name: string; from: number; span: number; state: string }[];
   rows: {
+    /** row key: the person's Jira id, or person:<path> when they have none */
     assignee: string;
+    /** null when the person note has no Jira id — blocks cannot be dropped here yet */
+    jiraId: string | null;
     name: string;
     path: string | null;
     color: string | null;
@@ -193,12 +196,13 @@ function awayByAssignee(
         p.jiraIds.some((id) => norm(id) === n),
     );
     if (!person) continue;
+    const rowKeys = person.jiraIds.length ? person.jiraIds : [`person:${person.path}`];
     const to = new Date(`${e.to}T00:00:00Z`);
     to.setUTCDate(to.getUTCDate() + 1);
     for (const d of dayList(new Date(`${e.from}T00:00:00Z`), to)) {
       const idx = daySet.get(d);
       if (idx === undefined) continue;
-      for (const id of person.jiraIds) {
+      for (const id of rowKeys) {
         if (!merged[id]) merged[id] = [];
         merged[id]?.push(idx);
         const bucket = e.kind === 'support' ? support : ooo;
@@ -315,9 +319,16 @@ export function projectRoutes(v: VaultService): Hono {
     const addRow = (assignee: string, inRoster: boolean) => {
       if (seen.has(assignee)) return;
       seen.add(assignee);
-      const p = board.people.find((x) => x.jiraIds.includes(assignee));
+      const p = assignee.startsWith('person:')
+        ? board.people.find((x) => x.path === assignee.slice('person:'.length))
+        : board.people.find((x) => x.jiraIds.includes(assignee));
       rows.push({
         assignee,
+        jiraId: assignee.startsWith('person:')
+          ? null
+          : assignee === '(unassigned)'
+            ? null
+            : assignee,
         name: p?.name ?? (assignee === '(unassigned)' ? 'Unassigned' : assignee),
         path: p?.path ?? null,
         color: p?.color ?? null,
@@ -326,7 +337,8 @@ export function projectRoutes(v: VaultService): Hono {
         support: away.support[assignee] ?? [],
       });
     };
-    for (const p of roster) if (p.jiraIds[0]) addRow(p.jiraIds[0], true);
+    // a roster person without a Jira id still deserves a row
+    for (const p of roster) addRow(p.jiraIds[0] ?? `person:${p.path}`, true);
     for (const b of layout.blocks) if (b.assignee !== '(unassigned)') addRow(b.assignee, false);
     addRow('(unassigned)', false);
 

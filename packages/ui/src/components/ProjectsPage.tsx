@@ -299,9 +299,11 @@ function Calendar({
       const body: PlanPatch = { start: model.days[d.day] ?? null };
       const targetRow = model.rows[d.row];
       const sourceRow = model.rows[d.origin.row];
-      if (d.fromRail || targetRow?.assignee !== sourceRow?.assignee) {
-        body.assignee =
-          targetRow && targetRow.assignee !== '(unassigned)' ? targetRow.assignee : null;
+      const rowChanged = d.fromRail || targetRow?.assignee !== sourceRow?.assignee;
+      if (rowChanged && targetRow) {
+        if (targetRow.assignee === '(unassigned)') body.assignee = null;
+        else if (targetRow.jiraId) body.assignee = targetRow.jiraId;
+        // a row for a person with no Jira id cannot hold an assignee yet — only the day moves
       }
       const sprint = sprintAt(d.day);
       if (sprint && (d.fromRail || sprint !== sprintAt(d.origin.day))) body.sprint = sprint;
@@ -375,6 +377,14 @@ function Calendar({
               {r.inRoster && (
                 <span className="cal-roster-mark" title="On the project roster">
                   •
+                </span>
+              )}
+              {!r.jiraId && r.assignee !== '(unassigned)' && (
+                <span
+                  className="muted small"
+                  title="This person note has no Jira id yet — set one (Organize panel) to drop issues on this row"
+                >
+                  ⚭
                 </span>
               )}
             </div>
@@ -601,7 +611,7 @@ function IssueSearch({
   const pick = (key: string, alreadyInProject: boolean) => {
     const body: PlanPatch = { start: day ?? null };
     if (!alreadyInProject) body.project = model.project.title;
-    if (row && row.assignee !== '(unassigned)') body.assignee = row.assignee;
+    if (row?.jiraId) body.assignee = row.jiraId;
     if (sprint) body.sprint = sprint;
     onPick(key, body);
   };
@@ -679,7 +689,7 @@ function RosterButton({
 
   const rosterNames = model.rows.filter((r) => r.inRoster).map((r) => r.name);
   const candidates = (board?.people ?? []).filter(
-    (p) => p.active && p.jiraIds.length && !model.rows.some((r) => r.path === p.path),
+    (p) => p.active && !model.rows.some((r) => r.path === p.path),
   );
 
   const save = (names: string[]) => {
