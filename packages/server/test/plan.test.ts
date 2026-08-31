@@ -267,3 +267,29 @@ describe('used-load overrides', () => {
     expect(readFileSync(join(root, 'people', 'anna.md'), 'utf8')).not.toContain('load_overrides');
   });
 });
+
+describe('hub colors', () => {
+  it('color round-trips through the person endpoint and board; bad hex rejected', async () => {
+    writeFileSync(
+      join(root, 'people', 'EMEA.md'),
+      '---\ntitle: "EMEA"\nregion: "EMEA"\nactive: false\n---\n\n# EMEA\n',
+    );
+    vault.indexer.update();
+    const res = await app.request('/api/plan/person', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'people/EMEA.md', color: '#e04455' }),
+    });
+    expect(res.status).toBe(200);
+    expect(readFileSync(join(root, 'people', 'EMEA.md'), 'utf8')).toContain('color: "#e04455"');
+    const board = buildBoard(vault);
+    expect(board.people.find((p) => p.name === 'EMEA')?.color).toBe('#e04455');
+    expect(
+      (
+        await app.request('/api/plan/person', {
+          method: 'PUT',
+          body: JSON.stringify({ path: 'people/EMEA.md', color: 'red' }),
+        })
+      ).status,
+    ).toBe(400);
+  });
+});

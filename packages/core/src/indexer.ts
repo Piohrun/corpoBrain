@@ -409,8 +409,8 @@ export class Indexer {
         : [];
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO people(path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO people(path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json, color)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         path,
@@ -422,6 +422,7 @@ export class Indexer {
         str(fm.region),
         str(fm.team),
         JSON.stringify(fm.load_overrides ?? {}),
+        str(fm.color),
       );
   }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { type GitStatus, gitApi } from '../api.ts';
+import { type BoardPerson, type GitStatus, gitApi, planApi } from '../api.ts';
+import { nameColorHex } from '../colors.ts';
 
 type Theme = 'system' | 'light' | 'dark';
 const STATUS_COLORS: { key: string; label: string; fallback: string }[] = [
@@ -29,6 +30,15 @@ export function SettingsPage() {
   const [theme, setTheme] = useState<Theme>(() => (lsGet('cb.theme') as Theme) || 'system');
   const [accent, setAccent] = useState(() => lsGet('cb.accent'));
   const [git, setGit] = useState<GitStatus | null>(null);
+  const [hubs, setHubs] = useState<BoardPerson[]>([]);
+
+  const refreshHubs = useCallback(() => {
+    planApi
+      .board()
+      .then((b) => setHubs(b.people.filter((p) => p.name === p.region || p.name === p.team)))
+      .catch(() => {});
+  }, []);
+  useEffect(refreshHubs, [refreshHubs]);
   const [statusColors, setStatusColors] = useState<Record<string, string>>(() => {
     try {
       return JSON.parse(localStorage.getItem('cb.colors') ?? '{}') as Record<string, string>;
@@ -153,6 +163,50 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
+
+        {hubs.length > 0 && (
+          <section>
+            <h2 className="plan-h2">Region &amp; team colors</h2>
+            <div className="settings-card">
+              <p className="muted small">
+                Stored on the hub note (shared via the vault, unlike the per-browser theme). Unset
+                hubs use an automatic color derived from the name.
+              </p>
+              {hubs.map((h) => (
+                <div key={h.path} className="status-color-row">
+                  <input
+                    type="color"
+                    value={h.color ?? nameColorHex(h.name)}
+                    onChange={(e) => {
+                      planApi
+                        .patchPerson({ path: h.path, color: e.target.value })
+                        .then(refreshHubs)
+                        .catch(() => {});
+                    }}
+                  />
+                  <span className="muted small">
+                    {h.name} {h.name === h.region ? '(region)' : '(team)'}
+                  </span>
+                  {h.color && (
+                    <button
+                      type="button"
+                      className="tag-clear"
+                      title="Back to automatic color"
+                      onClick={() => {
+                        planApi
+                          .patchPerson({ path: h.path, color: null })
+                          .then(refreshHubs)
+                          .catch(() => {});
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section>
           <h2 className="plan-h2">Vault history (git)</h2>

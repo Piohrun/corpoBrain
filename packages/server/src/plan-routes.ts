@@ -58,6 +58,8 @@ export interface BoardPerson {
   team: string | null;
   /** manual replacement of the person's planned/used load per sprint */
   loadOverrides: Record<string, number>;
+  /** explicit display color (hub notes); falls back to a name-derived hue */
+  color: string | null;
 }
 
 export interface BoardModel {
@@ -112,7 +114,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   const people = (
     db
       .prepare(
-        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json FROM people ORDER BY name',
+        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json, color FROM people ORDER BY name',
       )
       .all() as {
       path: string;
@@ -124,6 +126,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
       region: string | null;
       team: string | null;
       load_overrides_json: string | null;
+      color: string | null;
     }[]
   ).map((p) => ({
     path: p.path,
@@ -135,6 +138,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     region: p.region,
     team: p.team,
     loadOverrides: safeObj(p.load_overrides_json),
+    color: p.color,
   }));
 
   const doneKeys = new Set(
@@ -361,6 +365,7 @@ export function planRoutes(v: VaultService): Hono {
       active?: boolean;
       region?: string | null;
       team?: string | null;
+      color?: string | null;
     };
     if (!body.path) throw new HttpError(400, 'path required');
     const { content } = v.read(body.path);
@@ -375,6 +380,11 @@ export function planRoutes(v: VaultService): Hono {
       text = Object.keys(body.overrides).length
         ? setFrontmatterKey(text, 'capacity_overrides', body.overrides)
         : deleteKey(text, 'capacity_overrides');
+    }
+    if (body.color !== undefined) {
+      if (body.color && !/^#[0-9a-fA-F]{6}$/.test(body.color))
+        throw new HttpError(400, 'color must be a #rrggbb hex value');
+      text = body.color ? setFrontmatterKey(text, 'color', body.color) : deleteKey(text, 'color');
     }
     if (body.loadOverrides !== undefined) {
       text = Object.keys(body.loadOverrides).length

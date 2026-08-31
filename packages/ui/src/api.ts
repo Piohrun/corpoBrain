@@ -132,6 +132,7 @@ export interface BoardPerson {
   region: string | null;
   team: string | null;
   loadOverrides: Record<string, number>;
+  color: string | null;
 }
 
 export interface BoardModel {
@@ -209,6 +210,7 @@ export const planApi = {
     active?: boolean;
     region?: string | null;
     team?: string | null;
+    color?: string | null;
   }) => req<{ ok: boolean }>('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) }),
   jiraStatus: () => req<JiraStatus>('/api/jira/status'),
   jiraSync: (full = false) =>

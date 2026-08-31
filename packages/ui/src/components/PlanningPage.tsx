@@ -360,6 +360,15 @@ function BandwidthGrid({
     ];
   }, [board, issues]);
 
+  /** explicit hub colors (people/<Region|Team>.md color:) override the hash hue */
+  const hubColor = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of board.people) {
+      if (p.color && (p.name === p.region || p.name === p.team)) map.set(p.name, p.color);
+    }
+    return (name: string | null) => (name && map.get(name)) || nameColor(name);
+  }, [board]);
+
   const rowIdOf = useCallback(
     (assignee: string | null): string => {
       if (!assignee) return UNASSIGNED;
@@ -505,7 +514,7 @@ function BandwidthGrid({
           <button type="button" className="group-toggle" onClick={() => toggle(key)}>
             {collapsed.has(key) ? '▸' : '▾'}{' '}
             {!label.startsWith('(') && (
-              <span className="group-mark" style={{ background: nameColor(label) }} />
+              <span className="group-mark" style={{ background: hubColor(label) }} />
             )}
             {label} <span className="muted">({members.length})</span>
           </button>
@@ -531,7 +540,7 @@ function BandwidthGrid({
         <div>
           <span
             className="region-mark"
-            style={{ background: nameColor(row.region) }}
+            style={{ background: hubColor(row.region) }}
             title={row.region ?? 'no region'}
           />
           {row.name}
