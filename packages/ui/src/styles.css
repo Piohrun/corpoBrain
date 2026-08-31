@@ -822,14 +822,6 @@ button {
 .tree-row.active {
   background: var(--bg-active);
 }
-.tree-row.drop-target {
-  outline: 1.5px dashed var(--accent);
-  outline-offset: -1.5px;
-}
-.tree-folder.drop-target {
-  outline: 1.5px dashed var(--accent);
-  outline-offset: -1.5px;
-}
 .tree-chevron {
   width: 16px;
   flex: none;
