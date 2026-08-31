@@ -7,6 +7,7 @@ import {
   type TreeModel,
   treeApi,
 } from './api.ts';
+import { AvailabilityPage } from './components/AvailabilityPage.tsx';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
 import { DigestPage } from './components/DigestPage.tsx';
 import { Editor } from './components/Editor.tsx';
@@ -34,6 +35,7 @@ export function App() {
     | 'notes'
     | 'planning'
     | 'projects'
+    | 'availability'
     | 'digest'
     | 'tasks'
     | 'objects'
@@ -225,6 +227,14 @@ export function App() {
         </button>
         <button
           type="button"
+          className={view === 'availability' ? 'active' : ''}
+          onClick={() => setView('availability')}
+          title="Availability: who is out when — feeds sprint bandwidth"
+        >
+          ✈
+        </button>
+        <button
+          type="button"
           className={view === 'digest' ? 'active' : ''}
           onClick={() => setView('digest')}
           title="What changed in Jira since the last refresh"
@@ -276,6 +286,8 @@ export function App() {
         <PlanningPage onOpenNote={openFromPlanning} />
       ) : view === 'projects' ? (
         <ProjectsPage onOpenNote={openFromPlanning} />
+      ) : view === 'availability' ? (
+        <AvailabilityPage onOpenNote={openFromPlanning} />
       ) : view === 'digest' ? (
         <DigestPage onOpenNote={openFromPlanning} />
       ) : view === 'tasks' ? (

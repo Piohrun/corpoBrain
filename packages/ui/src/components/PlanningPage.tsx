@@ -10,7 +10,6 @@ import {
 } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
-import { AvailabilityPanel } from './AvailabilityPanel.tsx';
 import { SprintHealth } from './SprintHealth.tsx';
 import { SyncProgressBar } from './SyncProgressBar.tsx';
 
@@ -49,9 +48,10 @@ export function PlanningPage({ onOpenNote }: Props) {
     () => lsGet('cb.plan.groupBy', 'region') as GroupBy,
   );
   const [horizon, setHorizon] = useState<number>(() => Number(lsGet('cb.plan.horizon', '3')));
-  const [bottom, setBottom] = useState<'health' | 'issues' | 'availability'>(
-    () => lsGet('cb.plan.bottom', 'health') as 'health' | 'issues' | 'availability',
-  );
+  const [bottom, setBottom] = useState<'health' | 'issues'>(() => {
+    const stored = lsGet('cb.plan.bottom', 'health');
+    return stored === 'issues' ? 'issues' : 'health'; // 'availability' moved to its own page
+  });
   const [healthSprint, setHealthSprint] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -275,14 +275,6 @@ export function PlanningPage({ onOpenNote }: Props) {
           >
             ☰ All issues ({issues.length})
           </button>
-          <button
-            type="button"
-            className={`tab${bottom === 'availability' ? ' active' : ''}`}
-            onClick={() => setBottom('availability')}
-            title="Out of office and support rota — feeds sprint bandwidth"
-          >
-            ✈ Availability
-          </button>
         </div>
         {bottom === 'health' ? (
           <SprintHealth
@@ -296,14 +288,6 @@ export function PlanningPage({ onOpenNote }: Props) {
             onSprint={setHealthSprint}
             onOpenNote={onOpenNote}
             reloadKey={reloadKey}
-          />
-        ) : bottom === 'availability' ? (
-          <AvailabilityPanel
-            onOpenNote={onOpenNote}
-            onChanged={() => {
-              refresh();
-              setReloadKey((k) => k + 1);
-            }}
           />
         ) : (
           <SprintTable board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />

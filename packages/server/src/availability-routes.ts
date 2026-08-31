@@ -1,7 +1,12 @@
 /** The OOO / support-rota table and what it does to each sprint. */
 import { type AvailabilityEntry, adjustCapacity } from '@corpobrain/core';
 import { Hono } from 'hono';
-import { readAvailability, resolveAvailability, saveAvailability } from './availability.ts';
+import {
+  archiveAvailability,
+  readAvailability,
+  resolveAvailability,
+  saveAvailability,
+} from './availability.ts';
 import { buildBoard } from './plan-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -97,6 +102,22 @@ export function availabilityRoutes(v: VaultService): Hono {
     }
     const file = saveAvailability(v, entries);
     return c.json({ ok: true, file, count: entries.length });
+  });
+
+  /** Move entries older than `months` (default 3) into per-year archive notes. */
+  app.post('/archive', async (c) => {
+    let months = 3;
+    try {
+      const body = (await c.req.json()) as { months?: number };
+      if (body.months !== undefined) {
+        if (!(Number(body.months) > 0) || Number(body.months) > 60)
+          throw new HttpError(400, 'months must be between 1 and 60');
+        months = Number(body.months);
+      }
+    } catch (e) {
+      if (e instanceof HttpError) throw e; // empty body is fine
+    }
+    return c.json({ ok: true, ...archiveAvailability(v, months) });
   });
 
   // Accepting a suggestion is just a capacity override: PUT /api/plan/person.

@@ -93,3 +93,61 @@ export function saveAvailability(v: VaultService, entries: AvailabilityEntry[]):
   v.write(file, replaceAvailabilityTable(existing.content, entries));
   return file;
 }
+
+/**
+ * Move entries that ended more than `months` ago into per-year archive notes
+ * (`availability-2025.md` beside the main note), keeping the working table
+ * short without losing history — it all stays in the vault and in git.
+ */
+export function archiveAvailability(
+  v: VaultService,
+  months = 3,
+): { archived: number; files: string[] } {
+  const existing = readAvailability(v);
+  if (existing.content === null) return { archived: 0, files: [] };
+  const cutoffDate = new Date();
+  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - months);
+  const cutoff = cutoffDate.toISOString().slice(0, 10);
+  const old = existing.entries.filter((e) => e.to < cutoff);
+  if (!old.length) return { archived: 0, files: [] };
+  const keep = existing.entries.filter((e) => e.to >= cutoff);
+
+  const byYear = new Map<string, AvailabilityEntry[]>();
+  for (const e of old) {
+    const y = e.to.slice(0, 4);
+    const list = byYear.get(y) ?? [];
+    list.push(e);
+    byYear.set(y, list);
+  }
+  const files: string[] = [];
+  const dedupeKey = (e: AvailabilityEntry) => `${e.person}|${e.from}|${e.to}|${e.kind}|${e.note}`;
+  for (const [year, entries] of byYear) {
+    const file = v.config.availability.file.replace(/\.md$/i, `-${year}.md`);
+    let content: string | null = null;
+    try {
+      content = v.read(file).content;
+    } catch {
+      content = null;
+    }
+    if (content === null) {
+      v.create(
+        file,
+        `Availability ${year}`,
+        `---\ntype: availability-archive\ntitle: "Availability ${year}"\n---\n\n# Availability ${year}\n\nArchived out-of-office and support entries. The planner does not read this\nnote; it exists for history.\n\n${replaceAvailabilityTable('', entries).trim()}\n`,
+        'availability-archive',
+      );
+    } else {
+      const seen = new Set<string>();
+      const merged = [...parseAvailability(content).entries, ...entries].filter((e) => {
+        const k = dedupeKey(e);
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      v.write(file, replaceAvailabilityTable(content, merged));
+    }
+    files.push(file);
+  }
+  v.write(v.config.availability.file, replaceAvailabilityTable(existing.content, keep));
+  return { archived: old.length, files };
+}

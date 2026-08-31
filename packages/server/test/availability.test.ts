@@ -175,3 +175,72 @@ describe('PUT /api/availability', () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe('POST /api/availability/archive', () => {
+  it('moves old entries into per-year notes and keeps the rest', async () => {
+    // add stale entries from two years to the live table
+    await app.request('/api/availability', {
+      method: 'PUT',
+      body: JSON.stringify({
+        entries: [
+          { person: 'Anna', from: '2024-12-23', to: '2024-12-31', kind: 'ooo', note: 'xmas' },
+          { person: 'Bob', from: '2025-03-03', to: '2025-03-07', kind: 'support', note: '' },
+          { person: 'Anna', from: '2026-08-31', to: '2026-09-04', kind: 'ooo', note: 'recent' },
+        ],
+      }),
+    });
+    const res = await app.request('/api/availability/archive', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { archived: number; files: string[] };
+    expect(body.archived).toBe(2);
+    expect(body.files.sort()).toEqual([
+      'planning/availability-2024.md',
+      'planning/availability-2025.md',
+    ]);
+    const main = readFileSync(join(root, 'planning', 'availability.md'), 'utf8');
+    expect(main).toContain('recent');
+    expect(main).not.toContain('xmas');
+    const y2024 = readFileSync(join(root, 'planning', 'availability-2024.md'), 'utf8');
+    expect(y2024).toContain('type: availability-archive');
+    expect(y2024).toContain('| [[Anna]] | 2024-12-23 | 2024-12-31 | ooo | xmas |');
+    // archiving again is a no-op and does not duplicate rows
+    const again = (await (
+      await app.request('/api/availability/archive', { method: 'POST', body: '{}' })
+    ).json()) as { archived: number };
+    expect(again.archived).toBe(0);
+  });
+
+  it('merges into an existing archive note without duplicating', async () => {
+    await app.request('/api/availability', {
+      method: 'PUT',
+      body: JSON.stringify({
+        entries: [{ person: 'Anna', from: '2025-01-06', to: '2025-01-10', kind: 'ooo', note: 'a' }],
+      }),
+    });
+    await app.request('/api/availability/archive', { method: 'POST', body: '{}' });
+    await app.request('/api/availability', {
+      method: 'PUT',
+      body: JSON.stringify({
+        entries: [
+          { person: 'Anna', from: '2025-01-06', to: '2025-01-10', kind: 'ooo', note: 'a' },
+          { person: 'Bob', from: '2025-06-02', to: '2025-06-06', kind: 'ooo', note: 'b' },
+        ],
+      }),
+    });
+    await app.request('/api/availability/archive', { method: 'POST', body: '{}' });
+    const y2025 = readFileSync(join(root, 'planning', 'availability-2025.md'), 'utf8');
+    expect((y2025.match(/2025-01-06/g) ?? []).length).toBe(1);
+    expect(y2025).toContain('2025-06-02');
+  });
+
+  it('validates the months parameter', async () => {
+    const res = await app.request('/api/availability/archive', {
+      method: 'POST',
+      body: JSON.stringify({ months: -1 }),
+    });
+    expect(res.status).toBe(400);
+  });
+});

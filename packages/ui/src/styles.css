@@ -2247,3 +2247,73 @@ tr.wb-conflict td {
 .plan-btn.add-row {
   margin: 8px 0 4px;
 }
+
+/* ------------------------------------------------- availability month grid */
+.av-cal-label {
+  font-weight: 600;
+  font-size: 14px;
+  min-width: 150px;
+  text-align: center;
+}
+.av-grid {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-panel);
+  font-size: 11px;
+}
+.av-row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.av-row:last-child {
+  border-bottom: none;
+}
+.av-name {
+  flex: none;
+  width: 150px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+.av-day,
+.av-cell {
+  flex: none;
+  width: 26px;
+  height: 24px;
+  box-sizing: border-box;
+  border-right: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.av-day {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  font-size: 10px;
+  height: 22px;
+}
+.av-head {
+  background: var(--bg);
+}
+.av-day.weekend,
+.av-cell.weekend {
+  background: color-mix(in srgb, var(--fg-muted) 8%, transparent);
+}
+.av-day.today {
+  color: var(--danger);
+  font-weight: 700;
+}
+.av-cell.today {
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+.av-cell.ooo {
+  background: color-mix(in srgb, var(--danger) 32%, var(--bg-panel));
+}
+.av-cell.support {
+  background: color-mix(in srgb, var(--st-ready) 32%, var(--bg-panel));
+}

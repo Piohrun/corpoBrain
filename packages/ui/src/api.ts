@@ -368,6 +368,11 @@ export interface AvailabilityResponse {
 
 export const availabilityApi = {
   get: () => req<AvailabilityResponse>('/api/availability'),
+  archive: (months = 3) =>
+    req<{ ok: boolean; archived: number; files: string[] }>('/api/availability/archive', {
+      method: 'POST',
+      body: JSON.stringify({ months }),
+    }),
   save: (entries: AvailabilityEntry[]) =>
     req<{ ok: boolean; file: string; count: number }>('/api/availability', {
       method: 'PUT',
