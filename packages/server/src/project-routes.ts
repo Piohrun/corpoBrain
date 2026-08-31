@@ -25,8 +25,9 @@ import { HttpError, type VaultService } from './vault-service.ts';
 
 /** an issue with no estimate still needs a width on the calendar */
 const UNESTIMATED_DAYS = 2;
-const MAX_DAYS = 120;
+const MAX_DAYS = 320;
 const PAD_DAYS = 10;
+const DEFAULT_HORIZON_MONTHS = 6;
 
 export interface ProjectSummary extends ProjectRollup {
   forecastDate: string | null;
@@ -136,9 +137,14 @@ export function issuesByProject(
 
 const dayList = (from: Date, to: Date): string[] => weekdaysIn(from, to);
 
-/** The day axis: from the earliest dated sprint to PAD_DAYS past the latest. */
-function buildAxis(board: BoardModel): { days: string[]; sprintFrom: Record<string, number> } {
+/** The day axis: from the earliest dated sprint to `months` past today. */
+function buildAxis(
+  board: BoardModel,
+  months: number,
+): { days: string[]; sprintFrom: Record<string, number> } {
   const dated = board.sprints.filter((s) => s.start && s.end);
+  const horizon = new Date();
+  horizon.setUTCMonth(horizon.getUTCMonth() + months);
   let from: Date;
   let to: Date;
   if (dated.length) {
@@ -152,9 +158,9 @@ function buildAxis(board: BoardModel): { days: string[]; sprintFrom: Record<stri
     to = endExclusive(lastEnd);
   } else {
     from = new Date();
-    to = new Date(from.getTime());
-    to.setUTCDate(to.getUTCDate() + 45);
+    to = horizon;
   }
+  if (horizon > to) to = horizon;
   const padded = new Date(to.getTime());
   padded.setUTCDate(padded.getUTCDate() + Math.ceil(PAD_DAYS * 1.4));
   const days = dayList(from, padded).slice(0, MAX_DAYS);
@@ -168,6 +174,52 @@ function buildAxis(board: BoardModel): { days: string[]; sprintFrom: Record<stri
 }
 
 /** Away day indexes per assignee id, split by kind for the UI. */
+/**
+ * Continue the sprint cadence past the last real sprint: cycle length from the
+ * gap between the last two dated starts (or the last sprint's own span), name
+ * by incrementing the trailing number. Projected sprints are visual guides —
+ * they never become plan.sprint values.
+ */
+export function projectedSprints(
+  board: BoardModel,
+  lastDay: string,
+): { name: string; start: string; end: string }[] {
+  const dated = board.sprints
+    .filter((s): s is typeof s & { start: string; end: string } => Boolean(s.start && s.end))
+    .sort((a, b) => a.start.localeCompare(b.start));
+  const last = dated[dated.length - 1];
+  if (!last) return [];
+  const DAY_MS = 86_400_000;
+  const lastStart = new Date(last.start).getTime();
+  let cycleDays = 14;
+  const prev = dated[dated.length - 2];
+  if (prev) {
+    const gap = Math.round((lastStart - new Date(prev.start).getTime()) / DAY_MS);
+    if (gap >= 5 && gap <= 60) cycleDays = gap;
+  } else {
+    const span = Math.round((endExclusive(last.end).getTime() - lastStart) / DAY_MS);
+    if (span >= 5 && span <= 60) cycleDays = span;
+  }
+  const spanMs = endExclusive(last.end).getTime() - lastStart;
+  const base = last.name.replace(/\s*\([^)]*\)\s*$/, '').trim() || last.name;
+  const numMatch = /(\d+)(?!.*\d)/.exec(base);
+  const out: { name: string; start: string; end: string }[] = [];
+  for (let k = 1; k <= 26; k++) {
+    const start = new Date(lastStart + k * cycleDays * DAY_MS);
+    const iso = start.toISOString().slice(0, 10);
+    if (iso > lastDay) break;
+    const name = numMatch
+      ? base.replace(/(\d+)(?!.*\d)/, String(Number(numMatch[1]) + k))
+      : `${base} +${k}`;
+    out.push({
+      name,
+      start: iso,
+      end: new Date(start.getTime() + spanMs - DAY_MS).toISOString().slice(0, 10),
+    });
+  }
+  return out;
+}
+
 function awayByAssignee(
   v: VaultService,
   board: BoardModel,
@@ -245,10 +297,11 @@ function calendarInput(
   v: VaultService,
   board: BoardModel,
   issues: ProjectIssue[],
+  months = DEFAULT_HORIZON_MONTHS,
 ): { input: CalendarInput; away: ReturnType<typeof awayByAssignee> } {
   const cap = v.config.capacity;
   const unit = cap.unit as EffortUnit;
-  const { days, sprintFrom } = buildAxis(board);
+  const { days, sprintFrom } = buildAxis(board, months);
   const away = awayByAssignee(v, board, days);
   return {
     input: {
@@ -302,7 +355,11 @@ export function projectRoutes(v: VaultService): Hono {
     const board = buildBoard(v);
     const issues = issuesByProject(board, defs).get(def.path) ?? [];
     const byKey = new Map(board.issues.map((i) => [i.key, i]));
-    const { input, away } = calendarInput(v, board, issues);
+    const horizonMonths = Math.min(
+      Math.max(Number(c.req.query('months')) || DEFAULT_HORIZON_MONTHS, 1),
+      12,
+    );
+    const { input, away } = calendarInput(v, board, issues, horizonMonths);
     const layout = layoutCalendar(input);
     const arranged = arrangeCalendar(input);
 
@@ -331,6 +388,19 @@ export function projectRoutes(v: VaultService): Hono {
         state: s.state,
       });
     }
+    for (const ps of projectedSprints(board, input.days[input.days.length - 1] ?? '')) {
+      const from = dayIndexOf(input.days, ps.start);
+      const endIdx = dayIndexOf(input.days, endExclusive(ps.end).toISOString().slice(0, 10));
+      if (from >= input.days.length || endIdx <= 0) continue;
+      const f = Math.max(from, 0);
+      sprints.push({
+        name: ps.name,
+        from: f,
+        span: Math.min(endIdx, input.days.length) - f,
+        state: 'projected',
+      });
+    }
+
     const todayIdx = dayIndexOf(input.days, new Date().toISOString().slice(0, 10));
     const today = todayIdx >= 0 && todayIdx < input.days.length ? todayIdx : null;
 

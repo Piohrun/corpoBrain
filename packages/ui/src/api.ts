@@ -405,8 +405,8 @@ export const availabilityApi = {
 
 export const projectApi = {
   list: () => req<{ projects: ProjectSummary[]; untagged: number; unit: string }>('/api/projects'),
-  timeline: (path: string) =>
-    req<CalendarModel>(`/api/projects/timeline?path=${encodeURIComponent(path)}`),
+  timeline: (path: string, months = 6) =>
+    req<CalendarModel>(`/api/projects/timeline?path=${encodeURIComponent(path)}&months=${months}`),
   create: (title: string) =>
     req<{ ok: boolean; path: string }>('/api/projects', {
       method: 'POST',

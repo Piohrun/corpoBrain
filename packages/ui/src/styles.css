@@ -2348,3 +2348,16 @@ tr.wb-conflict td {
   gap: 8px;
   align-items: center;
 }
+
+/* projected sprints: cadence guides, not real sprints */
+.cal-sprints span.projected {
+  color: var(--fg-muted);
+  border-left-style: dashed;
+  border-left-color: color-mix(in srgb, var(--fg-muted) 60%, transparent);
+  font-style: italic;
+  opacity: 0.8;
+}
+.cal-sprint-band.projected {
+  border-left-style: dashed;
+  border-left-color: color-mix(in srgb, var(--fg-muted) 35%, transparent);
+}

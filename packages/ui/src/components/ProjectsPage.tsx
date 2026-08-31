@@ -36,6 +36,14 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
   const [model, setModel] = useState<CalendarModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [day, setDay] = useState(loadZoom);
+  const [horizon, setHorizon] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem('cb.proj.months'));
+      return [3, 6, 12].includes(v) ? v : 6;
+    } catch {
+      return 6;
+    }
+  });
   const zoom = (dir: 1 | -1) => {
     const next = ZOOMS[ZOOMS.indexOf(day) + dir];
     if (!next) return;
@@ -62,10 +70,10 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
   const loadTimeline = useCallback(() => {
     if (!selected) return setModel(null);
     projectApi
-      .timeline(selected)
+      .timeline(selected, horizon)
       .then(setModel)
       .catch((e: Error) => setError(e.message));
-  }, [selected]);
+  }, [selected, horizon]);
 
   useEffect(loadList, [loadList]);
   useEffect(loadTimeline, [loadTimeline]);
@@ -192,6 +200,26 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                 </span>
               )}
               <span className="spacer" />
+              <label className="plan-label">
+                horizon
+                <select
+                  className="cell-input"
+                  value={horizon}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setHorizon(v);
+                    try {
+                      localStorage.setItem('cb.proj.months', String(v));
+                    } catch {
+                      /* not persisted */
+                    }
+                  }}
+                >
+                  <option value={3}>3 months</option>
+                  <option value={6}>6 months</option>
+                  <option value={12}>12 months</option>
+                </select>
+              </label>
               <span className="cal-zoom">
                 <button
                   type="button"
@@ -298,9 +326,11 @@ function Calendar({
     [model.days],
   );
 
+  // for writing plan.sprint: projected bands are guides, not real sprints
   const sprintAt = useCallback(
     (day: number): string | null =>
-      model.sprints.find((s) => day >= s.from && day < s.from + s.span)?.name ?? null,
+      model.sprints.find((s) => s.state !== 'projected' && day >= s.from && day < s.from + s.span)
+        ?.name ?? null,
     [model.sprints],
   );
 
@@ -456,11 +486,17 @@ function Calendar({
               {model.sprints.map((s) => (
                 <span
                   key={s.name}
-                  className={s.state === 'active' ? 'current' : ''}
+                  className={
+                    s.state === 'active' ? 'current' : s.state === 'projected' ? 'projected' : ''
+                  }
                   style={{ left: s.from * DAY, width: s.span * DAY }}
-                  title={s.name}
+                  title={
+                    s.state === 'projected'
+                      ? `${s.name} — projected from the sprint cadence`
+                      : s.name
+                  }
                 >
-                  {s.name}
+                  {s.state === 'projected' ? `≈ ${s.name}` : s.name}
                 </span>
               ))}
             </div>
@@ -493,7 +529,9 @@ function Calendar({
             {model.sprints.map((s) => (
               <i
                 key={s.name}
-                className={`cal-sprint-band${s.state === 'active' ? ' current' : ''}`}
+                className={`cal-sprint-band${s.state === 'active' ? ' current' : ''}${
+                  s.state === 'projected' ? ' projected' : ''
+                }`}
                 style={{ left: s.from * DAY, width: s.span * DAY }}
               />
             ))}
@@ -669,7 +707,13 @@ function IssueSearch({
 
   const row = model.rows[at.row];
   const day = model.days[at.day];
-  const sprint = model.sprints.find((s) => at.day >= s.from && at.day < s.from + s.span)?.name;
+  const span = model.sprints.find((s) => at.day >= s.from && at.day < s.from + s.span);
+  const sprint = span && span.state !== 'projected' ? span.name : undefined;
+  const sprintLabel = span
+    ? span.state === 'projected'
+      ? `≈ ${span.name}`
+      : span.name
+    : undefined;
 
   const pick = (key: string, alreadyInProject: boolean) => {
     const body: PlanPatch = { start: day ?? null };
@@ -692,7 +736,7 @@ function IssueSearch({
       >
         <div className="cal-search-head">
           <b>{row?.name}</b> · {shortDate(day ?? null)}
-          {sprint ? ` · ${sprint}` : ''}
+          {sprintLabel ? ` · ${sprintLabel}` : ''}
           <span className="spacer" />
           <button type="button" className="row-del" onClick={onClose}>
             ✕

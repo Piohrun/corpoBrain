@@ -226,6 +226,30 @@ describe('GET /api/projects/timeline', () => {
     expect(t.finishDate).toMatch(/^2026-09-/);
   });
 
+  it('extends the axis by the horizon and projects the sprint cadence', async () => {
+    const t = (await (
+      await app.request('/api/projects/timeline?path=projects%2Ffalcon.md&months=6')
+    ).json()) as CalendarModel;
+    // six months past today, not just past the last sprint
+    const horizon = new Date();
+    horizon.setUTCMonth(horizon.getUTCMonth() + 5);
+    expect((t.days[t.days.length - 1] ?? '') >= horizon.toISOString().slice(0, 10)).toBe(true);
+    // cadence from Sprint 37→38 (two weeks): Sprint 39, 40, … marked projected
+    const projected = t.sprints.filter((s) => s.state === 'projected');
+    expect(projected.length).toBeGreaterThanOrEqual(8);
+    expect(projected[0]).toMatchObject({ name: 'Sprint 39', span: 10 });
+    expect(projected[1]?.name).toBe('Sprint 40');
+    // real sprints keep their states; projected ones are additions
+    expect(t.sprints.filter((s) => s.state !== 'projected').map((s) => s.name)).toEqual([
+      'Sprint 37',
+      'Sprint 38',
+    ]);
+    const three = (await (
+      await app.request('/api/projects/timeline?path=projects%2Ffalcon.md&months=3')
+    ).json()) as CalendarModel;
+    expect(three.days.length).toBeLessThan(t.days.length);
+  });
+
   it('404s for an unknown project', async () => {
     const res = await app.request('/api/projects/timeline?path=projects/nope.md');
     expect(res.status).toBe(404);
