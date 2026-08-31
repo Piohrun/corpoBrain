@@ -9,6 +9,14 @@ import {
 } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
+import {
+  type ApplyItem,
+  applyChanges,
+  collectStaged,
+  journalTail,
+  previewChanges,
+  undoItems,
+} from './writeback.ts';
 
 export interface JiraIssueRow {
   key: string;
@@ -55,6 +63,7 @@ export function jiraRoutes(v: VaultService): Hono {
     estimateField: v.config.jira.estimateField,
     estimateUnit: v.config.jira.estimateUnit,
     syncComments: v.config.jira.syncComments,
+    writeback: v.config.jira.writeback,
     profiles: v.config.jira.profiles,
     tokenSet: loadJiraAuth(v.root, v.config) !== null,
   });
@@ -81,6 +90,8 @@ export function jiraRoutes(v: VaultService): Hono {
     if (rest.estimateUnit && ['points', 'days', 'hours', 'seconds'].includes(rest.estimateUnit))
       partial.estimateUnit = rest.estimateUnit;
     if (typeof rest.syncComments === 'boolean') partial.syncComments = rest.syncComments;
+    if (rest.writeback && ['off', 'dry-run', 'on'].includes(rest.writeback))
+      partial.writeback = rest.writeback;
     if (Array.isArray(rest.profiles)) {
       partial.profiles = rest.profiles
         .filter((p) => p && typeof p.name === 'string' && typeof p.jql === 'string')
@@ -206,6 +217,58 @@ export function jiraRoutes(v: VaultService): Hono {
     } finally {
       syncing = false;
     }
+  });
+
+  // ------------------------------------------------------------ write-back
+  let applying = false;
+
+  app.get('/writeback/staged', (c) => c.json(collectStaged(v)));
+
+  app.post('/writeback/preview', async (c) => {
+    if (v.config.jira.writeback === 'off')
+      throw new HttpError(403, 'write-back is off — enable dry-run in Jira settings first');
+    const body = (await c.req.json().catch(() => ({}))) as { keys?: string[] };
+    const staged = collectStaged(v).filter(
+      (s) => s.writable && (!body.keys || body.keys.includes(s.key)),
+    );
+    const adapter = createJiraAdapter(v.root, v.config);
+    return c.json(await previewChanges(v, adapter, staged));
+  });
+
+  app.post('/writeback/apply', async (c) => {
+    const mode = v.config.jira.writeback;
+    if (mode === 'off')
+      throw new HttpError(403, 'write-back is off — enable dry-run in Jira settings first');
+    if (applying) throw new HttpError(409, 'a write-back batch is already running');
+    applying = true;
+    try {
+      const body = (await c.req.json()) as { items?: unknown };
+      const items = Array.isArray(body.items) ? (body.items as ApplyItem[]) : [];
+      if (!items.length) throw new HttpError(400, 'items required');
+      for (const i of items) {
+        if (!i.key || !['sprint', 'assignee'].includes(i.field) || typeof i.to !== 'string')
+          throw new HttpError(400, 'invalid item');
+      }
+      const adapter = createJiraAdapter(v.root, v.config);
+      const report = await applyChanges(v, adapter, items, { dryRun: mode === 'dry-run' });
+      if (mode === 'on' && report.results.some((r) => r.status === 'applied')) {
+        // fire-and-forget resync so the mirror catches up with our own writes
+        runSync(v).catch(() => {});
+      }
+      return c.json(report);
+    } finally {
+      applying = false;
+    }
+  });
+
+  app.get('/writeback/journal', (c) =>
+    c.json(journalTail(v, Number(c.req.query('limit') ?? 50)).reverse()),
+  );
+
+  app.post('/writeback/undo', async (c) => {
+    const body = (await c.req.json()) as { batchId?: string };
+    if (!body.batchId) throw new HttpError(400, 'batchId required');
+    return c.json({ items: undoItems(v, body.batchId) });
   });
 
   app.get('/status', (c) => {
