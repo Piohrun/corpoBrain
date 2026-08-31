@@ -892,3 +892,15 @@ button {
 .tree-row.dragging {
   opacity: 0.45;
 }
+
+.wiki-inline {
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
+.wiki-inline:hover {
+  text-decoration: underline;
+}
+.done-task .wiki-inline {
+  color: inherit;
+}

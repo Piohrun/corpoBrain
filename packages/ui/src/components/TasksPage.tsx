@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type TaskItem } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { WikiText } from './WikiText.tsx';
 
 export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -73,7 +74,11 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
             {items.map((t) => (
               <div key={`${t.path}:${t.line}`} className="task-row">
                 <input type="checkbox" checked={t.done === 1} onChange={() => toggle(t)} />
-                <span className={t.done ? 'muted done-task' : ''}>{t.text}</span>
+                <WikiText
+                  text={t.text}
+                  className={t.done ? 'muted done-task' : ''}
+                  onOpen={onOpenNote}
+                />
                 {t.due && <span className="due-chip">{t.due}</span>}
                 <button type="button" className="key-link small" onClick={() => onOpenNote(t.path)}>
                   {t.title}
