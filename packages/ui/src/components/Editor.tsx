@@ -10,15 +10,25 @@ interface Props {
   content: string;
   completions: () => { title: string; path: string }[];
   onNavigate: (target: string) => void;
+  /** called on unmount with the editor's final text so the app state stays current */
+  onSnapshot: (path: string, content: string) => void;
   onSaveState: (state: 'saved' | 'saving' | 'error') => void;
   onSaved: () => void;
 }
 
-export function Editor({ path, content, completions, onNavigate, onSaveState, onSaved }: Props) {
+export function Editor({
+  path,
+  content,
+  completions,
+  onNavigate,
+  onSnapshot,
+  onSaveState,
+  onSaved,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const latest = useRef({ path, onNavigate, completions, onSaveState, onSaved });
-  latest.current = { path, onNavigate, completions, onSaveState, onSaved };
+  const latest = useRef({ path, onNavigate, onSnapshot, completions, onSaveState, onSaved });
+  latest.current = { path, onNavigate, onSnapshot, completions, onSaveState, onSaved };
 
   const [save, flushSave] = useDebouncedCallback((p: string, text: string) => {
     latest.current.onSaveState('saving');
@@ -51,6 +61,9 @@ export function Editor({ path, content, completions, onNavigate, onSaveState, on
     viewRef.current = view;
     view.focus();
     return () => {
+      // hand the final text back before unmount so a remount shows what was
+      // typed (the flush below persists it, but app state must match too)
+      latest.current.onSnapshot(path, view.state.doc.toString());
       flushSave();
       view.destroy();
       viewRef.current = null;

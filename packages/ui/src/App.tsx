@@ -315,6 +315,9 @@ export function App() {
                   content={note.content}
                   completions={completions}
                   onNavigate={navigate}
+                  onSnapshot={(path, content) =>
+                    setNote((prev) => (prev && prev.path === path ? { ...prev, content } : prev))
+                  }
                   onSaveState={setSaveState}
                   onSaved={onSaved}
                 />
