@@ -2361,3 +2361,51 @@ tr.wb-conflict td {
   border-left-style: dashed;
   border-left-color: color-mix(in srgb, var(--fg-muted) 35%, transparent);
 }
+
+/* per-sprint load footer under the calendar body */
+.cal-foot {
+  position: relative;
+  height: 26px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.cal-foot-cell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  font-size: 10.5px;
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+  box-sizing: border-box;
+}
+.cal-foot-cell i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--st-done) 22%, transparent);
+}
+.cal-foot-cell.warn i {
+  background: color-mix(in srgb, var(--link-unresolved) 28%, transparent);
+}
+.cal-foot-cell.over i {
+  background: color-mix(in srgb, var(--danger) 26%, transparent);
+}
+.cal-foot-cell.over b {
+  color: var(--danger);
+}
+.cal-foot-cell b {
+  position: relative;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+.cal-foot-cell.projected {
+  opacity: 0.65;
+  font-style: italic;
+}
+.coming-date {
+  min-width: 110px;
+}

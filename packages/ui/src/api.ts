@@ -316,7 +316,14 @@ export interface CalendarModel {
   days: string[];
   today: number | null;
   months: { label: string; from: number; span: number }[];
-  sprints: { name: string; from: number; span: number; state: string }[];
+  sprints: {
+    name: string;
+    from: number;
+    span: number;
+    state: string;
+    scheduled: number;
+    capacity: number | null;
+  }[];
   rows: {
     assignee: string;
     jiraId: string | null;

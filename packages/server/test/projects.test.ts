@@ -226,6 +226,18 @@ describe('GET /api/projects/timeline', () => {
     expect(t.finishDate).toMatch(/^2026-09-/);
   });
 
+  it('totals scheduled days against team capacity per sprint', async () => {
+    const t = await timeline();
+    const s37 = t.sprints.find((s) => s.name === 'Sprint 37');
+    // EXEC-1 (3d, anna) + EXEC-2 (2d, bob) land in Sprint 37; team = anna + bob at 8d each
+    expect(s37).toMatchObject({ scheduled: 5, capacity: 16 });
+    const s38 = t.sprints.find((s) => s.name === 'Sprint 38');
+    expect(s38).toMatchObject({ scheduled: 5, capacity: 16 }); // EXEC-3 (5d)
+    // projected sprints assume base capacity and start empty
+    const proj = t.sprints.find((s) => s.state === 'projected');
+    expect(proj).toMatchObject({ scheduled: 0, capacity: 16 });
+  });
+
   it('extends the axis by the horizon and projects the sprint cadence', async () => {
     const t = (await (
       await app.request('/api/projects/timeline?path=projects%2Ffalcon.md&months=6')

@@ -61,7 +61,16 @@ export interface CalendarModel {
   days: string[];
   today: number | null;
   months: { label: string; from: number; span: number }[];
-  sprints: { name: string; from: number; span: number; state: string }[];
+  sprints: {
+    name: string;
+    from: number;
+    span: number;
+    state: string;
+    /** workdays of scheduled blocks that land inside this sprint */
+    scheduled: number;
+    /** the project team's absence-adjusted capacity in days (null: no team rows) */
+    capacity: number | null;
+  }[];
   rows: {
     /** row key: the person's Jira id, or person:<path> when they have none */
     assignee: string;
@@ -386,6 +395,8 @@ export function projectRoutes(v: VaultService): Hono {
         from: f,
         span: Math.min(endIdx, input.days.length) - f,
         state: s.state,
+        scheduled: 0,
+        capacity: null,
       });
     }
     for (const ps of projectedSprints(board, input.days[input.days.length - 1] ?? '')) {
@@ -398,6 +409,8 @@ export function projectRoutes(v: VaultService): Hono {
         from: f,
         span: Math.min(endIdx, input.days.length) - f,
         state: 'projected',
+        scheduled: 0,
+        capacity: null,
       });
     }
 
@@ -445,6 +458,32 @@ export function projectRoutes(v: VaultService): Hono {
     };
     rows.sort((a, b) => orderOf(a.path) - orderOf(b.path) || a.name.localeCompare(b.name));
     addRow('(unassigned)', false);
+
+    // ---- per-sprint load footer -------------------------------------------
+    const sprintOfDay = (d: number) => sprints.find((x) => d >= x.from && d < x.from + x.span);
+    for (const b of layout.blocks) {
+      const awaySet = new Set(input.away[b.assignee] ?? []);
+      let counted = 0;
+      for (let d = b.start; d < b.start + b.span && counted < b.workDays; d++) {
+        if (awaySet.has(d)) continue;
+        counted++;
+        const sp = sprintOfDay(d);
+        if (sp) sp.scheduled = Math.round((sp.scheduled + 1) * 100) / 100;
+      }
+    }
+    const team = rows
+      .map((r) => board.people.find((p) => r.jiraId && p.jiraIds.includes(r.jiraId)))
+      .filter((p): p is NonNullable<typeof p> => p !== undefined);
+    for (const sp of sprints) {
+      if (!team.length) continue;
+      let cap = 0;
+      for (const p of team) {
+        // override > absence-adjusted > base; projected sprints fall to the base
+        const c = p.overrides[sp.name] ?? p.suggested[sp.name] ?? p.capacity;
+        if (c !== null) cap += input.toDays(c);
+      }
+      sp.capacity = Math.round(cap * 100) / 100;
+    }
 
     const decorate = (b: (typeof layout.blocks)[number]): CalendarBlockOut => {
       const i = byKey.get(b.key);

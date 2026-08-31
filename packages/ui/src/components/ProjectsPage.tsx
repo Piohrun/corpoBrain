@@ -613,8 +613,39 @@ function Calendar({
               </div>
             )}
           </div>
+
+          <div className="cal-foot" style={{ width }}>
+            {model.sprints.map((sp) => {
+              const pct =
+                sp.capacity && sp.capacity > 0 ? Math.min(sp.scheduled / sp.capacity, 1.4) : 0;
+              const cls =
+                sp.capacity !== null && sp.scheduled > sp.capacity + 0.001
+                  ? ' over'
+                  : pct > 0.85
+                    ? ' warn'
+                    : '';
+              return (
+                <span
+                  key={sp.name}
+                  className={`cal-foot-cell${cls}${sp.state === 'projected' ? ' projected' : ''}`}
+                  style={{ left: sp.from * DAY, width: sp.span * DAY }}
+                  title={`${sp.name}: ${sp.scheduled}d scheduled${
+                    sp.capacity !== null ? ` of ${sp.capacity}d the team has` : ''
+                  }${sp.state === 'projected' ? ' (projected sprint — capacity assumed)' : ''}`}
+                >
+                  <i style={{ width: `${Math.min(pct * 100, 100)}%` }} />
+                  <b>
+                    {sp.scheduled}
+                    {sp.capacity !== null ? `/${sp.capacity}d` : 'd'}
+                  </b>
+                </span>
+              );
+            })}
+          </div>
         </div>
       </div>
+
+      <ComingUp model={model} onOpenNote={onOpenNote} />
 
       {search &&
         createPortal(
@@ -869,5 +900,52 @@ function RosterButton({
         </div>
       )}
     </span>
+  );
+}
+
+// ------------------------------------------------------------ coming up next
+
+function ComingUp({
+  model,
+  onOpenNote,
+}: {
+  model: CalendarModel;
+  onOpenNote: (path: string) => void;
+}) {
+  const nameOf = new Map(model.rows.map((r) => [r.assignee, r.name]));
+  const upcoming = model.blocks
+    .filter((b) => model.today === null || b.start + b.span > model.today)
+    .sort((a, b) => a.start - b.start || a.key.localeCompare(b.key))
+    .slice(0, 14);
+  if (!upcoming.length) return null;
+  const fmt = (idx: number) =>
+    idx < model.days.length
+      ? new Date(`${model.days[idx]}T00:00:00Z`).toLocaleDateString(undefined, {
+          day: 'numeric',
+          month: 'short',
+        })
+      : '…';
+  return (
+    <section>
+      <h2 className="plan-h2">Coming up</h2>
+      <ul className="digest-list">
+        {upcoming.map((b) => (
+          <li key={b.key} className="digest-row">
+            <span className="digest-when coming-date">
+              {fmt(b.start)} – {fmt(b.start + b.span - 1)}
+            </span>
+            <button type="button" className="key-link" onClick={() => onOpenNote(b.path)}>
+              {b.key}
+            </button>
+            <span className="digest-kind">{nameOf.get(b.assignee) ?? b.assignee}</span>
+            <span className="digest-summary">{b.summary}</span>
+            <span className="digest-when">
+              {b.workDays}d{b.estimated ? '' : ' (no estimate)'}
+              {b.pinned ? '' : ' · flowing'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
