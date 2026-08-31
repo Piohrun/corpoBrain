@@ -335,6 +335,8 @@ describe('default capacity', () => {
     expect(board.defaultCapacity).toBe(7.5);
     expect(board.people.find((p) => p.name === 'NoCap')?.capacity).toBe(7.5);
     expect(board.people.find((p) => p.name === 'Anna')?.capacity).toBe(8); // explicit wins
+    expect(board.people.find((p) => p.name === 'NoCap')?.capacityIsDefault).toBe(true);
+    expect(board.people.find((p) => p.name === 'Anna')?.capacityIsDefault).toBe(false);
     // persisted to config.json
     const onDisk = JSON.parse(readFileSync(join(root, '.corpobrain', 'config.json'), 'utf8'));
     expect(onDisk.capacity.defaultCapacity).toBe(7.5);

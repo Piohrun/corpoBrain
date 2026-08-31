@@ -262,6 +262,7 @@ interface Row {
   name: string;
   jiraId: string | null;
   capacity: number | null;
+  capacityIsDefault: boolean;
   overrides: Record<string, number>;
   loadOverrides: Record<string, number>;
   region: string | null;
@@ -321,6 +322,7 @@ function BandwidthGrid({
         name: p.name,
         jiraId: p.jiraIds[0] ?? null,
         capacity: p.capacity,
+        capacityIsDefault: p.capacityIsDefault,
         overrides: p.overrides,
         loadOverrides: p.loadOverrides ?? {},
         region: p.region,
@@ -339,6 +341,7 @@ function BandwidthGrid({
       name: id,
       jiraId: id as string | null,
       capacity: null as number | null,
+      capacityIsDefault: false,
       overrides: {} as Record<string, number>,
       loadOverrides: {} as Record<string, number>,
       region: null,
@@ -354,6 +357,7 @@ function BandwidthGrid({
         name: 'Unassigned',
         jiraId: null as string | null,
         capacity: null as number | null,
+        capacityIsDefault: false,
         overrides: {} as Record<string, number>,
         loadOverrides: {} as Record<string, number>,
         region: null,
@@ -564,7 +568,12 @@ function BandwidthGrid({
           <div className="muted small">
             <EditableNumber
               value={row.capacity}
-              title="Default capacity per sprint"
+              dimmed={row.capacityIsDefault}
+              title={
+                row.capacityIsDefault
+                  ? 'Inherited from the vault default — click to set explicitly'
+                  : 'Default capacity per sprint'
+              }
               onCommit={(v) => onPatchPerson({ path: row.path as string, capacity: v })}
             />{' '}
             {board.unit}/sprint
@@ -856,11 +865,13 @@ function EditableNumber({
   value,
   placeholder,
   title,
+  dimmed,
   onCommit,
 }: {
   value: number | null;
   placeholder?: string;
   title?: string;
+  dimmed?: boolean;
   onCommit: (v: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -868,7 +879,7 @@ function EditableNumber({
     return (
       <button
         type="button"
-        className="cap-value"
+        className={`cap-value${dimmed ? ' inherited' : ''}`}
         title={title ?? 'Click to edit'}
         onClick={() => setEditing(true)}
       >

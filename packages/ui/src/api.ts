@@ -131,6 +131,7 @@ export interface BoardPerson {
   capacity: number | null;
   overrides: Record<string, number>;
   active: boolean;
+  capacityIsDefault: boolean;
   region: string | null;
   team: string | null;
   loadOverrides: Record<string, number>;

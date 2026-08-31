@@ -1574,3 +1574,8 @@ tr.wb-conflict td {
 .cm-table-pending {
   color: var(--link-unresolved);
 }
+
+.cap-value.inherited {
+  opacity: 0.55;
+  font-style: italic;
+}

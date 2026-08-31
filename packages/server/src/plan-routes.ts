@@ -54,6 +54,8 @@ export interface BoardPerson {
   capacity: number | null;
   overrides: Record<string, number>;
   active: boolean;
+  /** capacity came from the vault-wide default, not this person's file */
+  capacityIsDefault: boolean;
   region: string | null;
   team: string | null;
   /** manual replacement of the person's planned/used load per sprint */
@@ -134,6 +136,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     name: p.name,
     jiraIds: safeArr(p.jira_id),
     capacity: p.capacity ?? cap.defaultCapacity,
+    capacityIsDefault: p.capacity === null && cap.defaultCapacity !== null,
     overrides: safeObj(p.overrides_json),
     active: p.active === 1,
     region: p.region,
