@@ -34,6 +34,8 @@ export interface VaultConfig {
   };
   jira: {
     baseUrl: string;
+    /** forward proxy for Jira calls, e.g. http://proxy.corp:8080 (empty = direct / env vars) */
+    proxyUrl: string;
     deployment: 'auto' | 'datacenter' | 'cloud';
     auth: 'bearer' | 'basic';
     projectKeys: string[];
@@ -67,6 +69,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
   capacity: { unit: 'days', pointsPerDay: 1, hoursPerDay: 8, sprintLengthDays: 10 },
   jira: {
     baseUrl: '',
+    proxyUrl: '',
     deployment: 'auto',
     auth: 'bearer',
     projectKeys: [],

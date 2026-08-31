@@ -293,6 +293,7 @@ export interface JiraProfileCfg {
 
 export interface JiraConfig {
   baseUrl: string;
+  proxyUrl: string;
   deployment: 'auto' | 'datacenter' | 'cloud';
   auth: 'bearer' | 'basic';
   projectKeys: string[];

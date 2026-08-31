@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { VaultConfig } from '../config.ts';
 import { JiraAdapter, type JiraAuth } from './adapter.ts';
+import { createProxyFetch, resolveProxyUrl } from './proxy.ts';
 
 export function loadJiraAuth(root: string, config: VaultConfig): JiraAuth | null {
   let token = process.env.CORPOBRAIN_JIRA_TOKEN;
@@ -41,5 +42,11 @@ export function createJiraAdapter(root: string, config: VaultConfig): JiraAdapte
       'no Jira token: set CORPOBRAIN_JIRA_TOKEN (and CORPOBRAIN_JIRA_EMAIL for cloud) or .corpobrain/secrets.json',
     );
   }
-  return new JiraAdapter(config.jira.baseUrl, auth, config.jira.deployment);
+  const proxy = resolveProxyUrl(config.jira.proxyUrl);
+  return new JiraAdapter(
+    config.jira.baseUrl,
+    auth,
+    config.jira.deployment,
+    proxy ? createProxyFetch(proxy) : fetch,
+  );
 }

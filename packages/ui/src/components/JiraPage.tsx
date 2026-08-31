@@ -87,6 +87,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
     jiraApi
       .saveConfig({
         baseUrl: draft.baseUrl,
+        proxyUrl: draft.proxyUrl,
         deployment: draft.deployment,
         auth: draft.auth,
         projectKeys: draft.projectKeys,
@@ -143,6 +144,13 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               placeholder="https://jira.yourcompany.com"
               value={draft.baseUrl}
               onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
+            />
+            <label htmlFor="j-proxy">proxy (optional)</label>
+            <input
+              id="j-proxy"
+              placeholder="http://proxy.yourco.com:8080 — leave empty for direct / env vars"
+              value={draft.proxyUrl}
+              onChange={(e) => setDraft({ ...draft, proxyUrl: e.target.value })}
             />
             <label htmlFor="j-auth">auth</label>
             <select

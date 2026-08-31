@@ -42,6 +42,7 @@ export function jiraRoutes(v: VaultService): Hono {
 
   const sanitizedConfig = () => ({
     baseUrl: v.config.jira.baseUrl,
+    proxyUrl: v.config.jira.proxyUrl,
     deployment: v.config.jira.deployment,
     auth: v.config.jira.auth,
     projectKeys: v.config.jira.projectKeys,
@@ -62,6 +63,7 @@ export function jiraRoutes(v: VaultService): Hono {
     const { token, email, ...rest } = body;
     const partial: Partial<VaultConfig['jira']> = {};
     if (typeof rest.baseUrl === 'string') partial.baseUrl = rest.baseUrl.trim().replace(/\/+$/, '');
+    if (typeof rest.proxyUrl === 'string') partial.proxyUrl = rest.proxyUrl.trim();
     if (rest.deployment && ['auto', 'datacenter', 'cloud'].includes(rest.deployment))
       partial.deployment = rest.deployment;
     if (rest.auth && ['bearer', 'basic'].includes(rest.auth)) partial.auth = rest.auth;

@@ -46,7 +46,10 @@ vault location, `CORPOBRAIN_PORT` for the port).
 **Connect Jira** from the app: ⚙ page → Connection settings → URL, auth
 (Bearer PAT for Data Center, email + API token for Cloud), token, project keys,
 a sync profile with your JQL and board id → *Test connection* → *Sync now*.
-If your proxy uses a custom root CA, set `NODE_EXTRA_CA_CERTS=C:\path\to\ca.pem`.
+If Jira is only reachable through the corporate proxy, fill the **proxy** field
+in the same settings (or set `HTTPS_PROXY`). If TLS fails behind interception,
+`start.cmd` auto-uses the Windows cert store on newer Node; otherwise set
+`NODE_EXTRA_CA_CERTS=C:\path\to\ca.pem`.
 
 **Updating**: `git pull` + `npm run build` (option A), or copy a fresh `dist\`
 (option B). Your vault is untouched by updates; the index rebuilds itself when
