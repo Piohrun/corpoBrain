@@ -74,6 +74,24 @@ describe('GET /api/availability', () => {
     expect(body.sprints).toEqual(['Sprint 37', 'Sprint 38']);
   });
 
+  it('hides hubs and inactive people from the calendar and impact', async () => {
+    writeFileSync(
+      join(root, 'people', 'EMEA.md'),
+      '---\ntype: person\ntitle: EMEA\nregion: EMEA\nactive: false\n---\n',
+    );
+    writeFileSync(
+      join(root, 'people', 'gone.md'),
+      '---\ntype: person\ntitle: Gone Person\njira: gone\nactive: false\n---\n',
+    );
+    vault.indexer.rebuild();
+    const body = await get();
+    const names = body.people.map((p) => p.name);
+    expect(names).not.toContain('EMEA');
+    expect(names).not.toContain('Gone Person');
+    expect(names).toContain('Anna');
+    expect(body.rows.some((r) => r.name === 'EMEA')).toBe(false);
+  });
+
   it('warns about names that match no person note', async () => {
     const body = await get();
     expect(body.warnings.join(' ')).toContain('Nobody At All');

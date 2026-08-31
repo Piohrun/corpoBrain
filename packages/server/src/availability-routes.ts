@@ -52,8 +52,10 @@ export function availabilityRoutes(v: VaultService): Hono {
     const board = buildBoard(v);
     const spans = board.sprints.map((s) => ({ name: s.name, start: s.start, end: s.end }));
     const resolved = resolveAvailability(v, spans, board.people);
+    // hubs (region/team notes) and departed people are person-type but inactive
+    const activePeople = board.people.filter((p) => p.active);
     const rows: AvailabilityRow[] = [];
-    for (const p of board.people) {
+    for (const p of activePeople) {
       const perSprint = resolved.byPerson.get(p.path);
       if (!perSprint) continue;
       for (const s of spans) {
@@ -81,7 +83,7 @@ export function availabilityRoutes(v: VaultService): Hono {
       warnings: resolved.warnings,
       unit: board.unit,
       supportFactor: v.config.availability.supportFactor,
-      people: board.people.map((p) => ({
+      people: activePeople.map((p) => ({
         path: p.path,
         name: p.name,
         order: p.sortOrder,
