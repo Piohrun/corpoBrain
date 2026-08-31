@@ -259,5 +259,9 @@ export const treeApi = {
     parent?: string | null;
     order?: number | null;
     tags?: string[] | null;
-  }) => req<{ ok: boolean }>('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) }),
+  }) =>
+    req<{ ok: boolean; path: string }>('/api/tree/meta', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
 };

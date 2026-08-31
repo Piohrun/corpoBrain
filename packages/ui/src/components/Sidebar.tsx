@@ -12,7 +12,7 @@ interface Props {
   onDaily: () => void;
   onNew: () => void;
   onPalette: () => void;
-  onTreeChanged: () => void;
+  onTreeChanged: (moved?: { from: string; to: string }) => void;
 }
 
 export function Sidebar({

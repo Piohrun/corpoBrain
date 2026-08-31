@@ -171,7 +171,8 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
 }
 
 function createTyped(type: string, title: string, done: () => void): void {
-  const folder = type === 'person' ? 'people' : 'notes';
+  const folder =
+    type === 'person' ? 'people' : type === 'note' || type === 'daily' ? 'notes' : type;
   const safe = title.replace(/[\\:*?"<>|/]/g, '-');
   fetch('/api/note', {
     method: 'POST',

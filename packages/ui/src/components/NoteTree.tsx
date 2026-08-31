@@ -6,7 +6,7 @@ interface Props {
   tree: TreeModel;
   currentPath: string | null;
   onOpen: (path: string) => void;
-  onChanged: () => void;
+  onChanged: (moved?: { from: string; to: string }) => void;
 }
 
 const LS_KEY = 'corpobrain.collapsed';
@@ -58,8 +58,10 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
   const placeNote = useCallback(
     (body: { path: string; parent?: string | null; folder?: string | null; index?: number }) => {
       fetch('/api/tree/place', { method: 'POST', body: JSON.stringify(body) })
-        .then((r) => {
-          if (r.ok) onChanged();
+        .then(async (r) => {
+          if (!r.ok) return;
+          const json = (await r.json()) as { path: string };
+          onChanged(json.path !== body.path ? { from: body.path, to: json.path } : undefined);
         })
         .catch(() => {});
     },

@@ -221,7 +221,7 @@ export class Indexer {
       str(fm.title) ??
       /^#\s+(.+)$/m.exec(text.slice(parsed.bodyOffset))?.[1]?.trim() ??
       basename(f.path, '.md');
-    const type = str(fm.type) ?? 'note';
+    const type = str(fm.type) ?? this.typeFromPath(f.path);
     const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
 
     this.db
@@ -304,6 +304,19 @@ export class Indexer {
     if (type === 'jira') this.indexJira(f.path, fm);
     if (type === 'person') this.indexPerson(f.path, title, fm);
     return assignedId;
+  }
+
+  /** Category = top-level folder. Derived type when frontmatter has none. */
+  private typeFromPath(path: string): string {
+    const folder = path.includes('/') ? (path.split('/')[0] as string) : '';
+    const f = this.config.folders;
+    if (folder === f.people) return 'person';
+    if (folder === f.daily) return 'daily';
+    if (folder === f.templates) return 'template';
+    if (folder === f.jira) return 'jira';
+    if (folder === '' || folder === f.notes || folder === f.planning || folder === f.attachments)
+      return 'note';
+    return folder;
   }
 
   private indexJira(path: string, fm: Record<string, unknown>): void {

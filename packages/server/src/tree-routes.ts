@@ -3,6 +3,72 @@ import { deleteFrontmatterKey, parseFrontmatter, setFrontmatterKey } from '@corp
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
 
+/** Category = top-level folder. Map a category/type name to its folder. */
+export function folderForCategory(v: VaultService, category: string | null): string {
+  const f = v.config.folders;
+  const c = (category ?? '').trim().toLowerCase();
+  if (c === '' || c === 'note' || c === f.notes) return f.notes;
+  if (c === 'person' || c === f.people) return f.people;
+  if (c === 'daily' || c === f.daily) return f.daily;
+  if (c === 'template' || c === f.templates) return f.templates;
+  if (c === 'view' || c === 'scenario' || c === f.planning) return f.planning;
+  if (c === 'jira' || c === f.jira)
+    throw new HttpError(400, 'the jira category is managed by sync');
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(c))
+    throw new HttpError(400, 'category must be alphanumeric (dashes allowed)');
+  return c;
+}
+
+/** The frontmatter type a note should carry in a given folder (null = none). */
+function typeForFolder(v: VaultService, folder: string): string | null {
+  const f = v.config.folders;
+  if (folder === f.people) return 'person';
+  if (folder === f.notes || folder === f.daily || folder === f.templates || folder === f.planning)
+    return null;
+  return folder;
+}
+
+/**
+ * Move a note into a category folder: file move (if needed), type sync, and
+ * cross-category parent break. Returns the note's (possibly new) path.
+ */
+export function applyCategory(
+  v: VaultService,
+  path: string,
+  category: string | null,
+  opts: { keepParent?: boolean } = {},
+): string {
+  const folder = folderForCategory(v, category);
+  const currentFolder = path.includes('/') ? (path.split('/')[0] as string) : '';
+  let p = path;
+  if (folder !== currentFolder) {
+    const base = p.split('/').pop() as string;
+    const target = `${folder}/${base}`;
+    v.move(p, target);
+    p = target;
+  }
+  const { content } = v.read(p);
+  let text = content;
+  const wanted = typeForFolder(v, folder);
+  text = wanted ? setFrontmatterKey(text, 'type', wanted) : deleteFrontmatterKey(text, 'type');
+  if (!opts.keepParent) {
+    const fm = parseFrontmatter(text).data;
+    const rawParent = typeof fm.parent === 'string' ? fm.parent : null;
+    if (rawParent) {
+      const m = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim());
+      const resolved = v.resolve(m ? (m[1] as string).trim() : rawParent);
+      const parentFolder = resolved.path.includes('/')
+        ? (resolved.path.split('/')[0] as string)
+        : '';
+      if (!resolved.exists || parentFolder !== folder) {
+        text = deleteFrontmatterKey(text, 'parent');
+      }
+    }
+  }
+  if (text !== content) v.write(p, text);
+  return p;
+}
+
 export interface TreeNode {
   path: string;
   title: string;
@@ -124,18 +190,12 @@ export function treeRoutes(v: VaultService): Hono {
       tags?: string[] | null;
     };
     if (!body.path) throw new HttpError(400, 'path required');
-    const { content, path } = v.read(body.path);
-    let text = content;
-
+    let workingPath = v.read(body.path).path;
     if (body.type !== undefined) {
-      if (body.type === null || body.type === '' || body.type === 'note') {
-        text = deleteFrontmatterKey(text, 'type');
-      } else {
-        if (!/^[a-z0-9][a-z0-9-]*$/i.test(body.type))
-          throw new HttpError(400, 'type must be alphanumeric (dashes allowed)');
-        text = setFrontmatterKey(text, 'type', body.type);
-      }
+      workingPath = applyCategory(v, workingPath, body.type);
     }
+    const { content, path } = v.read(workingPath);
+    let text = content;
 
     if (body.parent !== undefined) {
       if (body.parent === null || body.parent === '') {
@@ -177,7 +237,7 @@ export function treeRoutes(v: VaultService): Hono {
 
     if (text !== content) v.write(path, text);
     const fm = parseFrontmatter(text).data;
-    return c.json({ ok: true, type: fm.type ?? 'note', parent: fm.parent ?? null });
+    return c.json({ ok: true, path, type: fm.type ?? 'note', parent: fm.parent ?? null });
   });
 
   /**
@@ -207,6 +267,9 @@ export function treeRoutes(v: VaultService): Hono {
       if (isDescendant(v, parent.path, path))
         throw new HttpError(400, 'cannot move a note under its own descendant');
       siblings = parent.children;
+      // no cross-category hierarchy: the child follows the parent's folder
+      const parentFolder = parent.path.includes('/') ? (parent.path.split('/')[0] as string) : '';
+      path = applyCategory(v, path, parentFolder, { keepParent: true });
       const title = (
         v.indexer.db.prepare('SELECT title FROM notes WHERE path = ?').get(parent.path) as
           | { title: string }
@@ -218,17 +281,8 @@ export function treeRoutes(v: VaultService): Hono {
       const folder = body.folder ?? (path.includes('/') ? (path.split('/')[0] as string) : '');
       const group = tree.folders.find((f) => f.folder === folder);
       siblings = group?.roots ?? [];
-      // cross-folder drop → move the file into that folder
-      const currentFolder = path.includes('/') ? (path.split('/')[0] as string) : '';
-      if (folder !== currentFolder) {
-        const base = path.split('/').pop() as string;
-        const target = folder ? `${folder}/${base}` : base;
-        v.move(path, target);
-        path = target;
-      }
-      const { content } = v.read(path);
-      const cleared = deleteFrontmatterKey(content, 'parent');
-      if (cleared !== content) v.write(path, cleared);
+      // cross-folder drop → move into that category (type synced, parent broken)
+      path = applyCategory(v, path, folder || null);
     }
 
     // renumber: siblings minus the moved note, insert at index

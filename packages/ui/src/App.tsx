@@ -239,14 +239,16 @@ export function App() {
             onDaily={openDaily}
             onNew={() => setPaletteOpen(true)}
             onPalette={() => setPaletteOpen(true)}
-            onTreeChanged={() => {
+            onTreeChanged={(moved) => {
               refreshLists();
               const current = noteRef.current;
-              if (current)
+              if (!current) return;
+              if (moved && current.path === moved.from) openPath(moved.to);
+              else
                 api
                   .note(current.path)
                   .then(setNote)
-                  .catch(() => {});
+                  .catch(() => setNote(null));
             }}
           />
           <div className="main">
@@ -256,6 +258,26 @@ export function App() {
                   <span className="title">{note.meta?.title ?? note.path}</span>
                   <span>{note.path}</span>
                   <span className="spacer" />
+                  <button
+                    type="button"
+                    className="note-delete"
+                    title="Delete note (moved to .trash inside the vault)"
+                    onClick={() => {
+                      const current = noteRef.current;
+                      if (!current) return;
+                      if (!window.confirm(`Delete "${current.meta?.title ?? current.path}"?`))
+                        return;
+                      api
+                        .remove(current.path)
+                        .then(() => {
+                          setNote(null);
+                          refreshLists();
+                        })
+                        .catch(() => {});
+                    }}
+                  >
+                    🗑
+                  </button>
                   <span className="save-state">
                     {saveState === 'saved'
                       ? '✓ saved'
@@ -303,14 +325,16 @@ export function App() {
             notes={notes}
             onOpen={openPath}
             onTag={openTag}
-            onMetaChanged={() => {
+            onMetaChanged={(newPath) => {
               refreshLists();
               const current = noteRef.current;
-              if (current)
+              if (!current) return;
+              if (newPath && newPath !== current.path) openPath(newPath);
+              else
                 api
                   .note(current.path)
                   .then(setNote)
-                  .catch(() => {});
+                  .catch(() => setNote(null));
             }}
           />
         </>

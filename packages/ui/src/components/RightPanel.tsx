@@ -6,7 +6,7 @@ interface Props {
   notes: NoteListItem[];
   onOpen: (path: string) => void;
   onTag: (tag: string) => void;
-  onMetaChanged: () => void;
+  onMetaChanged: (newPath?: string) => void;
 }
 
 export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props) {
@@ -24,7 +24,9 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
     .map((t) => t.trim());
 
   const isJira = note.meta?.type === 'jira';
-  const types = [...new Set(notes.map((n) => n.type))].filter((t) => t !== 'jira').sort();
+  const categories = [...new Set(notes.map((n) => categoryOf(n.path)))]
+    .filter((c) => c !== 'jira' && c !== 'private')
+    .sort();
   const parentValue = typeof fm.parent === 'string' ? fm.parent.replace(/^\[\[|\]\]$/g, '') : '';
 
   const patch = (body: {
@@ -36,7 +38,7 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
     setError(null);
     treeApi
       .meta({ path: note.path, ...body })
-      .then(onMetaChanged)
+      .then((r) => onMetaChanged(r.path))
       .catch((e: Error) => setError(e.message));
   };
 
@@ -47,21 +49,21 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
           <h3>Organize</h3>
           <div className="meta-edit">
             <label>
-              category (type)
+              category
               <input
-                key={`type:${note.path}`}
+                key={`cat:${note.path}`}
                 list="cb-types"
-                defaultValue={note.meta?.type === 'note' ? '' : (note.meta?.type ?? '')}
-                placeholder="note"
+                defaultValue={categoryOf(note.path)}
+                placeholder="notes"
+                title="Categories are the folders on the left. A new name creates a new category; changing it moves the note (cross-category parents are unlinked)."
                 onBlur={(e) => {
-                  const v = e.target.value.trim() || null;
-                  if (v !== (note.meta?.type === 'note' ? null : note.meta?.type))
-                    patch({ type: v });
+                  const v = e.target.value.trim().toLowerCase() || null;
+                  if ((v ?? 'notes') !== categoryOf(note.path)) patch({ type: v });
                 }}
               />
             </label>
             <datalist id="cb-types">
-              {types.map((t) => (
+              {categories.map((t) => (
                 <option key={t} value={t} />
               ))}
             </datalist>
@@ -173,4 +175,8 @@ function formatValue(v: unknown): string {
   if (Array.isArray(v)) return v.map(formatValue).join(', ');
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
+}
+
+function categoryOf(path: string): string {
+  return path.includes('/') ? (path.split('/')[0] as string) : 'notes';
 }

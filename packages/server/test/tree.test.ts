@@ -72,13 +72,28 @@ describe('PUT /api/tree/meta', () => {
   const put = (body: object) =>
     app.request('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) });
 
-  it('sets arbitrary type and clears with null', async () => {
+  it('category change moves the file into the category folder', async () => {
     const res = await put({ path: 'notes/loose.md', type: 'retro' });
     expect(res.status).toBe(200);
-    expect(readFileSync(join(root, 'notes', 'loose.md'), 'utf8')).toContain('type: retro');
-    await put({ path: 'notes/loose.md', type: null });
+    expect(((await res.json()) as { path: string }).path).toBe('retro/loose.md');
+    const text = readFileSync(join(root, 'retro', 'loose.md'), 'utf8');
+    expect(text).toContain('type: retro');
+    // new category appears as a tree group
+    expect(buildTree(vault).folders.map((f) => f.folder)).toContain('retro');
+    // back to notes clears type and moves home
+    const back = await put({ path: 'retro/loose.md', type: null });
+    expect(((await back.json()) as { path: string }).path).toBe('notes/loose.md');
     expect(readFileSync(join(root, 'notes', 'loose.md'), 'utf8')).not.toContain('type:');
     expect((await put({ path: 'notes/loose.md', type: 'bad type!' })).status).toBe(400);
+    expect((await put({ path: 'notes/loose.md', type: 'jira' })).status).toBe(400);
+  });
+
+  it('category change breaks a cross-category parent link', async () => {
+    const res = await put({ path: 'notes/latency.md', type: 'retro' });
+    expect(res.status).toBe(200);
+    const text = readFileSync(join(root, 'retro', 'latency.md'), 'utf8');
+    expect(text).toContain('type: retro');
+    expect(text).not.toContain('parent:');
   });
 
   it('reparents by title, writes a wikilink, and unparents with null', async () => {
@@ -126,6 +141,17 @@ describe('POST /api/tree/place', () => {
     // and back to the end
     await place({ path: 'notes/projects.md', folder: 'notes', index: 5 });
     expect(rootsOf('notes')).toEqual(['Loose note', 'Projects']);
+  });
+
+  it('nesting onto a parent in another category pulls the child over', async () => {
+    mkdirSync(join(root, 'retro'), { recursive: true });
+    writeFileSync(join(root, 'retro', 'boss.md'), note('Boss', 'type: retro\n'));
+    vault.indexer.update();
+    const res = await place({ path: 'notes/loose.md', parent: 'retro/boss.md', index: 0 });
+    expect(res.status).toBe(200);
+    const text = readFileSync(join(root, 'retro', 'loose.md'), 'utf8');
+    expect(text).toContain('type: retro');
+    expect(text).toContain('parent: "[[Boss]]"');
   });
 
   it('nests at a position among the new siblings', async () => {
