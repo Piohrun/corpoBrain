@@ -64,6 +64,14 @@ function alignments(sep: string): ('left' | 'center' | 'right')[] {
   });
 }
 
+/** extract the base64 cipher from a whole token — the lock char is a
+ *  surrogate pair, so naive slicing corrupts the payload */
+export function tokenCipher(wholeToken: string): string | null {
+  INLINE_SECRET.lastIndex = 0;
+  const m = INLINE_SECRET.exec(wholeToken);
+  return m ? (m[1] as string) : null;
+}
+
 /** cell text → DOM with wikilinks, secrets, bold, code */
 function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
   const config = view.state.facet(livePreviewConfig);
@@ -74,7 +82,12 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
     if (m.index > last) td.appendChild(document.createTextNode(cell.slice(last, m.index)));
     const [whole, secret, code, wiki, bold] = m;
     if (secret) {
-      const cipher = whole.slice(2, -1);
+      const cipher = tokenCipher(whole);
+      if (cipher === null) {
+        td.appendChild(document.createTextNode(whole));
+        last = m.index + whole.length;
+        continue;
+      }
       const revealedText = config.getSecret?.(cipher) ?? null;
       const chip = document.createElement('button');
       chip.type = 'button';
