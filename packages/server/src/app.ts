@@ -36,6 +36,16 @@ export function createApp(vault?: VaultService) {
     const tagRows = v.indexer.db
       .prepare('SELECT tag FROM tags WHERE path = ? ORDER BY tag')
       .all(note.path) as { tag: string }[];
+    // resolution per link target: resolved = points at a note that EXISTS
+    // (a Jira key always gets a dst_path, so check the notes table too)
+    const linkRows = v.indexer.db
+      .prepare(
+        `SELECT DISTINCT l.dst_target AS target,
+                (l.dst_path IS NOT NULL AND n.path IS NOT NULL) AS resolved
+         FROM links l LEFT JOIN notes n ON n.path = l.dst_path
+         WHERE l.src_path = ? AND l.dst_target != ''`,
+      )
+      .all(note.path) as { target: string; resolved: number }[];
     return c.json({
       ...note,
       meta: meta
@@ -47,6 +57,7 @@ export function createApp(vault?: VaultService) {
           }
         : null,
       tags: tagRows.map((t) => t.tag),
+      links: linkRows.map((l) => ({ target: l.target, resolved: l.resolved === 1 })),
       backlinks: v.indexer.backlinks(note.path),
     });
   });

@@ -386,6 +386,8 @@ button {
 }
 .cm-cb-wikilink.unresolved {
   color: var(--link-unresolved);
+  border-bottom: 1px dashed var(--link-unresolved);
+  opacity: 0.85;
 }
 .cm-cb-tag {
   background: var(--tag-bg);

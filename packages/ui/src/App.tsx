@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   type NoteListItem,
@@ -171,6 +171,12 @@ export function App() {
     if (tag) setView('notes');
   }, []);
 
+  const resolveMap = useMemo(() => {
+    const m = new Map<string, boolean>();
+    for (const l of note?.links ?? []) m.set(l.target.toLowerCase(), l.resolved);
+    return m;
+  }, [note?.links]);
+
   const openFromPlanning = useCallback(
     (path: string) => {
       setView('notes');
@@ -314,6 +320,7 @@ export function App() {
                   path={note.path}
                   content={note.content}
                   completions={completions}
+                  resolveMap={resolveMap}
                   onNavigate={navigate}
                   onSnapshot={(path, content) =>
                     setNote((prev) => (prev && prev.path === path ? { ...prev, content } : prev))

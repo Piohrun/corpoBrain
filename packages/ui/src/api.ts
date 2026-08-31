@@ -29,6 +29,8 @@ export interface NoteResponse {
   meta: NoteMeta | null;
   /** merged tags from the index: frontmatter + inline #tags */
   tags: string[];
+  /** per-target wikilink resolution (Obsidian-style placeholder styling) */
+  links: { target: string; resolved: boolean }[];
   backlinks: Backlink[];
 }
 

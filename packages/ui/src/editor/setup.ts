@@ -17,6 +17,7 @@ import { livePreview } from './livePreview.ts';
 
 export interface EditorConfig {
   onNavigate: (target: string) => void;
+  isResolved: (target: string) => boolean | undefined;
   /** note titles/paths for [[ autocompletion */
   completions: () => { title: string; path: string }[];
 }
@@ -60,7 +61,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     highlightSelectionMatches(),
     closeBrackets(),
     autocompletion({ override: [wikilinkCompletions(cfg)], icons: false }),
-    livePreview({ onNavigate: cfg.onNavigate }),
+    livePreview({ onNavigate: cfg.onNavigate, isResolved: cfg.isResolved }),
     keymap.of([
       ...closeBracketsKeymap,
       ...defaultKeymap,

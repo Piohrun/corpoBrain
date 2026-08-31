@@ -4,7 +4,7 @@
  * and revealed when the cursor touches it.
  */
 import { syntaxTree } from '@codemirror/language';
-import { type Extension, Facet, RangeSetBuilder } from '@codemirror/state';
+import { type Extension, Facet, RangeSetBuilder, StateEffect } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
@@ -16,7 +16,12 @@ import {
 
 export interface LivePreviewConfig {
   onNavigate: (target: string) => void;
+  /** true = note exists; false/undefined = placeholder (Obsidian-style dimming) */
+  isResolved?: (target: string) => boolean | undefined;
 }
+
+/** dispatch when link-resolution data changes so decorations rebuild */
+export const linksUpdated = StateEffect.define<null>();
 
 export const livePreviewConfig = Facet.define<LivePreviewConfig, LivePreviewConfig>({
   combine: (values) => values[0] ?? { onNavigate: () => {} },
@@ -62,6 +67,7 @@ interface LineCtx {
 function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const { state } = view;
+  const config = state.facet(livePreviewConfig);
   const cursor = state.selection.main.head;
   const doc = state.doc;
 
@@ -157,7 +163,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       }
 
       if (!ctx.inCodeBlock && (fmEnd < 0 || line.number > fmEnd)) {
-        collectInline(line.from, line.text, ctx, cursor, inline, emphasis);
+        collectInline(line.from, line.text, ctx, cursor, inline, emphasis, config.isResolved);
       }
 
       inline.sort((a, b) => a.from - b.from || a.to - b.to);
@@ -181,6 +187,7 @@ function collectInline(
   cursor: number,
   out: { from: number; to: number; deco: Decoration }[],
   emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[],
+  isResolved?: (target: string) => boolean | undefined,
 ): void {
   const lineTo = lineFrom + text.length;
 
@@ -224,9 +231,12 @@ function collectInline(
     const target = ((m[2] as string) + (m[3] ?? '')).trim();
     const alias = m[4];
     const cursorIn = cursor >= from && cursor <= to;
+    const bareTarget = (m[2] as string).trim();
+    const unresolved =
+      bareTarget !== '' && isResolved?.(bareTarget) !== true && isResolved !== undefined;
     const attrs = {
-      class: 'cm-cb-wikilink',
-      'data-target': (m[2] as string).trim() || 'SELF',
+      class: `cm-cb-wikilink${unresolved ? ' unresolved' : ''}`,
+      'data-target': bareTarget || 'SELF',
       'data-fragment': m[3] ?? '',
     };
     if (cursorIn || ctx.cursorTouches) {
@@ -261,7 +271,12 @@ const plugin = ViewPlugin.fromClass(
       this.decorations = buildDecorations(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.selectionSet || u.viewportChanged) {
+      if (
+        u.docChanged ||
+        u.selectionSet ||
+        u.viewportChanged ||
+        u.transactions.some((t) => t.effects.some((e) => e.is(linksUpdated)))
+      ) {
         this.decorations = buildDecorations(u.view);
       }
     }

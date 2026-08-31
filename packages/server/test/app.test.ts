@@ -223,3 +223,23 @@ describe('objects and tasks', () => {
     expect(note.content).toContain('## Decisions');
   });
 });
+
+describe('link resolution flags', () => {
+  it('note response marks resolved vs placeholder links (jira ghosts included)', async () => {
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'notes/a.md',
+        content:
+          '---\nid: A\ntitle: Alpha\ntags: [x]\n---\nSee [[Beta]] and [[No Such Note]] and [[EXEC-404]].\n',
+      }),
+    });
+    const note = (await (await app.request('/api/note?path=notes/a.md')).json()) as {
+      links: { target: string; resolved: boolean }[];
+    };
+    const byTarget = Object.fromEntries(note.links.map((l) => [l.target, l.resolved]));
+    expect(byTarget.Beta).toBe(true);
+    expect(byTarget['No Such Note']).toBe(false);
+    expect(byTarget['EXEC-404']).toBe(false); // key resolves to a path, but no mirror file exists
+  });
+});
