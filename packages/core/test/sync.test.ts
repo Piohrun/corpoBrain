@@ -44,8 +44,15 @@ class FakeAdapter implements AdapterLike {
   issues: RawIssue[] = [];
   jqls: string[] = [];
   detectSprintField?: () => Promise<string | null>;
-  async search(jql: string): Promise<RawIssue[]> {
+  async search(
+    jql: string,
+    _extraFields?: string[],
+    onPage?: (fetched: number, total: number) => void,
+  ): Promise<RawIssue[]> {
     this.jqls.push(jql);
+    // simulate two pages
+    if (this.issues.length > 1) onPage?.(Math.ceil(this.issues.length / 2), this.issues.length);
+    onPage?.(this.issues.length, this.issues.length);
     return this.issues;
   }
   async sprints(boardId: number): Promise<JiraSprint[]> {
@@ -161,6 +168,7 @@ describe('sync progress', () => {
     sync.onProgress = (p) => events.push(`${p.phase}:${p.current}/${p.total}`);
     await sync.run();
     expect(events[0]).toBe('search:0/0');
+    expect(events).toContain('search:3/5'); // per-page progress
     expect(events).toContain('search:5/5');
     expect(events).toContain('sprints:1/1');
     expect(events.some((e) => e.startsWith('membership:'))).toBe(true);

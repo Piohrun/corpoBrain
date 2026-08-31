@@ -9,7 +9,11 @@ import { mergeIssueFile, normalizeIssue } from './render.ts';
 
 /** Structural subset of JiraAdapter so tests can stub it. */
 export interface AdapterLike {
-  search(jql: string, extraFields?: string[]): Promise<RawIssue[]>;
+  search(
+    jql: string,
+    extraFields?: string[],
+    onPage?: (fetched: number, total: number) => void,
+  ): Promise<RawIssue[]>;
   sprints(boardId: number, closedLimit?: number): Promise<JiraSprint[]>;
   sprintIssueKeys(sprintId: number): Promise<string[]>;
   detectSprintField?(): Promise<string | null>;
@@ -106,7 +110,15 @@ export class JiraSync {
     }
     if (state.sprintField) extraFields.push(state.sprintField);
     this.emit({ profile: profile.name, phase: 'search', current: 0, total: 0, detail: jql });
-    const issues = await this.adapter.search(jql, extraFields);
+    const issues = await this.adapter.search(jql, extraFields, (fetched, total) =>
+      this.emit({
+        profile: profile.name,
+        phase: 'search',
+        current: fetched,
+        total,
+        ...(total > 0 ? {} : { detail: `${fetched} so far` }),
+      }),
+    );
     this.emit({
       profile: profile.name,
       phase: 'search',

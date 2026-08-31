@@ -124,8 +124,12 @@ export class JiraAdapter {
     return this.deployment as 'datacenter' | 'cloud';
   }
 
-  /** Run a JQL search, fully paginated. */
-  async search(jql: string, extraFields: string[] = []): Promise<RawIssue[]> {
+  /** Run a JQL search, fully paginated; onPage reports (fetched, total|0). */
+  async search(
+    jql: string,
+    extraFields: string[] = [],
+    onPage?: (fetched: number, total: number) => void,
+  ): Promise<RawIssue[]> {
     const deployment = await this.ensureDeployment();
     const fields = [...new Set([...DEFAULT_FIELDS, ...extraFields])].join(',');
     const out: RawIssue[] = [];
@@ -138,6 +142,7 @@ export class JiraAdapter {
         );
         out.push(...page.issues);
         startAt += page.issues.length;
+        onPage?.(out.length, page.total);
         if (page.issues.length === 0 || startAt >= page.total) break;
       }
     } else {
@@ -148,6 +153,7 @@ export class JiraAdapter {
           { jql, fields, maxResults: '100', ...(token ? { nextPageToken: token } : {}) },
         );
         out.push(...page.issues);
+        onPage?.(out.length, 0); // Cloud pagination reports no total
         token = page.nextPageToken;
         if (!token || page.issues.length === 0) break;
       }

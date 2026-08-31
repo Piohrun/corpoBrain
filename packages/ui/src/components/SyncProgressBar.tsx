@@ -18,6 +18,7 @@ export function SyncProgressBar({ status }: { status: JiraStatus | null }) {
       <div className="sync-progress-label">
         {PHASE_LABEL[p.phase] ?? p.phase}
         {p.total > 0 && ` — ${p.current}/${p.total}`}
+        {p.total === 0 && p.current > 0 && ` — ${p.current} so far`}
         {p.detail && p.phase !== 'search' && ` · ${p.detail}`}
       </div>
       <div className={`sync-progress-track${pct === null ? ' indeterminate' : ''}`}>
