@@ -56,6 +56,8 @@ export interface BoardPerson {
   active: boolean;
   region: string | null;
   team: string | null;
+  /** manual replacement of the person's planned/used load per sprint */
+  loadOverrides: Record<string, number>;
 }
 
 export interface BoardModel {
@@ -110,7 +112,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   const people = (
     db
       .prepare(
-        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team FROM people ORDER BY name',
+        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json FROM people ORDER BY name',
       )
       .all() as {
       path: string;
@@ -121,6 +123,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
       active: number;
       region: string | null;
       team: string | null;
+      load_overrides_json: string | null;
     }[]
   ).map((p) => ({
     path: p.path,
@@ -131,6 +134,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     active: p.active === 1,
     region: p.region,
     team: p.team,
+    loadOverrides: safeObj(p.load_overrides_json),
   }));
 
   const doneKeys = new Set(
@@ -353,6 +357,7 @@ export function planRoutes(v: VaultService): Hono {
       path?: string;
       capacity?: number | null;
       overrides?: Record<string, number>;
+      loadOverrides?: Record<string, number>;
       active?: boolean;
       region?: string | null;
       team?: string | null;
@@ -370,6 +375,11 @@ export function planRoutes(v: VaultService): Hono {
       text = Object.keys(body.overrides).length
         ? setFrontmatterKey(text, 'capacity_overrides', body.overrides)
         : deleteKey(text, 'capacity_overrides');
+    }
+    if (body.loadOverrides !== undefined) {
+      text = Object.keys(body.loadOverrides).length
+        ? setFrontmatterKey(text, 'load_overrides', body.loadOverrides)
+        : deleteKey(text, 'load_overrides');
     }
     if (body.active !== undefined) text = setFrontmatterKey(text, 'active', body.active);
     if (body.region !== undefined) {

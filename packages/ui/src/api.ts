@@ -131,6 +131,7 @@ export interface BoardPerson {
   active: boolean;
   region: string | null;
   team: string | null;
+  loadOverrides: Record<string, number>;
 }
 
 export interface BoardModel {
@@ -204,6 +205,7 @@ export const planApi = {
     path: string;
     capacity?: number | null;
     overrides?: Record<string, number>;
+    loadOverrides?: Record<string, number>;
     active?: boolean;
     region?: string | null;
     team?: string | null;

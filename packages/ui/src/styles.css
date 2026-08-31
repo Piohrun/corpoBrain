@@ -1343,3 +1343,20 @@ button {
   font-weight: 600;
   padding-left: 16px;
 }
+
+.load-edit {
+  font: inherit;
+  cursor: pointer;
+}
+.load-edit:hover .load-planned {
+  text-decoration: underline;
+}
+.load-edit.load-overridden .load-planned {
+  border-bottom: 1.5px dotted var(--accent);
+}
+.load-pencil {
+  font-size: 9px;
+  color: var(--accent);
+  margin-left: 2px;
+  vertical-align: super;
+}

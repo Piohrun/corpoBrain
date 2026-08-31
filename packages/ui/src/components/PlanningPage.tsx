@@ -262,6 +262,7 @@ interface Row {
   jiraId: string | null;
   capacity: number | null;
   overrides: Record<string, number>;
+  loadOverrides: Record<string, number>;
   region: string | null;
   team: string | null;
   editable: boolean;
@@ -293,6 +294,7 @@ function BandwidthGrid({
     path: string;
     capacity?: number | null;
     overrides?: Record<string, number>;
+    loadOverrides?: Record<string, number>;
   }) => void;
   onOpenNote: (path: string) => void;
 }) {
@@ -315,6 +317,7 @@ function BandwidthGrid({
         jiraId: p.jiraIds[0] ?? null,
         capacity: p.capacity,
         overrides: p.overrides,
+        loadOverrides: p.loadOverrides ?? {},
         region: p.region,
         team: p.team,
         editable: true,
@@ -332,6 +335,7 @@ function BandwidthGrid({
       jiraId: id as string | null,
       capacity: null as number | null,
       overrides: {} as Record<string, number>,
+      loadOverrides: {} as Record<string, number>,
       region: null,
       team: null,
       editable: false,
@@ -346,6 +350,7 @@ function BandwidthGrid({
         jiraId: null as string | null,
         capacity: null as number | null,
         overrides: {} as Record<string, number>,
+        loadOverrides: {} as Record<string, number>,
         region: null,
         team: null,
         editable: false,
@@ -459,6 +464,10 @@ function BandwidthGrid({
   const capOf = (row: Row, col: string): number | null =>
     col === 'Backlog' ? null : (row.overrides[col] ?? row.capacity);
 
+  /** effective used load: manual override wins over the issue-derived sum */
+  const plannedOf = (row: Row, col: string): number =>
+    row.loadOverrides[col] ?? planned.get(`${row.id}|${col}`) ?? 0;
+
   const drop = (row: Row, col: string) => {
     if (!dragKey) return;
     const patch: PlanPatch = { sprint: col };
@@ -477,8 +486,12 @@ function BandwidthGrid({
     });
 
   const aggRow = (key: string, label: string, members: Row[], sub: boolean) => {
-    const sum = (m: Map<string, number>, col: string) =>
-      Math.round(members.reduce((acc, r) => acc + (m.get(`${r.id}|${col}`) ?? 0), 0) * 100) / 100;
+    const sumCommitted = (col: string) =>
+      Math.round(
+        members.reduce((acc, r) => acc + (committed.get(`${r.id}|${col}`) ?? 0), 0) * 100,
+      ) / 100;
+    const sumPlanned = (col: string) =>
+      Math.round(members.reduce((acc, r) => acc + plannedOf(r, col), 0) * 100) / 100;
     const capSum = (col: string) =>
       members.reduce<number | null>((acc, r) => {
         const c = capOf(r, col);
@@ -494,8 +507,8 @@ function BandwidthGrid({
           </button>
         </td>
         {columns.map((col) => {
-          const c = sum(committed, col);
-          const p = sum(planned, col);
+          const c = sumCommitted(col);
+          const p = sumPlanned(col);
           const cap = capSum(col);
           const over = cap !== null && p > cap;
           return (
@@ -526,7 +539,9 @@ function BandwidthGrid({
       {columns.map((col) => {
         const cKey = `${row.id}|${col}`;
         const committedLoad = committed.get(cKey) ?? 0;
-        const plannedLoad = planned.get(cKey) ?? 0;
+        const computedPlanned = planned.get(cKey) ?? 0;
+        const loadOverridden = row.loadOverrides[col] !== undefined;
+        const plannedLoad = plannedOf(row, col);
         const cap = capOf(row, col);
         const pct = cap ? plannedLoad / cap : null;
         const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
@@ -538,7 +553,35 @@ function BandwidthGrid({
             onDrop={() => drop(row, col)}
           >
             <div className="cell-load">
-              <LoadLine committedLoad={committedLoad} plannedLoad={plannedLoad} cap={cap} />
+              {row.editable && row.path ? (
+                <span>
+                  {committedLoad !== plannedLoad && (
+                    <>
+                      <span className="load-committed">{committedLoad}</span>
+                      {' → '}
+                    </>
+                  )}
+                  <EditableLoad
+                    value={loadOverridden ? (row.loadOverrides[col] as number) : null}
+                    computed={computedPlanned}
+                    title={
+                      loadOverridden
+                        ? `Manual used-load override (Jira-derived would be ${computedPlanned}); empty restores`
+                        : 'Click to override the used load for this sprint (BAU, meetings, non-Jira work)'
+                    }
+                    onCommit={(v) => {
+                      const loadOverrides = { ...row.loadOverrides };
+                      if (v === null) delete loadOverrides[col];
+                      else loadOverrides[col] = v;
+                      onPatchPerson({ path: row.path as string, loadOverrides });
+                    }}
+                  />
+                  {cap !== null && <span className="muted"> / {cap}</span>}
+                  {cap !== null && plannedLoad > cap && <span className="over-flag"> over</span>}
+                </span>
+              ) : (
+                <LoadLine committedLoad={committedLoad} plannedLoad={plannedLoad} cap={cap} />
+              )}
               {row.editable && row.path && col !== 'Backlog' && (
                 <span className="cap-edit">
                   <EditableNumber
@@ -674,6 +717,52 @@ function LoadLine({
       {cap !== null && <span className="muted"> / {cap}</span>}
       {cap !== null && plannedLoad > cap && <span className="over-flag"> over</span>}
     </span>
+  );
+}
+
+function EditableLoad({
+  value,
+  computed,
+  title,
+  onCommit,
+}: {
+  /** the override, or null when following the computed value */
+  value: number | null;
+  computed: number;
+  title: string;
+  onCommit: (v: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className={`load-edit${value !== null ? ' load-overridden' : ''}`}
+        title={title}
+        onClick={() => setEditing(true)}
+      >
+        <b className="load-planned">{value ?? computed}</b>
+        {value !== null && <span className="load-pencil">✎</span>}
+      </button>
+    );
+  }
+  return (
+    <input
+      className="cap-input"
+      type="number"
+      step="0.5"
+      ref={(el) => el?.focus()}
+      defaultValue={value ?? computed}
+      onBlur={(e) => {
+        setEditing(false);
+        const v = e.target.value === '' ? null : Number(e.target.value);
+        if (v !== value) onCommit(v);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        if (e.key === 'Escape') setEditing(false);
+      }}
+    />
   );
 }
 

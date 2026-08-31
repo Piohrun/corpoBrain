@@ -246,3 +246,24 @@ describe('local sprints', () => {
     expect(after.find((s) => s.name === 'Sprint 40 (draft)')).toBeUndefined();
   });
 });
+
+describe('used-load overrides', () => {
+  it('round-trips load_overrides through the person endpoint and board', async () => {
+    const res = await app.request('/api/plan/person', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'people/anna.md', loadOverrides: { 'Sprint 37': 6.5 } }),
+    });
+    expect(res.status).toBe(200);
+    expect(readFileSync(join(root, 'people', 'anna.md'), 'utf8')).toContain('Sprint 37: 6.5');
+    const board = buildBoard(vault);
+    expect(board.people.find((p) => p.name === 'Anna')?.loadOverrides).toEqual({
+      'Sprint 37': 6.5,
+    });
+    // clearing removes the key
+    await app.request('/api/plan/person', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'people/anna.md', loadOverrides: {} }),
+    });
+    expect(readFileSync(join(root, 'people', 'anna.md'), 'utf8')).not.toContain('load_overrides');
+  });
+});
