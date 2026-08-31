@@ -340,6 +340,12 @@ export function projectRoutes(v: VaultService): Hono {
     // a roster person without a Jira id still deserves a row
     for (const p of roster) addRow(p.jiraIds[0] ?? `person:${p.path}`, true);
     for (const b of layout.blocks) if (b.assignee !== '(unassigned)') addRow(b.assignee, false);
+    // one global order everywhere: the notes-tree position, then name; Unassigned last
+    const orderOf = (path: string | null): number => {
+      const p = board.people.find((x) => x.path === path);
+      return p?.sortOrder ?? Number.POSITIVE_INFINITY;
+    };
+    rows.sort((a, b) => orderOf(a.path) - orderOf(b.path) || a.name.localeCompare(b.name));
     addRow('(unassigned)', false);
 
     const decorate = (b: (typeof layout.blocks)[number]): CalendarBlockOut => {

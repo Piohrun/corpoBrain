@@ -31,7 +31,7 @@ export interface AvailabilityResponse {
   warnings: string[];
   unit: string;
   supportFactor: number;
-  people: { path: string; name: string }[];
+  people: { path: string; name: string; order: number | null }[];
   sprints: string[];
   rows: AvailabilityRow[];
 }
@@ -73,9 +73,16 @@ export function availabilityRoutes(v: VaultService): Hono {
       warnings: resolved.warnings,
       unit: board.unit,
       supportFactor: v.config.availability.supportFactor,
-      people: board.people.map((p) => ({ path: p.path, name: p.name })),
+      people: board.people.map((p) => ({ path: p.path, name: p.name, order: p.sortOrder })),
       sprints: spans.map((s) => s.name),
-      rows: rows.sort((a, b) => a.sprint.localeCompare(b.sprint) || a.name.localeCompare(b.name)),
+      rows: rows.sort((a, b) => {
+        if (a.sprint !== b.sprint) return a.sprint.localeCompare(b.sprint);
+        const oa =
+          board.people.find((p) => p.path === a.person)?.sortOrder ?? Number.POSITIVE_INFINITY;
+        const ob =
+          board.people.find((p) => p.path === b.person)?.sortOrder ?? Number.POSITIVE_INFINITY;
+        return oa - ob || a.name.localeCompare(b.name);
+      }),
     };
     return c.json(body);
   });

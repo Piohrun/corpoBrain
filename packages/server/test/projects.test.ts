@@ -139,6 +139,21 @@ describe('GET /api/projects/timeline', () => {
     expect(t.warnings.join(' ')).toContain('EXEC-3 starts before its blocker');
   });
 
+  it('orders calendar rows by the notes-tree order, Unassigned last', async () => {
+    // bob first (order 5), anna second (order 9)
+    writeFileSync(
+      join(root, 'people', 'bob.md'),
+      '---\ntype: person\ntitle: Bob\njira: bob\ncapacity: 8\norder: 5\n---\n',
+    );
+    writeFileSync(
+      join(root, 'people', 'anna.md'),
+      '---\ntype: person\ntitle: Anna\njira: anna\ncapacity: 8\norder: 9\n---\n',
+    );
+    vault.indexer.rebuild();
+    const t = await timeline();
+    expect(t.rows.map((r) => r.name)).toEqual(['Bob', 'Anna', 'Unassigned']);
+  });
+
   it('lists roster people as rows even with no issues', async () => {
     writeFileSync(
       join(root, 'people', 'carol.md'),
@@ -152,8 +167,9 @@ describe('GET /api/projects/timeline', () => {
     expect(res.status).toBe(200);
     expect(readFileSync(join(root, 'projects', 'falcon.md'), 'utf8')).toContain('Carol');
     const t = await timeline();
-    expect(t.rows[0]).toMatchObject({ name: 'Carol', inRoster: true });
-    expect(t.rows.at(-1)?.name).toBe('Unassigned');
+    // rows follow the one global order (tree position, then name), roster or not
+    expect(t.rows.find((r) => r.name === 'Carol')).toMatchObject({ inRoster: true });
+    expect(t.rows.map((r) => r.name)).toEqual(['Anna', 'Bob', 'Carol', 'Unassigned']);
     const bad = await app.request('/api/projects/roster', {
       method: 'PUT',
       body: JSON.stringify({ path: 'projects/falcon.md', people: ['Nobody Real'] }),

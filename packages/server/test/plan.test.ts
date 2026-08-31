@@ -406,3 +406,23 @@ describe('sprint health', () => {
     expect(bad.status).toBe(400);
   });
 });
+
+describe('tree order carries into planning', () => {
+  it('orders people by frontmatter order with alphabetical fallback', () => {
+    writeFileSync(
+      join(root, 'people', 'zed.md'),
+      '---\ntype: person\ntitle: Zed\njira: zed\norder: 10\n---\n',
+    );
+    writeFileSync(
+      join(root, 'people', 'mia.md'),
+      '---\ntype: person\ntitle: Mia\njira: mia\norder: 20\n---\n',
+    );
+    vault.indexer.rebuild();
+    const board = buildBoard(vault, new Date('2026-08-30T12:00:00Z'));
+    const names = board.people.map((p) => p.name);
+    // ordered people first (Zed 10, Mia 20), unordered alphabetical after
+    expect(names).toEqual(['Zed', 'Mia', 'Anna', 'John']);
+    expect(board.people[0]?.sortOrder).toBe(10);
+    expect(board.people[2]?.sortOrder).toBeNull();
+  });
+});

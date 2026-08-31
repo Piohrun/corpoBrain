@@ -388,9 +388,11 @@ function MonthGrid({
       return { y: d.getUTCFullYear(), m: d.getUTCMonth() };
     });
   const today = todayISO();
-  const awayCount = (path: string) => cover.get(path)?.size ?? 0;
+  // the same order as everywhere else: the notes-tree position, then name
   const people = [...data.people].sort(
-    (a, b) => awayCount(b.path) - awayCount(a.path) || a.name.localeCompare(b.name),
+    (a, b) =>
+      (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
+      a.name.localeCompare(b.name),
   );
 
   return (

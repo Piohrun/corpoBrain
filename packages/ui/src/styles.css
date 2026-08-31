@@ -2007,15 +2007,14 @@ tr.wb-conflict td {
 }
 .cal-body {
   position: relative;
-  /* one faint line per day */
-  background-image: repeating-linear-gradient(
-    to right,
-    transparent,
-    transparent 21px,
-    color-mix(in srgb, var(--border) 55%, transparent) 21px,
-    color-mix(in srgb, var(--border) 55%, transparent) 22px
-  );
+  /* the per-day gridline gradient is set inline, sized by the zoom level */
+  --cal-line: color-mix(in srgb, var(--border) 55%, transparent);
   touch-action: none;
+}
+.cal-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .cal-week {
   position: absolute;

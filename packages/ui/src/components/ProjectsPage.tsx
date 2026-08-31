@@ -10,7 +10,16 @@ import {
 } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
 
-const DAY = 22; // px per workday — one tiny box per day
+const ZOOMS = [14, 18, 22, 28, 36];
+const DEFAULT_DAY = 22; // px per workday — one tiny box per day
+function loadZoom(): number {
+  try {
+    const v = Number(localStorage.getItem('cb.proj.zoom'));
+    return ZOOMS.includes(v) ? v : DEFAULT_DAY;
+  } catch {
+    return DEFAULT_DAY;
+  }
+}
 const ROW = 34;
 const HEAD = 54;
 
@@ -26,6 +35,17 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
   const [selected, setSelected] = useState<string | null>(null);
   const [model, setModel] = useState<CalendarModel | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [day, setDay] = useState(loadZoom);
+  const zoom = (dir: 1 | -1) => {
+    const next = ZOOMS[ZOOMS.indexOf(day) + dir];
+    if (!next) return;
+    setDay(next);
+    try {
+      localStorage.setItem('cb.proj.zoom', String(next));
+    } catch {
+      /* zoom just does not persist */
+    }
+  };
 
   const loadList = useCallback(() => {
     projectApi
@@ -172,6 +192,27 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                 </span>
               )}
               <span className="spacer" />
+              <span className="cal-zoom">
+                <button
+                  type="button"
+                  className="plan-btn"
+                  onClick={() => zoom(-1)}
+                  disabled={ZOOMS.indexOf(day) === 0}
+                  title="Smaller day boxes — more weeks on screen"
+                >
+                  −
+                </button>
+                <span className="muted small">{day}px</span>
+                <button
+                  type="button"
+                  className="plan-btn"
+                  onClick={() => zoom(1)}
+                  disabled={ZOOMS.indexOf(day) === ZOOMS.length - 1}
+                  title="Bigger day boxes"
+                >
+                  +
+                </button>
+              </span>
               <RosterButton model={model} onSaved={refresh} onError={setError} />
               <button
                 type="button"
@@ -200,7 +241,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
               </div>
             )}
 
-            <Calendar model={model} onOpenNote={onOpenNote} onPatch={patch} />
+            <Calendar model={model} day={day} onOpenNote={onOpenNote} onPatch={patch} />
           </>
         )}
       </div>
@@ -225,10 +266,12 @@ interface Drag {
 
 function Calendar({
   model,
+  day: DAY,
   onOpenNote,
   onPatch,
 }: {
   model: CalendarModel;
+  day: number;
   onOpenNote: (path: string) => void;
   onPatch: (key: string, body: PlanPatch) => void;
 }) {
@@ -261,15 +304,18 @@ function Calendar({
     [model.sprints],
   );
 
-  const pointToCell = useCallback((e: PointerEvent | React.PointerEvent) => {
-    const el = bodyRef.current;
-    if (!el) return { day: 0, row: 0 };
-    const rect = el.getBoundingClientRect();
-    return {
-      day: Math.floor((e.clientX - rect.left) / DAY),
-      row: Math.floor((e.clientY - rect.top) / ROW),
-    };
-  }, []);
+  const pointToCell = useCallback(
+    (e: PointerEvent | React.PointerEvent) => {
+      const el = bodyRef.current;
+      if (!el) return { day: 0, row: 0 };
+      const rect = el.getBoundingClientRect();
+      return {
+        day: Math.floor((e.clientX - rect.left) / DAY),
+        row: Math.floor((e.clientY - rect.top) / ROW),
+      };
+    },
+    [DAY],
+  );
 
   // window-level move/up so dragging works from the rail and past the edges
   useEffect(() => {
@@ -434,7 +480,11 @@ function Calendar({
           <div
             ref={bodyRef}
             className="cal-body"
-            style={{ width, height }}
+            style={{
+              width,
+              height,
+              backgroundImage: `repeating-linear-gradient(to right, transparent, transparent ${DAY - 1}px, var(--cal-line) ${DAY - 1}px, var(--cal-line) ${DAY}px)`,
+            }}
             onPointerUp={onBackgroundUp}
           >
             {mondays.map((i) => (
@@ -493,7 +543,7 @@ function Calendar({
                 >
                   {b.clamped && <span className="cal-clamp">◂</span>}
                   <span className="tl-key">{b.key}</span>
-                  {b.span * DAY > 90 && <span className="tl-sum">{b.summary}</span>}
+                  {b.span * DAY > DAY * 4 && <span className="tl-sum">{b.summary}</span>}
                   <span
                     className="cal-resize"
                     onPointerDown={(e) => startDrag(e, b, 'resize')}

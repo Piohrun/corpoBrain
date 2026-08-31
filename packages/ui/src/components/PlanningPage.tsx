@@ -481,11 +481,18 @@ function BandwidthGrid({
 
   const groups = useMemo<Group[]>(() => {
     const misc = (r: Row) => r.id === UNASSIGNED || !r.editable;
+    // group order comes from the hub note's position in the notes tree
+    const hubOrder = new Map<string, number>();
+    for (const p of board.people) {
+      if (p.sortOrder !== null) hubOrder.set(p.name.toLowerCase(), p.sortOrder);
+    }
     const sortGroups = <T extends { label: string }>(list: T[]): T[] =>
       list.sort((a, b) => {
         if (a.label.startsWith('(') !== b.label.startsWith('('))
           return a.label.startsWith('(') ? 1 : -1;
-        return a.label.localeCompare(b.label);
+        const oa = hubOrder.get(a.label.toLowerCase()) ?? Number.POSITIVE_INFINITY;
+        const ob = hubOrder.get(b.label.toLowerCase()) ?? Number.POSITIVE_INFINITY;
+        return oa - ob || a.label.localeCompare(b.label);
       });
     const byKey = (rows: Row[], keyOf: (r: Row) => string): Map<string, Row[]> => {
       const m = new Map<string, Row[]>();
@@ -527,7 +534,7 @@ function BandwidthGrid({
         return { key: `g:${label}`, label, members, subs };
       }),
     );
-  }, [rows, groupBy]);
+  }, [rows, groupBy, board.people]);
 
   const capOf = (row: Row, col: string): number | null =>
     col === 'Backlog' ? null : (row.overrides[col] ?? row.suggested[col] ?? row.capacity);

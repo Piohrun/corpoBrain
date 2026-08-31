@@ -138,6 +138,7 @@ export interface BoardPerson {
   team: string | null;
   loadOverrides: Record<string, number>;
   color: string | null;
+  sortOrder: number | null;
   suggested: Record<string, number>;
   absence: Record<string, { ooo: number; support: number; total: number; available: number }>;
 }
@@ -361,7 +362,7 @@ export interface AvailabilityResponse {
   warnings: string[];
   unit: string;
   supportFactor: number;
-  people: { path: string; name: string }[];
+  people: { path: string; name: string; order: number | null }[];
   sprints: string[];
   rows: AvailabilityRow[];
 }

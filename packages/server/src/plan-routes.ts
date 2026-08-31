@@ -69,6 +69,8 @@ export interface BoardPerson {
   loadOverrides: Record<string, number>;
   /** explicit display color (hub notes); falls back to a name-derived hue */
   color: string | null;
+  /** position from the notes tree (frontmatter `order`); null sorts last */
+  sortOrder: number | null;
   /** bandwidth after absence, per sprint — only where it is lower than capacity */
   suggested: Record<string, number>;
   /** why it is lower */
@@ -131,7 +133,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   const people = (
     db
       .prepare(
-        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json, color FROM people ORDER BY name',
+        'SELECT path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json, color, sort_order FROM people ORDER BY sort_order IS NULL, sort_order, name',
       )
       .all() as {
       path: string;
@@ -144,6 +146,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
       team: string | null;
       load_overrides_json: string | null;
       color: string | null;
+      sort_order: number | null;
     }[]
   ).map((p) => ({
     path: p.path,
@@ -157,6 +160,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     team: p.team,
     loadOverrides: safeObj(p.load_overrides_json),
     color: p.color,
+    sortOrder: p.sort_order,
     suggested: {} as Record<string, number>,
     absence: {} as Record<string, Absence>,
   }));
