@@ -169,3 +169,24 @@ describe('inline note secrets', () => {
     expect((await post('/api/private/decrypt', { data: 'bm90IGEgY29udGFpbmVy' })).status).toBe(400);
   });
 });
+
+describe('batch decrypt', () => {
+  it('decrypt-many returns per-item results with nulls for garbage', async () => {
+    const post = (url: string, body: object) =>
+      app.request(url, { method: 'POST', body: JSON.stringify(body) });
+    await post('/api/private/init', { passphrase: 'a fine passphrase' });
+    const a = (await (await post('/api/private/encrypt', { text: 'cell A' })).json()) as {
+      data: string;
+    };
+    const b = (await (await post('/api/private/encrypt', { text: 'cell B' })).json()) as {
+      data: string;
+    };
+    const res = (await (
+      await post('/api/private/decrypt-many', { items: [a.data, 'garbage!', b.data] })
+    ).json()) as { texts: (string | null)[] };
+    expect(res.texts).toEqual(['cell A', null, 'cell B']);
+    await post('/api/private/lock', {});
+    expect((await post('/api/private/decrypt-many', { items: [a.data] })).status).toBe(401);
+    expect((await post('/api/private/decrypt-many', { items: [] })).status).toBe(400);
+  });
+});

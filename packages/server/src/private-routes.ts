@@ -72,6 +72,23 @@ export function privateRoutes(v: VaultService): { app: Hono; service: PrivateSer
     return c.json({ data: service.encryptText(text) });
   });
 
+  /** batch decrypt for table columns/rows — one round-trip, per-item results */
+  app.post('/decrypt-many', async (c) => {
+    const { items } = (await c.req.json()) as { items?: unknown };
+    if (!Array.isArray(items) || items.length === 0 || items.length > 200)
+      throw new HttpError(400, 'items: 1-200 ciphertexts required');
+    if (!service.unlocked) throw new HttpError(401, 'locked');
+    const texts = items.map((data) => {
+      if (typeof data !== 'string' || !data.trim()) return null;
+      try {
+        return service.decryptText(data);
+      } catch {
+        return null;
+      }
+    });
+    return c.json({ texts });
+  });
+
   app.post('/decrypt', async (c) => {
     const { data } = (await c.req.json()) as { data?: string };
     if (typeof data !== 'string' || !data.trim()) throw new HttpError(400, 'data required');

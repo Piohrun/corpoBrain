@@ -127,6 +127,10 @@ type `property` in addition to being a property.
   encrypted under the protected-notes data key. Only ciphertext ever touches
   disk, the index, or agents; the UI decrypts to memory on demand while the
   private session is unlocked.
+  An INLINE form exists for table cells and other single-line contexts: an
+  inline code span containing 🔒 followed by the base64 container
+  (`🔒<base64>`). Same key, padding and session rules as the fenced
+  form.
 
 ### 3.4 Indexer writes
 
