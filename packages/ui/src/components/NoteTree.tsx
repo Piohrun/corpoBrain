@@ -19,6 +19,12 @@ interface DropSpot {
   pos: DropPos;
 }
 
+/** dragleave fires when entering a child; only clear when truly leaving. */
+function reallyLeft(e: React.DragEvent): boolean {
+  const related = e.relatedTarget as Node | null;
+  return !related || !(e.currentTarget as HTMLElement).contains(related);
+}
+
 function loadCollapsed(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as string[]);
@@ -85,7 +91,9 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
         <div
           className={`tree-row${node.path === currentPath ? ' active' : ''}${
             highlight === 'into' ? ' drop-into' : ''
-          }${highlight === 'before' ? ' drop-before' : ''}${highlight === 'after' ? ' drop-after' : ''}`}
+          }${highlight === 'before' ? ' drop-before' : ''}${highlight === 'after' ? ' drop-after' : ''}${
+            dragPath === node.path ? ' dragging' : ''
+          }`}
           style={{ paddingLeft: 8 + depth * 14 }}
           draggable
           onDragStart={(e) => {
@@ -99,9 +107,15 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
           onDragOver={(e) => {
             if (!dragPath || dragPath === node.path) return;
             e.preventDefault();
-            setSpot({ key: node.path, pos: posFromEvent(e, true) });
+            e.dataTransfer.dropEffect = 'move';
+            const pos = posFromEvent(e, true);
+            setSpot((prev) =>
+              prev?.key === node.path && prev.pos === pos ? prev : { key: node.path, pos },
+            );
           }}
-          onDragLeave={() => setSpot((s) => (s?.key === node.path ? null : s))}
+          onDragLeave={(e) => {
+            if (reallyLeft(e)) setSpot((s) => (s?.key === node.path ? null : s));
+          }}
           onDrop={(e) => {
             e.preventDefault();
             const pos = posFromEvent(e, true);
@@ -167,10 +181,13 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
               onDragOver={(e) => {
                 if (dragPath) {
                   e.preventDefault();
-                  setSpot({ key, pos: 'into' });
+                  e.dataTransfer.dropEffect = 'move';
+                  setSpot((prev) => (prev?.key === key ? prev : { key, pos: 'into' }));
                 }
               }}
-              onDragLeave={() => setSpot((s) => (s?.key === key ? null : s))}
+              onDragLeave={(e) => {
+                if (reallyLeft(e)) setSpot((s) => (s?.key === key ? null : s));
+              }}
               onDrop={(e) => {
                 e.preventDefault();
                 setSpot(null);
