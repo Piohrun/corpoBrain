@@ -17,6 +17,10 @@ function workingDays(start: string | null, end: string | null): number {
   if (!start || !end) return SPRINT_DAYS_FALLBACK;
   const from = new Date(start);
   const to = new Date(end);
+  // a sprint end with no time means the end of that day
+  if (!to.getUTCHours() && !to.getUTCMinutes() && !to.getUTCSeconds()) {
+    to.setUTCDate(to.getUTCDate() + 1);
+  }
   if (!(to > from)) return SPRINT_DAYS_FALLBACK;
   let n = 0;
   const cur = new Date(from);

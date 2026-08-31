@@ -137,6 +137,8 @@ export interface BoardPerson {
   team: string | null;
   loadOverrides: Record<string, number>;
   color: string | null;
+  suggested: Record<string, number>;
+  absence: Record<string, { ooo: number; support: number; total: number; available: number }>;
 }
 
 export interface BoardModel {
@@ -325,6 +327,48 @@ export interface TimelineModel {
     unscheduled: { key: string; reason: string }[];
   };
 }
+
+export interface AvailabilityEntry {
+  person: string;
+  from: string;
+  to: string;
+  kind: 'ooo' | 'support';
+  note: string;
+}
+
+export interface AvailabilityRow {
+  person: string;
+  name: string;
+  path: string | null;
+  sprint: string;
+  ooo: number;
+  support: number;
+  total: number;
+  available: number;
+  capacity: number | null;
+  adjusted: number | null;
+  overridden: boolean;
+}
+
+export interface AvailabilityResponse {
+  file: string;
+  entries: AvailabilityEntry[];
+  warnings: string[];
+  unit: string;
+  supportFactor: number;
+  people: { path: string; name: string }[];
+  sprints: string[];
+  rows: AvailabilityRow[];
+}
+
+export const availabilityApi = {
+  get: () => req<AvailabilityResponse>('/api/availability'),
+  save: (entries: AvailabilityEntry[]) =>
+    req<{ ok: boolean; file: string; count: number }>('/api/availability', {
+      method: 'PUT',
+      body: JSON.stringify({ entries }),
+    }),
+};
 
 export const projectApi = {
   list: () => req<{ projects: ProjectSummary[]; untagged: number; unit: string }>('/api/projects'),

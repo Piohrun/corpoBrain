@@ -111,7 +111,7 @@ function forecastInput(board: BoardModel, v: VaultService, issues: ProjectIssue[
     if (!p.active) continue;
     const perSprint: Record<string, number> = {};
     for (const s of board.sprints) {
-      const c = p.overrides[s.name] ?? p.capacity;
+      const c = p.overrides[s.name] ?? p.suggested[s.name] ?? p.capacity;
       if (c !== null) perSprint[s.name] = toDays(c);
     }
     for (const id of p.jiraIds) capacityDays[id] = perSprint;

@@ -52,6 +52,13 @@ export interface VaultConfig {
     writeback: 'off' | 'dry-run' | 'on';
     profiles: JiraProfile[];
   };
+  /** out-of-office and support rota, feeding sprint bandwidth */
+  availability: {
+    /** the note holding the availability table */
+    file: string;
+    /** share of their own work a person on support rota is still expected to do */
+    supportFactor: number;
+  };
   /** sprint-health thresholds (Planning → Sprint health) */
   health: {
     /** raw estimate at or above which an issue should be split */
@@ -103,6 +110,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
     writeback: 'off',
     profiles: [],
   },
+  availability: { file: 'planning/availability.md', supportFactor: 0 },
   health: { bigIssue: 8, staleDays: 5, underloadPct: 0.5 },
   private: { lockAfterMinutes: 10 },
   git: { autoCommit: true, intervalMinutes: 10 },

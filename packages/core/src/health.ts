@@ -19,6 +19,8 @@ export interface HealthIssue {
   blockedBy: string[];
 }
 
+import type { Absence } from './availability.ts';
+
 export interface HealthPerson {
   path: string;
   name: string;
@@ -29,6 +31,9 @@ export interface HealthPerson {
   active: boolean;
   region: string | null;
   team: string | null;
+  /** bandwidth after absence, per sprint */
+  suggested?: Record<string, number>;
+  absence?: Record<string, Absence>;
 }
 
 export interface HealthSprint {
@@ -268,7 +273,17 @@ export function sprintHealth(
   // ---- per-person load ----------------------------------------------------
   for (const p of people) {
     if (!p.active) continue;
-    const capacity = p.overrides[sprint.name] ?? p.capacity;
+    // manual override wins, then the availability-adjusted figure, then the base
+    const capacity = p.overrides[sprint.name] ?? p.suggested?.[sprint.name] ?? p.capacity;
+    const away = p.absence?.[sprint.name];
+    const awayNote = away
+      ? ` (${[
+          away.ooo ? `${away.ooo}d out of office` : '',
+          away.support ? `${away.support}d on support` : '',
+        ]
+          .filter(Boolean)
+          .join(', ')})`
+      : '';
     const computed = issues
       .filter((i) => i.statusCategory !== 'done' && i.effectiveAssignee)
       .filter((i) => p.jiraIds.includes(i.effectiveAssignee as string))
@@ -296,7 +311,7 @@ export function sprintHealth(
       problems.push({
         kind: 'overloaded',
         severity: 'high',
-        detail: `${load} ${unit} assigned against ${capacity} ${unit} of bandwidth (over by ${round(load - capacity)})`,
+        detail: `${load} ${unit} assigned against ${capacity} ${unit} of bandwidth${awayNote} (over by ${round(load - capacity)})`,
         issueKey: null,
         path: null,
         summary: null,
@@ -309,7 +324,7 @@ export function sprintHealth(
       problems.push({
         kind: 'underloaded',
         severity: 'low',
-        detail: `${load} of ${capacity} ${unit} assigned — room for ${round(capacity - load)} more`,
+        detail: `${load} of ${capacity} ${unit} assigned${awayNote} — room for ${round(capacity - load)} more`,
         issueKey: null,
         path: null,
         summary: null,

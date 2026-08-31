@@ -10,6 +10,7 @@ import {
 } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { AvailabilityPanel } from './AvailabilityPanel.tsx';
 import { SprintHealth } from './SprintHealth.tsx';
 import { SyncProgressBar } from './SyncProgressBar.tsx';
 
@@ -48,8 +49,8 @@ export function PlanningPage({ onOpenNote }: Props) {
     () => lsGet('cb.plan.groupBy', 'region') as GroupBy,
   );
   const [horizon, setHorizon] = useState<number>(() => Number(lsGet('cb.plan.horizon', '3')));
-  const [bottom, setBottom] = useState<'health' | 'issues'>(
-    () => lsGet('cb.plan.bottom', 'health') as 'health' | 'issues',
+  const [bottom, setBottom] = useState<'health' | 'issues' | 'availability'>(
+    () => lsGet('cb.plan.bottom', 'health') as 'health' | 'issues' | 'availability',
   );
   const [healthSprint, setHealthSprint] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -274,6 +275,14 @@ export function PlanningPage({ onOpenNote }: Props) {
           >
             ☰ All issues ({issues.length})
           </button>
+          <button
+            type="button"
+            className={`tab${bottom === 'availability' ? ' active' : ''}`}
+            onClick={() => setBottom('availability')}
+            title="Out of office and support rota — feeds sprint bandwidth"
+          >
+            ✈ Availability
+          </button>
         </div>
         {bottom === 'health' ? (
           <SprintHealth
@@ -287,6 +296,14 @@ export function PlanningPage({ onOpenNote }: Props) {
             onSprint={setHealthSprint}
             onOpenNote={onOpenNote}
             reloadKey={reloadKey}
+          />
+        ) : bottom === 'availability' ? (
+          <AvailabilityPanel
+            onOpenNote={onOpenNote}
+            onChanged={() => {
+              refresh();
+              setReloadKey((k) => k + 1);
+            }}
           />
         ) : (
           <SprintTable board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
@@ -306,6 +323,8 @@ interface Row {
   capacityIsDefault: boolean;
   overrides: Record<string, number>;
   loadOverrides: Record<string, number>;
+  suggested: Record<string, number>;
+  absence: Record<string, { ooo: number; support: number; total: number; available: number }>;
   region: string | null;
   team: string | null;
   editable: boolean;
@@ -366,6 +385,8 @@ function BandwidthGrid({
         capacityIsDefault: p.capacityIsDefault,
         overrides: p.overrides,
         loadOverrides: p.loadOverrides ?? {},
+        suggested: p.suggested ?? {},
+        absence: p.absence ?? {},
         region: p.region,
         team: p.team,
         editable: true,
@@ -385,6 +406,8 @@ function BandwidthGrid({
       capacityIsDefault: false,
       overrides: {} as Record<string, number>,
       loadOverrides: {} as Record<string, number>,
+      suggested: {} as Record<string, number>,
+      absence: {} as Row['absence'],
       region: null,
       team: null,
       editable: false,
@@ -401,6 +424,8 @@ function BandwidthGrid({
         capacityIsDefault: false,
         overrides: {} as Record<string, number>,
         loadOverrides: {} as Record<string, number>,
+        suggested: {} as Record<string, number>,
+        absence: {} as Row['absence'],
         region: null,
         team: null,
         editable: false,
@@ -521,7 +546,7 @@ function BandwidthGrid({
   }, [rows, groupBy]);
 
   const capOf = (row: Row, col: string): number | null =>
-    col === 'Backlog' ? null : (row.overrides[col] ?? row.capacity);
+    col === 'Backlog' ? null : (row.overrides[col] ?? row.suggested[col] ?? row.capacity);
 
   /** effective used load: manual override wins over the issue-derived sum */
   const plannedOf = (row: Row, col: string): number =>
@@ -673,8 +698,20 @@ function BandwidthGrid({
                 <span className="cap-edit">
                   <EditableNumber
                     value={row.overrides[col] ?? null}
-                    placeholder={row.capacity !== null ? String(row.capacity) : '—'}
-                    title={`Bandwidth override for ${col} (empty = default)`}
+                    placeholder={
+                      row.suggested[col] !== undefined
+                        ? `✈ ${row.suggested[col]}`
+                        : row.capacity !== null
+                          ? String(row.capacity)
+                          : '—'
+                    }
+                    title={
+                      row.absence[col]
+                        ? `${row.name} is away ${row.absence[col]?.ooo ?? 0}d + ${
+                            row.absence[col]?.support ?? 0
+                          }d support in ${col}: bandwidth ${row.capacity} → ${row.suggested[col]}. Type a number to override.`
+                        : `Bandwidth override for ${col} (empty = default)`
+                    }
                     onCommit={(v) => {
                       const overrides = { ...row.overrides };
                       if (v === null) delete overrides[col];

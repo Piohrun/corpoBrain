@@ -1,5 +1,7 @@
 /** Planning workbench API: board model, plan writes, person capacity. */
 import {
+  type Absence,
+  adjustCapacity,
   convertEffort,
   type EffortUnit,
   issueRiskFlags,
@@ -9,6 +11,7 @@ import {
   sprintHealth,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { resolveAvailability } from './availability.ts';
 import { syncRegionParent } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -64,6 +67,10 @@ export interface BoardPerson {
   loadOverrides: Record<string, number>;
   /** explicit display color (hub notes); falls back to a name-derived hue */
   color: string | null;
+  /** bandwidth after absence, per sprint — only where it is lower than capacity */
+  suggested: Record<string, number>;
+  /** why it is lower */
+  absence: Record<string, Absence>;
 }
 
 export interface BoardModel {
@@ -147,7 +154,26 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     team: p.team,
     loadOverrides: safeObj(p.load_overrides_json),
     color: p.color,
+    suggested: {} as Record<string, number>,
+    absence: {} as Record<string, Absence>,
   }));
+
+  // out-of-office and support rota reduce bandwidth before anything else reads it
+  const availability = resolveAvailability(
+    v,
+    sprints.map((s) => ({ name: s.name, start: s.start, end: s.end })),
+    people,
+  );
+  for (const p of people) {
+    const perSprint = availability.byPerson.get(p.path);
+    if (!perSprint) continue;
+    for (const [sprint, absence] of perSprint) {
+      p.absence[sprint] = absence;
+      if (p.capacity === null) continue;
+      const adjusted = adjustCapacity(p.capacity, absence);
+      if (adjusted < p.capacity) p.suggested[sprint] = adjusted;
+    }
+  }
 
   const doneKeys = new Set(
     (

@@ -1,5 +1,6 @@
 import { SPEC_VERSION } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { availabilityRoutes } from './availability-routes.ts';
 import { digestRoutes } from './digest-routes.ts';
 import { gitFor } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
@@ -175,6 +176,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/jira', jiraRoutes(v));
   app.route('/api/plan', planRoutes(v));
   app.route('/api/digest', digestRoutes(v));
+  app.route('/api/availability', availabilityRoutes(v));
   app.route('/api/projects', projectRoutes(v));
   app.route('/api/person', personRoutes(v));
   app.route('/api/objects', objectRoutes(v));

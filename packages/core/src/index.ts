@@ -5,6 +5,17 @@
  */
 export const SPEC_VERSION = '0.1.0';
 
+export type { Absence, AbsenceKind, AvailabilityEntry, SprintSpan } from './availability.ts';
+export {
+  absencesBySprint,
+  adjustCapacity,
+  endExclusive,
+  parseAvailability,
+  personCell,
+  renderAvailabilityTable,
+  replaceAvailabilityTable,
+  weekdaysIn,
+} from './availability.ts';
 export type { JiraProfile, VaultConfig } from './config.ts';
 export { DEFAULT_CONFIG, loadConfig } from './config.ts';
 export type { Keystore } from './crypto.ts';
