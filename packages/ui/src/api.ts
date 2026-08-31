@@ -115,6 +115,7 @@ export interface BoardIssue {
     blockedOn: string[];
     note: string | null;
     project: string | null;
+    start: string | null;
   };
   effectiveSprint: string;
   effectiveAssignee: string | null;
@@ -194,6 +195,7 @@ export interface JiraStatus {
 
 export type PlanPatch = Partial<{
   project: string | null;
+  start: string | null;
   sprint: string | null;
   assignee: string | null;
   rank: number | null;
@@ -281,51 +283,53 @@ export interface ProjectSummary {
   blocked: number;
   people: { assignee: string; effort: number; issues: number }[];
   sprints: string[];
-  forecastSprint: string | null;
   forecastDate: string | null;
-  violations: number;
+  lateDeps: number;
+  conflicts: number;
 }
 
-export interface TimelineBlock {
+export interface CalendarBlock {
   key: string;
   assignee: string;
-  sprint: string;
-  plannedSprint: string;
-  offsetDays: number;
-  days: number;
-  slipped: boolean;
+  start: number;
+  span: number;
+  workDays: number;
+  pinned: boolean;
   estimated: boolean;
-  overflow: boolean;
+  awayDays: number;
+  conflict: boolean;
+  clamped: boolean;
+  lateDeps: string[];
   summary: string | null;
   path: string;
   status: string | null;
   statusCategory: string | null;
   priority: string | null;
   blockedBy: string[];
-  dependsOn: string[];
 }
 
-export interface TimelineModel {
-  project: Omit<ProjectSummary, 'forecastSprint' | 'forecastDate' | 'violations'>;
+export interface CalendarModel {
+  project: Omit<ProjectSummary, 'forecastDate' | 'lateDeps' | 'conflicts'>;
   unit: string;
-  sprints: { name: string; start: string | null; end: string | null; state: string }[];
+  days: string[];
+  today: number | null;
+  months: { label: string; from: number; span: number }[];
+  sprints: { name: string; from: number; span: number; state: string }[];
   rows: {
     assignee: string;
     name: string;
     path: string | null;
     color: string | null;
-    capacityDays: Record<string, number>;
+    inRoster: boolean;
+    ooo: number[];
+    support: number[];
   }[];
-  planBlocks: TimelineBlock[];
-  forecastBlocks: TimelineBlock[];
-  backlog: TimelineBlock[];
-  forecast: {
-    finishSprint: string | null;
-    finishDate: string | null;
-    violations: { key: string; blocker: string; detail: string }[];
-    cycles: string[][];
-    unscheduled: { key: string; reason: string }[];
-  };
+  blocks: CalendarBlock[];
+  rail: { key: string; summary: string | null; path: string; days: number; estimated: boolean }[];
+  finishDate: string | null;
+  target: string | null;
+  cycles: string[][];
+  warnings: string[];
 }
 
 export interface AvailabilityEntry {
@@ -373,11 +377,21 @@ export const availabilityApi = {
 export const projectApi = {
   list: () => req<{ projects: ProjectSummary[]; untagged: number; unit: string }>('/api/projects'),
   timeline: (path: string) =>
-    req<TimelineModel>(`/api/projects/timeline?path=${encodeURIComponent(path)}`),
+    req<CalendarModel>(`/api/projects/timeline?path=${encodeURIComponent(path)}`),
   create: (title: string) =>
     req<{ ok: boolean; path: string }>('/api/projects', {
       method: 'POST',
       body: JSON.stringify({ title }),
+    }),
+  roster: (path: string, people: string[]) =>
+    req<{ ok: boolean; people: string[] }>('/api/projects/roster', {
+      method: 'PUT',
+      body: JSON.stringify({ path, people }),
+    }),
+  arrange: (path: string) =>
+    req<{ ok: boolean; pinned: number; finishDate: string | null }>('/api/projects/arrange', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
     }),
 };
 

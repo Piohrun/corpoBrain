@@ -359,7 +359,7 @@ export class Indexer {
     this.db
       .prepare(
         `INSERT OR REPLACE INTO plan(key, sprint, assignee, rank, effort, risk, confidence,
-           bucket, blocked_on_json, note, project) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           bucket, blocked_on_json, note, project, start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         key,
@@ -377,6 +377,7 @@ export class Indexer {
         ),
         str(plan.note),
         str(plan.project),
+        str(plan.start),
       );
   }
 

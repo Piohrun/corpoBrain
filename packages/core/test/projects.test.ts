@@ -21,6 +21,7 @@ function def(over: Partial<ProjectDef> = {}): ProjectDef {
     epics: [],
     labels: [],
     keys: [],
+    people: [],
     ...over,
   };
 }
@@ -40,7 +41,7 @@ function issue(over: Partial<ProjectIssue> = {}): ProjectIssue {
     effectiveEffort: 2,
     dependsOn: [],
     blockedBy: [],
-    plan: { project: null, rank: null },
+    plan: { project: null, rank: null, start: null },
     ...over,
   };
 }
@@ -53,7 +54,7 @@ describe('projectOf', () => {
 
   it('matches an explicit tag by path, title or slug', () => {
     for (const tag of ['projects/falcon.md', 'Falcon', 'falcon', 'FALCON']) {
-      expect(projectOf(issue({ plan: { project: tag, rank: null } }), projects)).toBe(
+      expect(projectOf(issue({ plan: { project: tag, rank: null, start: null } }), projects)).toBe(
         'projects/falcon.md',
       );
     }
@@ -67,7 +68,7 @@ describe('projectOf', () => {
   });
 
   it('lets an explicit tag override a rule match', () => {
-    const tagged = issue({ epic: 'EXEC-100', plan: { project: 'Atlas', rank: null } });
+    const tagged = issue({ epic: 'EXEC-100', plan: { project: 'Atlas', rank: null, start: null } });
     expect(projectOf(tagged, projects)).toBe('projects/atlas.md');
   });
 });
@@ -174,8 +175,8 @@ describe('forecastProject', () => {
 
   it('orders independent work by plan rank', () => {
     const r = forecast([
-      issue({ key: 'A', plan: { project: null, rank: 2 } }),
-      issue({ key: 'B', plan: { project: null, rank: 1 } }),
+      issue({ key: 'A', plan: { project: null, rank: 2, start: null } }),
+      issue({ key: 'B', plan: { project: null, rank: 1, start: null } }),
     ]);
     expect(r.blocks.map((b) => b.key)).toEqual(['B', 'A']);
   });
@@ -243,8 +244,8 @@ describe('layoutPlan', () => {
 
   it("stacks each person's work inside the sprint it is planned into", () => {
     const r = plan([
-      issue({ key: 'A', effectiveEffort: 3, plan: { project: null, rank: 2 } }),
-      issue({ key: 'B', effectiveEffort: 2, plan: { project: null, rank: 1 } }),
+      issue({ key: 'A', effectiveEffort: 3, plan: { project: null, rank: 2, start: null } }),
+      issue({ key: 'B', effectiveEffort: 2, plan: { project: null, rank: 1, start: null } }),
       issue({ key: 'C', effectiveEffort: 4, effectiveSprint: 'Sprint 38' }),
     ]);
     expect(r.blocks.map((b) => [b.key, b.sprint, b.offsetDays])).toEqual([

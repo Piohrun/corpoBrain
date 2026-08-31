@@ -22,6 +22,8 @@ export interface ProjectDef {
   epics: string[];
   labels: string[];
   keys: string[];
+  /** roster: people on the project even before they have issues */
+  people: string[];
 }
 
 export interface ProjectIssue {
@@ -39,7 +41,7 @@ export interface ProjectIssue {
   effectiveEffort: number | null;
   dependsOn: string[];
   blockedBy: string[];
-  plan: { project: string | null; rank: number | null };
+  plan: { project: string | null; rank: number | null; start: string | null };
 }
 
 const slug = (path: string): string =>

@@ -40,6 +40,8 @@ export interface BoardIssue {
     blockedOn: string[];
     note: string | null;
     project: string | null;
+    /** pinned start day on the project calendar, YYYY-MM-DD */
+    start: string | null;
   };
   effectiveSprint: string;
   effectiveAssignee: string | null;
@@ -103,6 +105,7 @@ const PLAN_KEYS = [
   'blocked_on',
   'note',
   'project',
+  'start',
 ] as const;
 
 export function buildBoard(v: VaultService, now = new Date()): BoardModel {
@@ -190,7 +193,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
               p.sprint AS p_sprint, p.assignee AS p_assignee, p.rank AS p_rank,
               p.effort AS p_effort, p.risk AS p_risk, p.confidence AS p_confidence,
               p.bucket AS p_bucket, p.blocked_on_json AS p_blocked, p.note AS p_note,
-              p.project AS p_project
+              p.project AS p_project, p.start AS p_start
        FROM jira j
        LEFT JOIN notes n ON n.path = j.path
        LEFT JOIN plan p ON p.key = j.key ORDER BY j.key`,
@@ -238,6 +241,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
         blockedOn,
         note: r.p_note as string | null,
         project: r.p_project as string | null,
+        start: r.p_start as string | null,
       },
       effectiveSprint,
       effectiveAssignee: (r.p_assignee as string | null) ?? (r.assignee as string | null),
@@ -334,6 +338,38 @@ function safeObj(json: string | null): Record<string, number> {
   }
 }
 
+/** Merge a patch into an issue's plan.* frontmatter. Shared with the projects calendar. */
+export function applyPlanPatch(
+  v: VaultService,
+  key: string,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const row = v.indexer.db.prepare('SELECT path FROM jira WHERE key = ?').get(key) as
+    | { path: string }
+    | undefined;
+  if (!row) throw new HttpError(404, `unknown jira issue ${key}`);
+  for (const k of Object.keys(patch)) {
+    if (!(PLAN_KEYS as readonly string[]).includes(k))
+      throw new HttpError(400, `unknown plan field: ${k}`);
+  }
+  const { content } = v.read(row.path);
+  const fm = parseFrontmatter(content);
+  const plan = {
+    ...(typeof fm.data.plan === 'object' && fm.data.plan && !Array.isArray(fm.data.plan)
+      ? (fm.data.plan as Record<string, unknown>)
+      : {}),
+  };
+  for (const [k, val] of Object.entries(patch)) {
+    if (val === null) delete plan[k];
+    else plan[k] = val;
+  }
+  const updated = Object.keys(plan).length
+    ? setFrontmatterKey(content, 'plan', plan)
+    : deletePlan(content);
+  v.write(row.path, updated);
+  return plan;
+}
+
 export function planRoutes(v: VaultService): Hono {
   const app = new Hono();
 
@@ -386,30 +422,8 @@ export function planRoutes(v: VaultService): Hono {
   /** PATCH plan fields of one issue. null clears a field; {} allowed. */
   app.put('/issue/:key', async (c) => {
     const key = c.req.param('key');
-    const row = v.indexer.db.prepare('SELECT path FROM jira WHERE key = ?').get(key) as
-      | { path: string }
-      | undefined;
-    if (!row) throw new HttpError(404, `unknown jira issue ${key}`);
     const patch = (await c.req.json()) as Record<string, unknown>;
-    for (const k of Object.keys(patch)) {
-      if (!(PLAN_KEYS as readonly string[]).includes(k))
-        throw new HttpError(400, `unknown plan field: ${k}`);
-    }
-    const { content } = v.read(row.path);
-    const fm = parseFrontmatter(content);
-    const plan = {
-      ...(typeof fm.data.plan === 'object' && fm.data.plan && !Array.isArray(fm.data.plan)
-        ? (fm.data.plan as Record<string, unknown>)
-        : {}),
-    };
-    for (const [k, val] of Object.entries(patch)) {
-      if (val === null) delete plan[k];
-      else plan[k] = val;
-    }
-    const updated = Object.keys(plan).length
-      ? setFrontmatterKey(content, 'plan', plan)
-      : deletePlan(content);
-    v.write(row.path, updated);
+    const plan = applyPlanPatch(v, key, patch);
     return c.json({ ok: true, plan });
   });
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
-import type { ProjectSummary, TimelineModel } from '../src/project-routes.ts';
+import type { CalendarModel, ProjectSummary } from '../src/project-routes.ts';
 import { VaultService } from '../src/vault-service.ts';
 
 let root: string;
@@ -90,9 +90,9 @@ describe('GET /api/projects', () => {
       projects: ProjectSummary[];
     };
     const p = body.projects[0] as ProjectSummary;
-    expect(p.forecastSprint).toBe('Sprint 37');
     expect(p.forecastDate).toMatch(/^2026-09-\d\d$/);
-    expect(p.violations).toBe(0);
+    expect(p.lateDeps).toBe(0);
+    expect(p.conflicts).toBe(0);
   });
 });
 
@@ -100,40 +100,95 @@ describe('GET /api/projects/timeline', () => {
   const timeline = async (path = 'projects/falcon.md') =>
     (await (
       await app.request(`/api/projects/timeline?path=${encodeURIComponent(path)}`)
-    ).json()) as TimelineModel;
+    ).json()) as CalendarModel;
 
-  it('lays out the plan per person and sprint', async () => {
+  it('builds a workday axis with sprint and month spans', async () => {
     const t = await timeline();
-    expect(t.sprints.map((s) => s.name)).toEqual(['Sprint 37', 'Sprint 38']);
-    expect(t.rows.map((r) => r.name)).toEqual(['Anna', 'Bob']);
-    const anna = t.rows.find((r) => r.name === 'Anna');
-    expect(anna?.capacityDays['Sprint 37']).toBe(8);
-    const plan = Object.fromEntries(t.planBlocks.map((b) => [b.key, b]));
-    expect(plan['EXEC-1']).toMatchObject({ sprint: 'Sprint 37', offsetDays: 0, days: 3 });
-    expect(plan['EXEC-3']).toMatchObject({ sprint: 'Sprint 38', days: 5 });
-    expect(plan['EXEC-1']?.summary).toBe('Epic member');
-    expect(plan['EXEC-1']?.path).toBe('jira/EXEC-1.md');
+    expect(t.days[0]).toBe('2026-08-31');
+    expect(t.days).toContain('2026-09-25');
+    expect(t.days).not.toContain('2026-09-05'); // a Saturday
+    const s37 = t.sprints.find((s) => s.name === 'Sprint 37');
+    expect(s37).toMatchObject({ from: 0, span: 10 });
+    expect(t.sprints.find((s) => s.name === 'Sprint 38')).toMatchObject({ from: 10, span: 10 });
+    expect(t.months[0]?.label).toContain('Aug');
   });
 
-  it('forecasts blocks against dependencies and capacity', async () => {
+  it('lays blocks on the day grid: pinned by plan.start, the rest flowing per sprint', async () => {
     const t = await timeline();
-    const f = Object.fromEntries(t.forecastBlocks.map((b) => [b.key, b]));
-    // EXEC-3 depends on EXEC-1 (3 days), so it cannot start before day 3
-    expect(f['EXEC-3']?.offsetDays).toBe(3);
-    expect(f['EXEC-3']?.sprint).toBe('Sprint 37'); // forecast pulls it earlier than the plan
-    expect(t.forecast.finishSprint).toBe('Sprint 37');
-    expect(t.forecast.violations).toEqual([]);
+    const byKey = Object.fromEntries(t.blocks.map((b) => [b.key, b]));
+    // EXEC-1 (3d) and EXEC-2 flow into Sprint 37 on different rows
+    expect(byKey['EXEC-1']).toMatchObject({ start: 0, span: 3, workDays: 3, pinned: false });
+    expect(byKey['EXEC-2']).toMatchObject({ start: 0, span: 2 });
+    // EXEC-3 flows into Sprint 38 (day 10)
+    expect(byKey['EXEC-3']).toMatchObject({ start: 10, span: 5 });
+    expect(byKey['EXEC-1']?.summary).toBe('Epic member');
   });
 
-  it('keeps backlog work off the calendar but in the model', async () => {
-    jira(
-      'EXEC-4',
-      'summary: Not scheduled\nstatus: To Do\nstatus_category: new\nepic: EXEC-100\nestimate: 1\n',
+  it('pins an issue once plan.start is set and derives conflicts', async () => {
+    await app.request('/api/plan/issue/EXEC-3', {
+      method: 'PUT',
+      body: JSON.stringify({ start: '2026-09-02' }),
+    });
+    const t = await timeline();
+    const three = t.blocks.find((b) => b.key === 'EXEC-3');
+    expect(three).toMatchObject({ start: 2, pinned: true });
+    // it now overlaps EXEC-1 (anna, days 0-2)? EXEC-1 flows AFTER pinned blocks, so no overlap
+    expect(t.blocks.find((b) => b.key === 'EXEC-1')?.conflict).toBe(false);
+    // and its blocker EXEC-1 no longer finishes first
+    expect(three?.lateDeps).toEqual(['EXEC-1']);
+    expect(t.warnings.join(' ')).toContain('EXEC-3 starts before its blocker');
+  });
+
+  it('lists roster people as rows even with no issues', async () => {
+    writeFileSync(
+      join(root, 'people', 'carol.md'),
+      '---\ntype: person\ntitle: Carol\njira: carol\ncapacity: 8\n---\n',
+    );
+    vault.indexer.rebuild();
+    const res = await app.request('/api/projects/roster', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'projects/falcon.md', people: ['Carol'] }),
+    });
+    expect(res.status).toBe(200);
+    expect(readFileSync(join(root, 'projects', 'falcon.md'), 'utf8')).toContain('Carol');
+    const t = await timeline();
+    expect(t.rows[0]).toMatchObject({ name: 'Carol', inRoster: true });
+    expect(t.rows.at(-1)?.name).toBe('Unassigned');
+    const bad = await app.request('/api/projects/roster', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'projects/falcon.md', people: ['Nobody Real'] }),
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it('marks away days on rows and stretches blocks over them', async () => {
+    mkdirSync(join(root, 'planning'), { recursive: true });
+    writeFileSync(
+      join(root, 'planning', 'availability.md'),
+      '---\ntype: availability\n---\n\n| Person | From | To | Type |\n| --- | --- | --- | --- |\n| Anna | 2026-09-01 | 2026-09-02 | ooo |\n',
     );
     vault.indexer.rebuild();
     const t = await timeline();
-    expect(t.backlog.map((b) => b.key)).toEqual(['EXEC-4']);
-    expect(t.planBlocks.map((b) => b.key)).not.toContain('EXEC-4');
+    const anna = t.rows.find((r) => r.name === 'Anna');
+    expect(anna?.ooo).toEqual([1, 2]);
+    // EXEC-1: 3 working days for anna, days 1-2 away → spans 0..4
+    expect(t.blocks.find((b) => b.key === 'EXEC-1')).toMatchObject({
+      span: 5,
+      workDays: 3,
+      awayDays: 2,
+    });
+  });
+
+  it('predicts a finish date and keeps Backlog work on the rail', async () => {
+    jira(
+      'EXEC-4',
+      'summary: Someday\nstatus: To Do\nstatus_category: new\nepic: EXEC-100\nestimate: 2\n',
+    );
+    vault.indexer.rebuild();
+    const t = await timeline();
+    expect(t.rail.map((r) => r.key)).toEqual(['EXEC-4']);
+    expect(t.rail[0]?.days).toBe(2);
+    expect(t.finishDate).toMatch(/^2026-09-/);
   });
 
   it('404s for an unknown project', async () => {
@@ -141,6 +196,28 @@ describe('GET /api/projects/timeline', () => {
     expect(res.status).toBe(404);
     const bad = await app.request('/api/projects/timeline');
     expect(bad.status).toBe(400);
+  });
+});
+
+describe('POST /api/projects/arrange', () => {
+  it('pins every scheduled issue to its computed start day', async () => {
+    const res = await app.request('/api/projects/arrange', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'projects/falcon.md' }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { pinned: number; finishDate: string | null };
+    expect(body.pinned).toBe(3);
+    expect(body.finishDate).toMatch(/^2026-09-/);
+    // EXEC-3 depends on EXEC-1 (3 days from 31 Aug) → starts 3 Sep, pulled into Sprint 37
+    const three = readFileSync(join(root, 'jira', 'EXEC-3.md'), 'utf8');
+    expect(three).toContain('start: 2026-09-03');
+    expect(three).toContain('sprint: Sprint 37');
+    const t = (await (
+      await app.request('/api/projects/timeline?path=projects%2Ffalcon.md')
+    ).json()) as CalendarModel;
+    expect(t.blocks.every((b) => b.pinned)).toBe(true);
+    expect(t.blocks.every((b) => !b.conflict && b.lateDeps.length === 0)).toBe(true);
   });
 });
 

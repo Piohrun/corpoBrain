@@ -385,6 +385,8 @@ planning UI (or the user by hand), and is never sent to Jira.
 | `bucket` | string | free-text theme / initiative |
 | `blocked_on` | wikilink[] | local dependencies, in addition to Jira links |
 | `note` | string | manager's note |
+| `project` | string | project this issue belongs to (path, title or slug of a `projects/` note); overrides the project's epic/label/key rules |
+| `start` | date | pinned start day on the project calendar (`YYYY-MM-DD`) |
 
 Effective planning values (used by the bandwidth grid):
 
@@ -487,7 +489,7 @@ jira(key PRIMARY KEY, path, summary, status, status_category, issue_type,
      priority, assignee, reporter, sprint, sprint_id, epic, parent, labels_json,
      estimate, created, updated, resolved, synced, profile);
 plan(key PRIMARY KEY, sprint, assignee, rank REAL, effort REAL, risk,
-     confidence, bucket, blocked_on_json, note);
+     confidence, bucket, blocked_on_json, note, project, start);
 sprints(id PRIMARY KEY, name, state, start, end, board_id, goal);
 people(path PRIMARY KEY, jira_id, name, capacity REAL, overrides_json, active);
 meta(key PRIMARY KEY, value);

@@ -16,6 +16,8 @@ export {
   replaceAvailabilityTable,
   weekdaysIn,
 } from './availability.ts';
+export type { ArrangeResult, CalendarBlock, CalendarInput, CalendarLayout } from './calendar.ts';
+export { arrangeCalendar, dateOfIndex, dayIndexOf, layoutCalendar } from './calendar.ts';
 export type { JiraProfile, VaultConfig } from './config.ts';
 export { DEFAULT_CONFIG, loadConfig } from './config.ts';
 export type { Keystore } from './crypto.ts';
