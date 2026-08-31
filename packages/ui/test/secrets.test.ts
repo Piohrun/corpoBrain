@@ -115,3 +115,40 @@ describe('encryptTableCells', () => {
     expect(lines[1]).toBe(LINES[1]);
   });
 });
+
+describe('inline token vs code-span collision (regression)', () => {
+  it('the token chip survives; code-span styling for its span is dropped', async () => {
+    const { collectInline } = await import('../src/editor/livePreview.ts');
+    const text = 'Pay: `🔒Q0JWMWFiY2RlZmdo` end';
+    const tokenFrom = text.indexOf('`');
+    const tokenTo = text.lastIndexOf('`') + 1;
+    const out: { from: number; to: number; deco: unknown }[] = [];
+    // simulate the parser having seen the token as an InlineCode node
+    const emphasis = [
+      {
+        from: tokenFrom,
+        to: tokenTo,
+        cls: 'cm-cb-code',
+        marks: [
+          [tokenFrom, tokenFrom + 1],
+          [tokenTo - 1, tokenTo],
+        ] as [number, number][],
+      },
+    ];
+    collectInline(
+      0,
+      text,
+      { cursorTouches: false, inCodeBlock: false },
+      9999,
+      out,
+      emphasis,
+      undefined,
+      () => null,
+    );
+    // exactly one decoration covering the token span — the chip; no
+    // code-span mark or backtick hides competing for it
+    const covering = out.filter((d) => d.from >= tokenFrom && d.to <= tokenTo);
+    expect(covering).toHaveLength(1);
+    expect(covering[0]).toMatchObject({ from: tokenFrom, to: tokenTo });
+  });
+});

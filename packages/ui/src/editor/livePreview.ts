@@ -243,7 +243,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-function collectInline(
+export function collectInline(
   lineFrom: number,
   text: string,
   ctx: LineCtx,
@@ -255,15 +255,21 @@ function collectInline(
 ): void {
   const lineTo = lineFrom + text.length;
 
-  // inline secret tokens replace their whole code span with a chip; pushed
-  // first so overlapping code-span styling is dropped by the overlap filter
+  // inline secret tokens replace their whole code span with a chip. The
+  // parser also sees them as InlineCode, whose backtick-hiding decorations
+  // would win the overlap filter and leave raw base64 on screen — so token
+  // spans are excluded from emphasis/code handling below.
+  const tokenSpans: [number, number][] = [];
   if (!ctx.cursorTouches) {
     INLINE_SECRET.lastIndex = 0;
     for (let m = INLINE_SECRET.exec(text); m; m = INLINE_SECRET.exec(text)) {
       const cipher = m[1] as string;
+      const from = lineFrom + m.index;
+      const to = from + m[0].length;
+      tokenSpans.push([from, to]);
       out.push({
-        from: lineFrom + m.index,
-        to: lineFrom + m.index + m[0].length,
+        from,
+        to,
         deco: Decoration.replace({
           widget: new SecretWidget(cipher, getSecret?.(cipher) ?? null),
         }),
@@ -274,6 +280,7 @@ function collectInline(
   // emphasis / inline code within this line
   for (const e of emphasis) {
     if (e.from < lineFrom || e.to > lineTo) continue;
+    if (tokenSpans.some(([f, t]) => e.from >= f && e.to <= t)) continue; // secret token owns this span
     const cursorIn = cursor >= e.from && cursor <= e.to;
     out.push({ from: e.from, to: e.to, deco: Decoration.mark({ class: e.cls }) });
     if (!cursorIn)
