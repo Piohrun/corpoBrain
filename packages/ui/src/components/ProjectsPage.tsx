@@ -627,7 +627,6 @@ function IssueSearch({
 
   return (
     <>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: click-away backdrop; Escape works too */}
       <div className="cal-search-backdrop" onPointerDown={onClose} />
       <div
         className="cal-search floating"
