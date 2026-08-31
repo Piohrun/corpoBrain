@@ -286,3 +286,51 @@ describe('additive category templates', () => {
     expect((await put({ path: 'notes/gateway.md', set: { jira: 'x' } })).status).toBe(400);
   });
 });
+
+describe('region hubs', () => {
+  const put = (body: object) =>
+    app.request('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) });
+  const place = (body: object) =>
+    app.request('/api/tree/place', { method: 'POST', body: JSON.stringify(body) });
+
+  it('setting region creates the hub and parents the person under it', async () => {
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'kim.md'), note('Kim', 'type: person\n'));
+    vault.indexer.update();
+    const res = await put({ path: 'people/kim.md', set: { region: 'APAC' } });
+    expect(res.status).toBe(200);
+    const hub = readFileSync(join(root, 'people', 'APAC.md'), 'utf8');
+    expect(hub).toContain('region: "APAC"');
+    expect(hub).toContain('active: false');
+    const kim = readFileSync(join(root, 'people', 'kim.md'), 'utf8');
+    expect(kim).toContain('region: APAC');
+    expect(kim).toContain('parent: "[[people/APAC]]"');
+    const peopleGroup = buildTree(vault).folders.find((f) => f.folder === 'people');
+    const apac = peopleGroup?.roots.find((r) => r.title === 'APAC');
+    expect(apac?.children.map((c) => c.title)).toEqual(['Kim']);
+    // changing region re-parents; clearing removes the hub parent
+    await put({ path: 'people/kim.md', set: { region: 'EMEA' } });
+    expect(readFileSync(join(root, 'people', 'kim.md'), 'utf8')).toContain(
+      'parent: "[[people/EMEA]]"',
+    );
+    await put({ path: 'people/kim.md', set: { region: null } });
+    const cleared = readFileSync(join(root, 'people', 'kim.md'), 'utf8');
+    expect(cleared).not.toContain('parent:');
+    expect(cleared).not.toContain('region:');
+  });
+
+  it('dropping a person under a hub adopts its region', async () => {
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(join(root, 'people', 'lee.md'), note('Lee', 'type: person\n'));
+    writeFileSync(
+      join(root, 'people', 'AMER.md'),
+      '---\ntitle: "AMER"\nregion: "AMER"\nactive: false\n---\n\n# AMER\n',
+    );
+    vault.indexer.update();
+    const res = await place({ path: 'people/lee.md', parent: 'people/AMER.md', index: 0 });
+    expect(res.status).toBe(200);
+    const lee = readFileSync(join(root, 'people', 'lee.md'), 'utf8');
+    expect(lee).toContain('region: AMER');
+    expect(lee).toContain('parent:');
+  });
+});

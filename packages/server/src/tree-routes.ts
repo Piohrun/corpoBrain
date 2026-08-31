@@ -189,6 +189,78 @@ export function applyCategory(
   return p;
 }
 
+// ------------------------------------------------------------- region hubs
+// One source of truth: the person's `region:` property. The app maintains a
+// hub note people/<REGION>.md (a note whose own region equals its title,
+// active: false so it never appears as a planning row) and keeps person
+// parent links pointing at it — so regions show as subfolders in the tree.
+
+function personFm(v: VaultService, path: string): Record<string, unknown> | null {
+  try {
+    return parseFrontmatter(v.read(path).content).data;
+  } catch {
+    return null;
+  }
+}
+
+export function isRegionHub(v: VaultService, path: string): boolean {
+  if (!path.startsWith(`${v.config.folders.people}/`)) return false;
+  const fm = personFm(v, path);
+  if (!fm) return false;
+  const region = typeof fm.region === 'string' ? fm.region.trim() : '';
+  if (!region) return false;
+  const base = (path.split('/').pop() as string).replace(/\.md$/, '');
+  const title = typeof fm.title === 'string' ? fm.title : base;
+  return title === region;
+}
+
+/** region property → parent link (creates the hub note on demand). */
+export function syncRegionParent(v: VaultService, path: string): void {
+  const people = v.config.folders.people;
+  if (!path.startsWith(`${people}/`) || isRegionHub(v, path)) return;
+  const fm = personFm(v, path);
+  if (!fm) return;
+  const region = typeof fm.region === 'string' ? fm.region.trim() : '';
+  const { content } = v.read(path);
+  let text = content;
+  if (region) {
+    const hubRel = `${people}/${region}.md`;
+    v.create(
+      hubRel,
+      region,
+      `---\ntitle: ${JSON.stringify(region)}\nregion: ${JSON.stringify(region)}\nactive: false\n---\n\n# ${region}\n\n`,
+    );
+    text = setFrontmatterKey(text, 'parent', `[[${people}/${region}]]`);
+  } else {
+    const rawParent = typeof fm.parent === 'string' ? fm.parent : null;
+    if (rawParent) {
+      const m = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim());
+      const resolved = v.resolve(m ? (m[1] as string).trim() : rawParent);
+      if (resolved.exists && isRegionHub(v, resolved.path)) {
+        text = deleteFrontmatterKey(text, 'parent');
+      }
+    }
+  }
+  if (text !== content) v.write(path, text);
+}
+
+/** parent link → region property (dropping a person under a hub). */
+export function adoptRegionFromParent(v: VaultService, path: string): void {
+  const people = v.config.folders.people;
+  if (!path.startsWith(`${people}/`) || isRegionHub(v, path)) return;
+  const fm = personFm(v, path);
+  const rawParent = typeof fm?.parent === 'string' ? fm.parent : null;
+  if (!rawParent) return;
+  const m = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim());
+  const resolved = v.resolve(m ? (m[1] as string).trim() : rawParent);
+  if (!resolved.exists || !isRegionHub(v, resolved.path)) return;
+  const hubFm = personFm(v, resolved.path);
+  const region = typeof hubFm?.region === 'string' ? hubFm.region.trim() : '';
+  if (!region || fm?.region === region) return;
+  const { content } = v.read(path);
+  v.write(path, setFrontmatterKey(content, 'region', region));
+}
+
 export interface TreeNode {
   path: string;
   title: string;
@@ -370,7 +442,9 @@ export function treeRoutes(v: VaultService): Hono {
     }
 
     if (text !== content) v.write(path, text);
-    const fm = parseFrontmatter(text).data;
+    if (body.set && 'region' in body.set) syncRegionParent(v, path);
+    if (body.parent !== undefined) adoptRegionFromParent(v, path);
+    const fm = parseFrontmatter(v.read(path).content).data;
     return c.json({ ok: true, path, type: fm.type ?? 'note', parent: fm.parent ?? null });
   });
 
@@ -411,6 +485,7 @@ export function treeRoutes(v: VaultService): Hono {
       )?.title;
       const { content } = v.read(path);
       v.write(path, setFrontmatterKey(content, 'parent', `[[${title ?? parent.path}]]`));
+      adoptRegionFromParent(v, path);
     } else {
       const folder = body.folder ?? (path.includes('/') ? (path.split('/')[0] as string) : '');
       const group = tree.folders.find((f) => f.folder === folder);

@@ -8,6 +8,7 @@ import {
   setFrontmatterKey,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { syncRegionParent } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
 export interface BoardIssue {
@@ -372,6 +373,7 @@ export function planRoutes(v: VaultService): Hono {
       text = body.team ? setFrontmatterKey(text, 'team', body.team) : deleteKey(text, 'team');
     }
     v.write(body.path, text);
+    if (body.region !== undefined) syncRegionParent(v, body.path);
     return c.json({ ok: true });
   });
 
