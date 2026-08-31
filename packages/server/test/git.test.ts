@@ -53,3 +53,21 @@ describe('git status and error tracking', () => {
     expect(git.lastCommit?.message).toBe('vault: change');
   });
 });
+
+describe('nested vault safety', () => {
+  it('a vault inside a parent repo is not "a repo" and gets its own on ensureRepo', async () => {
+    const parent = new GitService(root);
+    writeFileSync(join(root, 'outer.md'), 'outer\n');
+    await parent.ensureRepo();
+    const vaultDir = join(root, 'my-vault');
+    mkdirSync(vaultDir, { recursive: true });
+    writeFileSync(join(vaultDir, 'note.md'), 'inner\n');
+    const vaultGit = new GitService(vaultDir);
+    expect(await vaultGit.isRepo()).toBe(false); // nested ≠ own repo
+    expect(await vaultGit.ensureRepo()).toBe(true);
+    expect(await vaultGit.isRepo()).toBe(true);
+    const log = await vaultGit.log();
+    expect(log).toHaveLength(1); // its own history, not the parent's
+    expect((await parent.log()).length).toBe(1);
+  });
+});

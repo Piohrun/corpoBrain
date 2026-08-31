@@ -49,9 +49,13 @@ export class GitService {
     }
   }
 
+  /** True only when the vault itself is the repository root — a vault nested
+   *  inside some parent repo must get its own repo, not commit upwards. */
   async isRepo(): Promise<boolean> {
     try {
-      return (await this.git('rev-parse', '--is-inside-work-tree')) === 'true';
+      const toplevel = await this.git('rev-parse', '--show-toplevel');
+      const { realpathSync } = await import('node:fs');
+      return realpathSync(toplevel) === realpathSync(this.root);
     } catch {
       return false;
     }
