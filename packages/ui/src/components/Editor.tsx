@@ -92,6 +92,17 @@ export function Editor({
 
   const revealMany = async (ciphers: string[]) => {
     const missing = ciphers.filter((c) => !revealed.current.has(c));
+    if (missing.length === 0) {
+      // everything already revealed → toggle the whole set hidden
+      for (const cipher of ciphers) {
+        revealed.current.delete(cipher);
+        const t = hideTimers.current.get(cipher);
+        if (t) clearTimeout(t);
+        hideTimers.current.delete(cipher);
+      }
+      refreshDecorations();
+      return;
+    }
     if (missing.length) {
       if (!(await ensureUnlocked())) return;
       try {

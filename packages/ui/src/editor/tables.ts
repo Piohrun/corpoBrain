@@ -215,11 +215,14 @@ class TableWidget extends WidgetType {
       renderCell(cell, th, view);
       const ciphers = ciphersInColumn(bodyRows, i);
       if (ciphers.length && config.onRevealMany) {
+        const allRevealed = ciphers.every((c) => (config.getSecret?.(c) ?? null) !== null);
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'cm-table-reveal';
-        btn.textContent = '\u{1F513}';
-        btn.title = `Reveal ${ciphers.length} encrypted cell(s) in this column`;
+        btn.textContent = allRevealed ? '\u{1F512}' : '\u{1F513}';
+        btn.title = allRevealed
+          ? 'Hide this column'
+          : `Reveal ${ciphers.length} encrypted cell(s) in this column`;
         btn.onmousedown = (e) => {
           e.preventDefault();
           config.onRevealMany?.(ciphers);
