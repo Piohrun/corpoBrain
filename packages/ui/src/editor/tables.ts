@@ -168,6 +168,75 @@ export function pendingCells(lines: string[]): { rowIndex: number; colIndex: num
   return out;
 }
 
+// ------------------------------------------------------- paste conversion
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&amp;/gi, '&');
+}
+
+function mdCell(raw: string): string {
+  return decodeEntities(raw)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\|/g, '\\|');
+}
+
+function rowsToMarkdown(rows: string[][]): string | null {
+  const width = Math.max(...rows.map((r) => r.length));
+  if (rows.length < 1 || width < 2) return null;
+  const pad = (r: string[]) => {
+    const out = [...r];
+    while (out.length < width) out.push('');
+    return out;
+  };
+  const header = pad(rows[0] as string[]);
+  const body = rows.slice(1).map(pad);
+  return [
+    `| ${header.join(' | ')} |`,
+    `| ${header.map(() => '---').join(' | ')} |`,
+    ...body.map((r) => `| ${r.join(' | ')} |`),
+  ].join('\n');
+}
+
+/** Excel/Sheets/OneNote HTML clipboard → markdown table (regex-parsed, no DOM). */
+export function htmlTableToMarkdown(html: string | null | undefined): string | null {
+  if (!html || !/<table[\s>]/i.test(html)) return null;
+  const tableMatch = /<table[\s\S]*?<\/table>/i.exec(html);
+  if (!tableMatch) return null;
+  const rows: string[][] = [];
+  const trRe = /<tr[\s\S]*?<\/tr>/gi;
+  for (let tr = trRe.exec(tableMatch[0]); tr; tr = trRe.exec(tableMatch[0])) {
+    const cells: string[] = [];
+    const cellRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
+    for (let td = cellRe.exec(tr[0]); td; td = cellRe.exec(tr[0])) {
+      cells.push(mdCell(td[1] ?? ''));
+    }
+    if (cells.length) rows.push(cells);
+  }
+  return rows.length ? rowsToMarkdown(rows) : null;
+}
+
+/** Tab-separated clipboard text (Excel plain flavour) → markdown table. */
+export function tsvToMarkdownTable(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const lines = text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .filter((l) => l.trim() !== '');
+  // every line must carry at least one tab, and there must be ≥2 lines —
+  // this keeps ordinary text and pasted code out of the converter
+  if (lines.length < 2 || !lines.every((l) => l.includes('\t'))) return null;
+  const rows = lines.map((l) => l.split('\t').map((c) => mdCell(c)));
+  return rowsToMarkdown(rows);
+}
+
 export type EncryptTarget = { kind: 'column'; index: number } | { kind: 'row'; rowIndex: number };
 
 function escapeCell(cell: string): string {

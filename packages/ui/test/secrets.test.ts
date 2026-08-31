@@ -185,3 +185,32 @@ describe('encrypted-column pending detection', () => {
     expect(pendingCells(['| a | b |', '| --- | --- |', '| 1 | 2 |'])).toEqual([]);
   });
 });
+
+describe('table paste conversion', () => {
+  it('converts TSV (Excel plain flavour) with escaping and ragged rows', async () => {
+    const { tsvToMarkdownTable } = await import('../src/editor/tables.ts');
+    const md = tsvToMarkdownTable('Name\tPay | Bonus\nAnna\t1000\nBob\t2000\textra');
+    expect(md).toBe(
+      '| Name | Pay \\| Bonus |  |\n| --- | --- | --- |\n| Anna | 1000 |  |\n| Bob | 2000 | extra |',
+    );
+  });
+
+  it('rejects ordinary text and code without tabs on every line', async () => {
+    const { tsvToMarkdownTable } = await import('../src/editor/tables.ts');
+    expect(tsvToMarkdownTable('just some\nplain text')).toBeNull();
+    expect(tsvToMarkdownTable('a\tb\nno tab here')).toBeNull();
+    expect(tsvToMarkdownTable('single line\twith tab')).toBeNull();
+  });
+
+  it('converts HTML tables (OneNote/Excel rich flavour), stripping markup and entities', async () => {
+    const { htmlTableToMarkdown } = await import('../src/editor/tables.ts');
+    const html =
+      '<div><table><tr><th>Name</th><th>Role</th></tr><tr><td><b>Anna</b>&nbsp;K</td><td>Dev &amp; Lead</td></tr></table></div>';
+    expect(htmlTableToMarkdown(html)).toBe(
+      '| Name | Role |\n| --- | --- |\n| Anna K | Dev & Lead |',
+    );
+    expect(htmlTableToMarkdown('<p>no table</p>')).toBeNull();
+    // single-column tables are not worth converting
+    expect(htmlTableToMarkdown('<table><tr><td>one</td></tr></table>')).toBeNull();
+  });
+});

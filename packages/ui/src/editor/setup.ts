@@ -14,6 +14,7 @@ import type { Extension } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { livePreview } from './livePreview.ts';
+import { findTables, htmlTableToMarkdown, tsvToMarkdownTable } from './tables.ts';
 
 export interface EditorConfig {
   onNavigate: (target: string) => void;
@@ -56,6 +57,24 @@ function wikilinkCompletions(cfg: EditorConfig) {
   };
 }
 
+/** paste from Excel/OneNote/Sheets → auto-converted markdown table */
+function tablePaste(event: ClipboardEvent, view: EditorView): boolean {
+  const cd = event.clipboardData;
+  if (!cd) return false;
+  const sel = view.state.selection.main;
+  // pasting inside an existing table = editing cells; leave it raw
+  if (findTables(view.state).some((t) => sel.head >= t.from && sel.head <= t.to)) return false;
+  const md =
+    htmlTableToMarkdown(cd.getData('text/html')) ?? tsvToMarkdownTable(cd.getData('text/plain'));
+  if (!md) return false;
+  event.preventDefault();
+  const atLineStart = sel.from === 0 || view.state.doc.sliceString(sel.from - 1, sel.from) === '\n';
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert: `${atLineStart ? '' : '\n'}${md}\n` },
+  });
+  return true;
+}
+
 export function editorExtensions(cfg: EditorConfig): Extension {
   return [
     history(),
@@ -66,6 +85,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     highlightSelectionMatches(),
     closeBrackets(),
     autocompletion({ override: [wikilinkCompletions(cfg)], icons: false }),
+    EditorView.domEventHandlers({ paste: (e, v) => tablePaste(e, v) }),
     livePreview({
       onNavigate: cfg.onNavigate,
       isResolved: cfg.isResolved,
