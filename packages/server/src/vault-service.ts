@@ -113,6 +113,23 @@ export class VaultService {
     return this.indexer.updatePaths([p]);
   }
 
+  /** Move/rename a note within the vault. Links by title keep resolving. */
+  move(fromRel: string, toRel: string): void {
+    const from = this.assertSafe(fromRel);
+    const to = this.assertSafe(toRel);
+    if (!from.endsWith('.md') || !to.endsWith('.md'))
+      throw new HttpError(400, 'only .md files move');
+    const fromAbs = join(this.root, from);
+    const toAbs = join(this.root, to);
+    if (!existsSync(fromAbs)) throw new HttpError(404, `not found: ${from}`);
+    if (existsSync(toAbs)) throw new HttpError(409, `already exists: ${to}`);
+    this.selfWrites.add(from);
+    this.selfWrites.add(to);
+    writeFileAtomic(toAbs, readFileSync(fromAbs, 'utf8'));
+    unlinkSync(fromAbs);
+    this.indexer.updatePaths([from, to]);
+  }
+
   delete(relPath: string): void {
     const p = this.assertSafe(relPath);
     const abs = join(this.root, p);

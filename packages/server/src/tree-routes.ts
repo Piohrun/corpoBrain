@@ -165,6 +165,76 @@ export function treeRoutes(v: VaultService): Hono {
     return c.json({ ok: true, type: fm.type ?? 'note', parent: fm.parent ?? null });
   });
 
+  /**
+   * Place a note at a position: under a parent note (nesting) or as a root of
+   * a folder group (optionally moving the file into that folder), at `index`
+   * among its new siblings. Siblings are renumbered (order = 10, 20, …) so the
+   * position sticks.
+   */
+  app.post('/place', async (c) => {
+    const body = (await c.req.json()) as {
+      path?: string;
+      parent?: string | null; // parent note PATH (not title), or null for root
+      folder?: string | null; // required when parent is null
+      index?: number;
+    };
+    if (!body.path) throw new HttpError(400, 'path required');
+    const tree = buildTree(v);
+    const moving = findNode(tree, body.path);
+    if (!moving) throw new HttpError(404, `not in tree: ${body.path}`);
+    let path = body.path;
+
+    let siblings: TreeNode[];
+    if (body.parent) {
+      const parent = findNode(tree, body.parent);
+      if (!parent) throw new HttpError(404, `parent not in tree: ${body.parent}`);
+      if (parent.path === path) throw new HttpError(400, 'a note cannot be its own parent');
+      if (isDescendant(v, parent.path, path))
+        throw new HttpError(400, 'cannot move a note under its own descendant');
+      siblings = parent.children;
+      const title = (
+        v.indexer.db.prepare('SELECT title FROM notes WHERE path = ?').get(parent.path) as
+          | { title: string }
+          | undefined
+      )?.title;
+      const { content } = v.read(path);
+      v.write(path, setFrontmatterKey(content, 'parent', `[[${title ?? parent.path}]]`));
+    } else {
+      const folder = body.folder ?? (path.includes('/') ? (path.split('/')[0] as string) : '');
+      const group = tree.folders.find((f) => f.folder === folder);
+      siblings = group?.roots ?? [];
+      // cross-folder drop → move the file into that folder
+      const currentFolder = path.includes('/') ? (path.split('/')[0] as string) : '';
+      if (folder !== currentFolder) {
+        const base = path.split('/').pop() as string;
+        const target = folder ? `${folder}/${base}` : base;
+        v.move(path, target);
+        path = target;
+      }
+      const { content } = v.read(path);
+      const cleared = deleteFrontmatterKey(content, 'parent');
+      if (cleared !== content) v.write(path, cleared);
+    }
+
+    // renumber: siblings minus the moved note, insert at index
+    const list = siblings.filter((s) => s.path !== body.path && s.path !== path);
+    const idx = Math.max(0, Math.min(body.index ?? list.length, list.length));
+    const ordered = [
+      ...list.slice(0, idx).map((n) => n.path),
+      path,
+      ...list.slice(idx).map((n) => n.path),
+    ];
+    const orderOf = new Map(siblings.map((n) => [n.path, n.order]));
+    for (let i = 0; i < ordered.length; i++) {
+      const p = ordered[i] as string;
+      const want = (i + 1) * 10;
+      if (orderOf.get(p) === want) continue;
+      const { content } = v.read(p);
+      v.write(p, setFrontmatterKey(content, 'order', want));
+    }
+    return c.json({ ok: true, path, index: idx });
+  });
+
   return app;
 }
 

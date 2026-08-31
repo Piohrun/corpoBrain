@@ -1,3 +1,4 @@
+import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { type TreeModel, type TreeNode, treeApi } from '../api.ts';
 
@@ -10,6 +11,14 @@ interface Props {
 
 const LS_KEY = 'corpobrain.collapsed';
 
+/** Where a drag is hovering relative to a row. */
+type DropPos = 'before' | 'into' | 'after';
+
+interface DropSpot {
+  key: string; // row identity for highlight
+  pos: DropPos;
+}
+
 function loadCollapsed(): Set<string> {
   try {
     return new Set(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as string[]);
@@ -21,13 +30,13 @@ function loadCollapsed(): Set<string> {
 export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const [dragPath, setDragPath] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [spot, setSpot] = useState<DropSpot | null>(null);
 
   useEffect(() => {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify([...collapsed]));
     } catch {
-      /* private windows etc. */
+      /* storage unavailable */
     }
   }, [collapsed]);
 
@@ -40,25 +49,43 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
     });
   }, []);
 
-  const reparent = useCallback(
-    (childPath: string, parentPath: string | null) => {
-      if (childPath === parentPath) return;
-      treeApi
-        .meta({ path: childPath, parent: parentPath })
-        .then(onChanged)
-        .catch(() => {}); // server guards cycles; silently ignore invalid drops
+  const placeNote = useCallback(
+    (body: { path: string; parent?: string | null; folder?: string | null; index?: number }) => {
+      fetch('/api/tree/place', { method: 'POST', body: JSON.stringify(body) })
+        .then((r) => {
+          if (r.ok) onChanged();
+        })
+        .catch(() => {});
     },
     [onChanged],
   );
 
-  const renderNode = (node: TreeNode, depth: number): React.ReactNode => {
+  const posFromEvent = (e: React.DragEvent, canNest: boolean): DropPos => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const y = (e.clientY - rect.top) / rect.height;
+    if (!canNest) return y < 0.5 ? 'before' : 'after';
+    if (y < 0.28) return 'before';
+    if (y > 0.72) return 'after';
+    return 'into';
+  };
+
+  const renderNode = (
+    node: TreeNode,
+    depth: number,
+    folder: string,
+    parentPath: string | null,
+    index: number,
+  ): React.ReactNode => {
     const hasKids = node.children.length > 0;
     const isCollapsed = collapsed.has(node.path);
+    const highlight = spot?.key === node.path ? spot.pos : null;
     return (
       <div key={node.path}>
         {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container; open/toggle live on inner buttons */}
         <div
-          className={`tree-row${node.path === currentPath ? ' active' : ''}${dropTarget === node.path ? ' drop-target' : ''}`}
+          className={`tree-row${node.path === currentPath ? ' active' : ''}${
+            highlight === 'into' ? ' drop-into' : ''
+          }${highlight === 'before' ? ' drop-before' : ''}${highlight === 'after' ? ' drop-after' : ''}`}
           style={{ paddingLeft: 8 + depth * 14 }}
           draggable
           onDragStart={(e) => {
@@ -67,19 +94,30 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
           }}
           onDragEnd={() => {
             setDragPath(null);
-            setDropTarget(null);
+            setSpot(null);
           }}
           onDragOver={(e) => {
-            if (dragPath && dragPath !== node.path) {
-              e.preventDefault();
-              setDropTarget(node.path);
-            }
+            if (!dragPath || dragPath === node.path) return;
+            e.preventDefault();
+            setSpot({ key: node.path, pos: posFromEvent(e, true) });
           }}
-          onDragLeave={() => setDropTarget((t) => (t === node.path ? null : t))}
+          onDragLeave={() => setSpot((s) => (s?.key === node.path ? null : s))}
           onDrop={(e) => {
             e.preventDefault();
-            setDropTarget(null);
-            if (dragPath) reparent(dragPath, node.path);
+            const pos = posFromEvent(e, true);
+            setSpot(null);
+            if (!dragPath || dragPath === node.path) return;
+            if (pos === 'into') {
+              placeNote({ path: dragPath, parent: node.path, index: node.children.length });
+            } else {
+              // sibling insert relative to this node
+              const at = pos === 'before' ? index : index + 1;
+              placeNote(
+                parentPath
+                  ? { path: dragPath, parent: parentPath, index: at }
+                  : { path: dragPath, folder, index: at },
+              );
+            }
           }}
         >
           {hasKids ? (
@@ -108,7 +146,9 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
             {hasKids && isCollapsed && <span className="muted"> ({countDesc(node)})</span>}
           </button>
         </div>
-        {hasKids && !isCollapsed && node.children.map((c) => renderNode(c, depth + 1))}
+        {hasKids &&
+          !isCollapsed &&
+          node.children.map((c, i) => renderNode(c, depth + 1, folder, node.path, i))}
       </div>
     );
   };
@@ -122,28 +162,35 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
           <div key={key}>
             <button
               type="button"
-              className={`tree-folder${dropTarget === key ? ' drop-target' : ''}`}
+              className={`tree-folder${spot?.key === key ? ' drop-into' : ''}`}
               onClick={() => toggle(key)}
               onDragOver={(e) => {
                 if (dragPath) {
                   e.preventDefault();
-                  setDropTarget(key);
+                  setSpot({ key, pos: 'into' });
                 }
               }}
-              onDragLeave={() => setDropTarget((t) => (t === key ? null : t))}
+              onDragLeave={() => setSpot((s) => (s?.key === key ? null : s))}
               onDrop={(e) => {
                 e.preventDefault();
-                setDropTarget(null);
-                if (dragPath) reparent(dragPath, null); // drop on a folder header = make root
+                setSpot(null);
+                // drop on a folder header: top-level, first position, moving
+                // the file into this folder if it lives elsewhere
+                if (dragPath) placeNote({ path: dragPath, folder, index: 0 });
               }}
             >
               {isCollapsed ? '▸' : '▾'} {folder || 'vault'}{' '}
               <span className="muted">({roots.length})</span>
             </button>
-            {!isCollapsed && roots.map((r) => renderNode(r, 0))}
+            {!isCollapsed && roots.map((r, i) => renderNode(r, 0, folder, null, i))}
           </div>
         );
       })}
+      {dragPath && (
+        <div className="drag-hint muted small">
+          drop on a note = nest · edge = reorder · folder name = move there
+        </div>
+      )}
     </div>
   );
 }

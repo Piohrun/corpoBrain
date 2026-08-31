@@ -109,3 +109,65 @@ describe('PUT /api/tree/meta', () => {
     expect(children).toEqual(['Gateway', 'APAC']);
   });
 });
+
+describe('POST /api/tree/place', () => {
+  const place = (body: object) =>
+    app.request('/api/tree/place', { method: 'POST', body: JSON.stringify(body) });
+  const rootsOf = (folder: string) =>
+    buildTree(vault)
+      .folders.find((f) => f.folder === folder)
+      ?.roots.map((r) => r.title) ?? [];
+
+  it('reorders roots within a folder', async () => {
+    // notes folder roots: Loose note, Projects (alphabetical). Move Projects first.
+    const res = await place({ path: 'notes/projects.md', folder: 'notes', index: 0 });
+    expect(res.status).toBe(200);
+    expect(rootsOf('notes')).toEqual(['Projects', 'Loose note']);
+    // and back to the end
+    await place({ path: 'notes/projects.md', folder: 'notes', index: 5 });
+    expect(rootsOf('notes')).toEqual(['Loose note', 'Projects']);
+  });
+
+  it('nests at a position among the new siblings', async () => {
+    const res = await place({ path: 'notes/loose.md', parent: 'notes/projects.md', index: 1 });
+    expect(res.status).toBe(200);
+    const projects = buildTree(vault)
+      .folders.flatMap((f) => f.roots)
+      .find((r) => r.title === 'Projects');
+    expect(projects?.children.map((c) => c.title)).toEqual(['APAC', 'Loose note', 'Gateway']);
+    const text = readFileSync(join(root, 'notes', 'loose.md'), 'utf8');
+    expect(text).toContain('parent: "[[Projects]]"');
+    expect(text).toContain('order: 20');
+  });
+
+  it('cross-folder drop moves the file and clears parent', async () => {
+    mkdirSync(join(root, 'daily'), { recursive: true });
+    const res = await place({ path: 'notes/latency.md', folder: 'daily', index: 0 });
+    expect(res.status).toBe(200);
+    expect(readFileSync(join(root, 'daily', 'latency.md'), 'utf8')).toContain(
+      'Body of Latency work.',
+    );
+    expect(rootsOf('daily')).toContain('Latency work');
+    const gateway = buildTree(vault)
+      .folders.flatMap((f) => f.roots)
+      .find((r) => r.title === 'Projects')
+      ?.children.find((c) => c.title === 'Gateway');
+    expect(gateway?.children).toEqual([]);
+    // backlink-style resolution by title still works: link from another note
+    writeFileSync(join(root, 'notes', 'ref.md'), note('Ref', '') + 'See [[Latency work]].\n');
+    vault.indexer.update();
+    const links = vault.indexer.db
+      .prepare("SELECT dst_path FROM links WHERE src_path='notes/ref.md'")
+      .all() as { dst_path: string }[];
+    expect(links).toEqual([{ dst_path: 'daily/latency.md' }]);
+  });
+
+  it('guards cycles through place too', async () => {
+    expect((await place({ path: 'notes/projects.md', parent: 'notes/latency.md' })).status).toBe(
+      400,
+    );
+    expect((await place({ path: 'notes/projects.md', parent: 'notes/projects.md' })).status).toBe(
+      400,
+    );
+  });
+});
