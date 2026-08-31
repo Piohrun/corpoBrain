@@ -176,7 +176,7 @@ describe('sync warnings', () => {
       root,
       {
         ...config,
-        jira: { ...config.jira, profiles: [{ ...config.jira.profiles[0]!, boards: [] }] },
+        jira: { ...config.jira, profiles: config.jira.profiles.map((p) => ({ ...p, boards: [] })) },
       },
       adapter,
       () => new Date('2026-08-31T12:00:00Z'),
@@ -250,5 +250,20 @@ describe('latest-sprint rule', () => {
     ];
     await sync.run();
     expect(readFileSync(join(root, 'jira/EXEC-20.md'), 'utf8')).toContain('sprint: Sprint 38');
+  });
+});
+
+describe('full re-sync', () => {
+  it('ignores the watermark and re-detects the sprint field', async () => {
+    adapter.issues = [issue('EXEC-1', 'x')];
+    await sync.run();
+    expect(adapter.jqls[0]).toBe('project = EXEC');
+    await sync.run(); // incremental
+    expect(adapter.jqls[1]).toContain('updated >=');
+    await sync.run(undefined, { full: true });
+    expect(adapter.jqls[2]).toBe('project = EXEC'); // watermark ignored
+    // and the watermark is refreshed afterwards for the next incremental
+    await sync.run();
+    expect(adapter.jqls[3]).toContain('updated >=');
   });
 });

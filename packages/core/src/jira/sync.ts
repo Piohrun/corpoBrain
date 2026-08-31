@@ -76,22 +76,24 @@ export class JiraSync {
     writeFileSync(join(this.cacheDir(), 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   }
 
-  async run(profileName?: string): Promise<SyncReport[]> {
+  async run(profileName?: string, opts: { full?: boolean } = {}): Promise<SyncReport[]> {
     const profiles = this.config.jira.profiles.filter(
       (p) => !profileName || p.name === profileName,
     );
     if (!profiles.length)
       throw new Error(`no jira profile${profileName ? ` named ${profileName}` : 's configured'}`);
     const reports: SyncReport[] = [];
-    for (const profile of profiles) reports.push(await this.runProfile(profile));
+    for (const profile of profiles)
+      reports.push(await this.runProfile(profile, opts.full ?? false));
     return reports;
   }
 
-  private async runProfile(profile: JiraProfile): Promise<SyncReport> {
+  private async runProfile(profile: JiraProfile, full: boolean): Promise<SyncReport> {
     const syncStart = this.now();
     const state = this.loadState();
-    const watermark = state.watermarks[profile.name];
+    const watermark = full ? undefined : state.watermarks[profile.name];
     const jql = watermark ? `(${profile.jql}) AND updated >= "${watermark}"` : profile.jql;
+    if (full) delete state.sprintField; // re-detect on a full pass too
     const extraFields = this.config.jira.estimateField ? [this.config.jira.estimateField] : [];
     // The issue's own sprint field is authoritative (full history, handles
     // issues carried across sprints); board membership is only a fallback.

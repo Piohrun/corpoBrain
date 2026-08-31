@@ -145,7 +145,7 @@ export function PlanningPage({ onOpenNote }: Props) {
           <span className="muted">synced {status.lastSynced.slice(0, 16).replace('T', ' ')}</span>
         )}
         {syncError && <span className="plan-error">{syncError}</span>}
-        <button type="button" className="plan-btn" onClick={sync} disabled={syncing}>
+        <button type="button" className="plan-btn" onClick={() => sync()} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Sync Jira'}
         </button>
       </div>

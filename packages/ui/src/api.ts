@@ -211,7 +211,8 @@ export const planApi = {
     team?: string | null;
   }) => req<{ ok: boolean }>('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) }),
   jiraStatus: () => req<JiraStatus>('/api/jira/status'),
-  jiraSync: () => req<{ ok: boolean }>('/api/jira/sync', { method: 'POST', body: '{}' }),
+  jiraSync: (full = false) =>
+    req<{ ok: boolean }>('/api/jira/sync', { method: 'POST', body: JSON.stringify({ full }) }),
 };
 
 export interface SavedView {

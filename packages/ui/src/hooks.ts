@@ -50,7 +50,7 @@ export function useDebouncedCallback<A extends unknown[]>(
 export function useJiraSync(onDone: () => void): {
   syncing: boolean;
   status: JiraStatus | null;
-  start: () => void;
+  start: (full?: boolean) => void;
   error: string | null;
 } {
   const [status, setStatus] = useState<JiraStatus | null>(null);
@@ -82,13 +82,16 @@ export function useJiraSync(onDone: () => void): {
     };
   }, [poll]);
 
-  const start = useCallback(() => {
-    setSyncing(true);
-    setError(null);
-    if (!timer.current) timer.current = setInterval(poll, 700);
-    planApi.jiraSync().catch((e: Error) => setError(e.message));
-    poll();
-  }, [poll]);
+  const start = useCallback(
+    (full = false) => {
+      setSyncing(true);
+      setError(null);
+      if (!timer.current) timer.current = setInterval(poll, 700);
+      planApi.jiraSync(full).catch((e: Error) => setError(e.message));
+      poll();
+    },
+    [poll],
+  );
 
   return { syncing: syncing || (status?.syncing ?? false), status, start, error };
 }

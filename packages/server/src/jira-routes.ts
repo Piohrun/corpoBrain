@@ -193,8 +193,11 @@ export function jiraRoutes(v: VaultService): Hono {
     if (syncing) throw new HttpError(409, 'sync already running');
     syncing = true;
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { profile?: string };
-      const reports = await runSync(v, body.profile);
+      const body = (await c.req.json().catch(() => ({}))) as {
+        profile?: string;
+        full?: boolean;
+      };
+      const reports = await runSync(v, body.profile, body.full === true);
       return c.json({ ok: true, reports });
     } catch (e) {
       throw e instanceof HttpError
@@ -224,7 +227,11 @@ export function jiraRoutes(v: VaultService): Hono {
   return app;
 }
 
-export async function runSync(v: VaultService, profile?: string): Promise<SyncReport[]> {
+export async function runSync(
+  v: VaultService,
+  profile?: string,
+  full = false,
+): Promise<SyncReport[]> {
   const adapter = createJiraAdapter(v.root, v.config);
   const sync = new JiraSync(v.root, v.config, adapter);
   const startedAt = new Date().toISOString();
@@ -232,7 +239,7 @@ export async function runSync(v: VaultService, profile?: string): Promise<SyncRe
     liveProgress = { ...p, startedAt };
   };
   try {
-    const reports = await sync.run(profile);
+    const reports = await sync.run(profile, { full });
     lastReports = reports;
     lastSyncError = null;
     v.indexer.loadSprints();

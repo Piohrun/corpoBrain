@@ -4,7 +4,6 @@ import {
   type JiraIssueRow,
   type JiraProfileCfg,
   jiraApi,
-  planApi,
   type SprintRow,
 } from '../api.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
@@ -14,7 +13,7 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
   const [config, setConfig] = useState<JiraConfig | null>(null);
   const [issues, setIssues] = useState<JiraIssueRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [error, _setError] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -56,7 +55,16 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
         {!syncing && lastSyncSummary(syncStatus) && (
           <span className="muted small">{lastSyncSummary(syncStatus)}</span>
         )}
-        <button type="button" className="plan-btn" onClick={sync} disabled={syncing}>
+        <button
+          type="button"
+          className="risk-chip"
+          disabled={syncing}
+          title="Ignore the incremental watermark: re-fetch and re-map every issue matching the profile JQL. Use after mapping/logic changes or when things look stale."
+          onClick={() => sync(true)}
+        >
+          Full re-sync
+        </button>
+        <button type="button" className="plan-btn" onClick={() => sync()} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
