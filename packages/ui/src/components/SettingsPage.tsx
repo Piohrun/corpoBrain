@@ -2,6 +2,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { type GitStatus, gitApi } from '../api.ts';
 
 type Theme = 'system' | 'light' | 'dark';
+const STATUS_COLORS: { key: string; label: string; fallback: string }[] = [
+  { key: 'st-todo', label: 'to do / backlog', fallback: '#8a8a84' },
+  { key: 'st-progress', label: 'in progress', fallback: '#3f83f8' },
+  { key: 'st-ready', label: 'ready / review / release', fallback: '#9061f9' },
+  { key: 'st-done', label: 'done', fallback: '#31a05f' },
+];
+
 const ACCENTS = [
   { id: '', label: 'indigo', color: '#5b6ee1' },
   { id: 'teal', label: 'teal', color: '#0e9488' },
@@ -22,6 +29,29 @@ export function SettingsPage() {
   const [theme, setTheme] = useState<Theme>(() => (lsGet('cb.theme') as Theme) || 'system');
   const [accent, setAccent] = useState(() => lsGet('cb.accent'));
   const [git, setGit] = useState<GitStatus | null>(null);
+  const [statusColors, setStatusColors] = useState<Record<string, string>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('cb.colors') ?? '{}') as Record<string, string>;
+    } catch {
+      return {};
+    }
+  });
+
+  const applyStatusColor = (key: string, value: string | null) => {
+    setStatusColors((prev) => {
+      const next = { ...prev };
+      if (value) next[key] = value;
+      else delete next[key];
+      try {
+        localStorage.setItem('cb.colors', JSON.stringify(next));
+      } catch {
+        /* storage unavailable */
+      }
+      if (value) document.documentElement.style.setProperty(`--${key}`, value);
+      else document.documentElement.style.removeProperty(`--${key}`);
+      return next;
+    });
+  };
   const [gitMsg, setGitMsg] = useState<string | null>(null);
 
   const applyTheme = (t: Theme) => {
@@ -94,6 +124,30 @@ export function SettingsPage() {
                     title={a.label}
                     onClick={() => applyAccent(a.id)}
                   />
+                ))}
+              </div>
+              <label htmlFor="s-status-0">status colors</label>
+              <div>
+                {STATUS_COLORS.map((c, idx) => (
+                  <div key={c.key} className="status-color-row">
+                    <input
+                      id={idx === 0 ? 's-status-0' : undefined}
+                      type="color"
+                      value={statusColors[c.key] ?? c.fallback}
+                      onChange={(e) => applyStatusColor(c.key, e.target.value)}
+                    />
+                    <span className="muted small">{c.label}</span>
+                    {statusColors[c.key] && (
+                      <button
+                        type="button"
+                        className="tag-clear"
+                        title="Reset to default"
+                        onClick={() => applyStatusColor(c.key, null)}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>
