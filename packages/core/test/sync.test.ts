@@ -232,3 +232,23 @@ describe('multi-sprint mapping', () => {
     expect(readFileSync(join(root, 'jira/EXEC-1.md'), 'utf8')).toContain('sprint: Sprint 37');
   });
 });
+
+describe('latest-sprint rule', () => {
+  it('an issue in both the active and a future sprint maps to the future (latest) one', async () => {
+    adapter.detectSprintField = async () => 'customfield_99';
+    const blob = (id: number, name: string, state: string) =>
+      `com.atlassian.greenhopper.service.sprint.Sprint@x[id=${id},rapidViewId=7,state=${state},name=${name},startDate=x]`;
+    adapter.issues = [
+      {
+        key: 'EXEC-20',
+        fields: {
+          summary: 'rolled forward',
+          status: { name: 'To Do', statusCategory: { key: 'new' } },
+          customfield_99: [blob(2, 'Sprint 37', 'ACTIVE'), blob(3, 'Sprint 38', 'FUTURE')],
+        },
+      },
+    ];
+    await sync.run();
+    expect(readFileSync(join(root, 'jira/EXEC-20.md'), 'utf8')).toContain('sprint: Sprint 38');
+  });
+});

@@ -52,10 +52,13 @@ export function normalizeIssue(
   const status = f.status as { name?: string; statusCategory?: { key?: string } } | undefined;
   const catKey = status?.statusCategory?.key;
   const sprints = extractSprints(f);
-  const active =
-    sprints.find((s) => s.state === 'active') ??
-    sprints.filter((s) => s.state === 'future').pop() ??
-    sprints[sprints.length - 1];
+  // An issue placed in several sprints maps to its LATEST placement: the
+  // highest-id non-closed sprint (ids grow monotonically), else the highest
+  // overall (a fully-closed history maps to its last sprint).
+  const latest = (list: typeof sprints) =>
+    list.length ? list.reduce((a, b) => (b.id > a.id ? b : a)) : undefined;
+  const nonClosed = sprints.filter((s) => s.state !== 'closed');
+  const active = latest(nonClosed) ?? latest(sprints);
   const links: NormalizedIssue['links'] = [];
   for (const l of (f.issuelinks as Record<string, unknown>[] | undefined) ?? []) {
     const type = l.type as { inward?: string; outward?: string } | undefined;
