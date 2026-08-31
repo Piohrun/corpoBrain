@@ -1115,3 +1115,120 @@ button {
   font: inherit;
   font-size: 12.5px;
 }
+
+/* ---------- jira page ---------- */
+.settings-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  max-width: 760px;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px 12px;
+  align-items: center;
+}
+.settings-grid label {
+  font-size: 12.5px;
+  color: var(--fg-muted);
+}
+.settings-grid input,
+.settings-grid select {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.profile-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 4px 0;
+  flex-wrap: wrap;
+}
+.profile-row input {
+  padding: 4px 7px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.probe-result {
+  font-size: 12.5px;
+  margin-left: 8px;
+}
+.probe-result.ok {
+  color: var(--tag-fg);
+}
+.probe-result.err {
+  color: var(--danger);
+}
+.sprint-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sprint-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 150px;
+  background: var(--bg-panel);
+}
+.sprint-card.local {
+  border: 1.5px dashed var(--accent);
+  background: var(--accent-soft);
+}
+.sprint-card .sprint-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+.sprint-badge {
+  font-size: 10px;
+  border-radius: 8px;
+  padding: 1px 7px;
+  margin-left: 6px;
+  vertical-align: 1px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+}
+.sprint-card.local .sprint-badge {
+  background: var(--accent);
+  color: #fff;
+}
+.sprint-create {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.sprint-create input {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12.5px;
+}
+.label-chip {
+  display: inline-block;
+  font-size: 10.5px;
+  background: var(--bg-active);
+  color: var(--fg-muted);
+  border-radius: 8px;
+  padding: 1px 7px;
+  margin: 1px 2px;
+}
+.epic-group-header td {
+  background: var(--bg-panel);
+  font-weight: 600;
+  font-size: 12.5px;
+}

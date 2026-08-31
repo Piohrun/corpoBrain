@@ -9,6 +9,7 @@ import {
 } from './api.ts';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
 import { Editor } from './components/Editor.tsx';
+import { JiraPage } from './components/JiraPage.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { PrivatePage } from './components/PrivatePage.tsx';
@@ -25,7 +26,9 @@ export function App() {
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects' | 'private'>('notes');
+  const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects' | 'jira' | 'private'>(
+    'notes',
+  );
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
 
@@ -212,6 +215,14 @@ export function App() {
         </button>
         <button
           type="button"
+          className={view === 'jira' ? 'active' : ''}
+          onClick={() => setView('jira')}
+          title="Jira: settings, sprints, issues"
+        >
+          ⚙
+        </button>
+        <button
+          type="button"
           className={view === 'private' ? 'active' : ''}
           onClick={() => setView('private')}
           title="Protected notes"
@@ -225,6 +236,8 @@ export function App() {
         <TasksPage onOpenNote={openFromPlanning} />
       ) : view === 'objects' ? (
         <ObjectsPage onOpenNote={openFromPlanning} />
+      ) : view === 'jira' ? (
+        <JiraPage onOpenNote={openFromPlanning} />
       ) : view === 'private' ? (
         <PrivatePage />
       ) : (

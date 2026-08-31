@@ -279,3 +279,70 @@ export const fieldsApi = {
       `/api/objects/fields?category=${encodeURIComponent(category)}`,
     ),
 };
+
+// -------------------------------------------------------------------- jira
+
+export interface JiraProfileCfg {
+  name: string;
+  jql: string;
+  folder: string;
+  intervalMinutes: number;
+  boards: number[];
+  futureSprints: number;
+}
+
+export interface JiraConfig {
+  baseUrl: string;
+  deployment: 'auto' | 'datacenter' | 'cloud';
+  auth: 'bearer' | 'basic';
+  projectKeys: string[];
+  estimateField: string;
+  estimateUnit: 'points' | 'days' | 'hours' | 'seconds';
+  syncComments: boolean;
+  profiles: JiraProfileCfg[];
+  tokenSet: boolean;
+}
+
+export interface JiraIssueRow {
+  key: string;
+  path: string;
+  summary: string | null;
+  status: string | null;
+  status_category: string | null;
+  issue_type: string | null;
+  priority: string | null;
+  assignee: string | null;
+  sprint: string | null;
+  epic: string | null;
+  labels_json: string | null;
+  estimate: number | null;
+  updated: string | null;
+}
+
+export interface SprintRow {
+  id: number;
+  name: string;
+  state: string | null;
+  start: string | null;
+  end: string | null;
+  goal: string | null;
+  source: 'jira' | 'local';
+  path: string | null;
+}
+
+export const jiraApi = {
+  config: () => req<JiraConfig>('/api/jira/config'),
+  saveConfig: (body: Partial<JiraConfig> & { token?: string; email?: string }) =>
+    req<JiraConfig>('/api/jira/config', { method: 'PUT', body: JSON.stringify(body) }),
+  probe: () =>
+    req<{ ok: boolean; deployment: string; version: string }>('/api/jira/probe', {
+      method: 'POST',
+    }),
+  issues: () => req<JiraIssueRow[]>('/api/jira/issues'),
+  sprints: () => req<SprintRow[]>('/api/jira/sprints'),
+  createSprint: (body: { name: string; start?: string; end?: string; goal?: string }) =>
+    req<{ ok: boolean; path: string }>('/api/jira/sprints', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
