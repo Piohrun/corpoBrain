@@ -50,6 +50,9 @@ if (uiDir) {
     const body = readFileSync(file);
     return c.body(body, 200, {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',
+      ...(file.endsWith('index.html')
+        ? { 'Cache-Control': 'no-cache' }
+        : { 'Cache-Control': 'public, max-age=31536000, immutable' }),
     });
   });
 }
