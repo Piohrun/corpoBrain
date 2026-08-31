@@ -793,7 +793,10 @@ function EditableLoad({
       className="cap-input"
       type="number"
       step="0.5"
-      ref={(el) => el?.focus()}
+      ref={(el) => {
+        el?.focus();
+        el?.select();
+      }}
       defaultValue={value ?? computed}
       onBlur={(e) => {
         setEditing(false);
@@ -837,7 +840,10 @@ function EditableNumber({
       className="cap-input"
       type="number"
       step="0.5"
-      ref={(el) => el?.focus()}
+      ref={(el) => {
+        el?.focus();
+        el?.select();
+      }}
       defaultValue={value ?? ''}
       placeholder={placeholder}
       onBlur={(e) => {
