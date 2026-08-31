@@ -12,6 +12,7 @@ export interface AdapterLike {
   search(jql: string, extraFields?: string[]): Promise<RawIssue[]>;
   sprints(boardId: number, closedLimit?: number): Promise<JiraSprint[]>;
   sprintIssueKeys(sprintId: number): Promise<string[]>;
+  detectSprintField?(): Promise<string | null>;
 }
 
 export interface SyncProgress {
@@ -38,6 +39,8 @@ export interface SyncReport {
 
 interface SyncState {
   watermarks: Record<string, string>;
+  /** detected sprint custom field id (per instance), cached across runs */
+  sprintField?: string | null;
 }
 
 export class JiraSync {
@@ -90,6 +93,16 @@ export class JiraSync {
     const watermark = state.watermarks[profile.name];
     const jql = watermark ? `(${profile.jql}) AND updated >= "${watermark}"` : profile.jql;
     const extraFields = this.config.jira.estimateField ? [this.config.jira.estimateField] : [];
+    // The issue's own sprint field is authoritative (full history, handles
+    // issues carried across sprints); board membership is only a fallback.
+    if (state.sprintField === undefined && this.adapter.detectSprintField) {
+      try {
+        state.sprintField = await this.adapter.detectSprintField();
+      } catch {
+        state.sprintField = null;
+      }
+    }
+    if (state.sprintField) extraFields.push(state.sprintField);
     this.emit({ profile: profile.name, phase: 'search', current: 0, total: 0, detail: jql });
     const issues = await this.adapter.search(jql, extraFields);
     this.emit({
@@ -192,8 +205,9 @@ export class JiraSync {
           ? { estimateField: this.config.jira.estimateField }
           : {}),
       });
+      // field-derived sprint (normalizeIssue) wins; membership fills gaps
       const agile = sprintByKey.get(issue.key);
-      if (agile) issue.sprint = agile;
+      if (!issue.sprint && agile) issue.sprint = agile;
 
       const relPath = `${profile.folder}/${issue.key}.md`;
       const abs = join(this.root, relPath);

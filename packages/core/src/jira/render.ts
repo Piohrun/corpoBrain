@@ -52,7 +52,10 @@ export function normalizeIssue(
   const status = f.status as { name?: string; statusCategory?: { key?: string } } | undefined;
   const catKey = status?.statusCategory?.key;
   const sprints = extractSprints(f);
-  const active = sprints.find((s) => s.state === 'active') ?? sprints[sprints.length - 1];
+  const active =
+    sprints.find((s) => s.state === 'active') ??
+    sprints.filter((s) => s.state === 'future').pop() ??
+    sprints[sprints.length - 1];
   const links: NormalizedIssue['links'] = [];
   for (const l of (f.issuelinks as Record<string, unknown>[] | undefined) ?? []) {
     const type = l.type as { inward?: string; outward?: string } | undefined;

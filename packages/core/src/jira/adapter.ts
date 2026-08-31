@@ -172,6 +172,17 @@ export class JiraAdapter {
     return [...closed, ...all.filter((s) => s.state !== 'closed')];
   }
 
+  /**
+   * Find the sprint custom field id (varies per instance). Its schema custom
+   * key is the stable marker on both DC and Cloud.
+   */
+  async detectSprintField(): Promise<string | null> {
+    const fields =
+      await this.get<{ id: string; schema?: { custom?: string } }[]>('rest/api/2/field');
+    const sprint = fields.find((f) => f.schema?.custom?.endsWith(':gh-sprint'));
+    return sprint?.id ?? null;
+  }
+
   /** Agile boards visible to the token, optionally filtered by project. */
   async boards(projectKey?: string): Promise<{ id: number; name: string; type: string }[]> {
     const out: { id: number; name: string; type: string }[] = [];

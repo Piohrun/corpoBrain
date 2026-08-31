@@ -43,6 +43,7 @@ function issue(key: string, summary: string, assignee?: string): RawIssue {
 class FakeAdapter implements AdapterLike {
   issues: RawIssue[] = [];
   jqls: string[] = [];
+  detectSprintField?: () => Promise<string | null>;
   async search(jql: string): Promise<RawIssue[]> {
     this.jqls.push(jql);
     return this.issues;
@@ -190,5 +191,44 @@ describe('sync warnings', () => {
     expect(r2?.warnings.some((w) => w.includes('Kanban'))).toBe(true);
     // issues still synced despite the board failure (created on first run → unchanged here)
     expect((r2?.created.length ?? 0) + (r2?.unchanged ?? 0)).toBeGreaterThan(0);
+  });
+});
+
+describe('multi-sprint mapping', () => {
+  function multiSprintIssue(key: string, blobs: string[]): RawIssue {
+    return {
+      key,
+      fields: {
+        summary: `multi ${key}`,
+        status: { name: 'In Progress', statusCategory: { key: 'indeterminate' } },
+        customfield_99: blobs,
+      },
+    };
+  }
+  const blob = (id: number, name: string, state: string) =>
+    `com.atlassian.greenhopper.service.sprint.Sprint@x[id=${id},rapidViewId=7,state=${state},name=${name},startDate=2026-08-01]`;
+
+  it('issue carried across sprints maps to its active sprint from the field', async () => {
+    adapter.detectSprintField = async () => 'customfield_99';
+    adapter.issues = [
+      multiSprintIssue('EXEC-9', [blob(1, 'Sprint 36', 'CLOSED'), blob(2, 'Sprint 37', 'ACTIVE')]),
+      // future-planned issue, absent from any membership list
+      multiSprintIssue('EXEC-10', [blob(1, 'Sprint 36', 'CLOSED'), blob(9, 'Sprint 41', 'FUTURE')]),
+    ];
+    await sync.run();
+    const nine = readFileSync(join(root, 'jira/EXEC-9.md'), 'utf8');
+    expect(nine).toContain('sprint: Sprint 37');
+    const ten = readFileSync(join(root, 'jira/EXEC-10.md'), 'utf8');
+    expect(ten).toContain('sprint: Sprint 41'); // field-derived, no membership needed
+    // detection is cached in state.json
+    const state = JSON.parse(readFileSync(join(root, '.corpobrain/jira-cache/state.json'), 'utf8'));
+    expect(state.sprintField).toBe('customfield_99');
+  });
+
+  it('membership still fills in when the sprint field is unavailable', async () => {
+    adapter.detectSprintField = async () => null;
+    adapter.issues = [issue('EXEC-1', 'plain')]; // membership says Sprint 37
+    await sync.run();
+    expect(readFileSync(join(root, 'jira/EXEC-1.md'), 'utf8')).toContain('sprint: Sprint 37');
   });
 });
