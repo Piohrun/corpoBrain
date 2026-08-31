@@ -1,4 +1,12 @@
 :root {
+  /* jira status band — mid-tones legible on light and dark */
+  --st-todo: #8a8a84;
+  --st-progress: #3f83f8;
+  --st-ready: #9061f9;
+  --st-done: #31a05f;
+}
+
+:root {
   --bg: #fafaf8;
   --bg-panel: #f1f1ee;
   --bg-hover: #e7e7e2;
@@ -1359,4 +1367,36 @@ button {
   color: var(--accent);
   margin-left: 2px;
   vertical-align: super;
+}
+
+/* ---------- at-a-glance color coding ---------- */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: 1px;
+  flex: none;
+}
+.region-mark {
+  display: inline-block;
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.group-mark {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.color-legend {
+  display: inline-flex;
+  gap: 12px;
+  align-items: baseline;
 }

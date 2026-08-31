@@ -8,6 +8,7 @@ import {
   type SavedView,
   viewApi,
 } from '../api.ts';
+import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
 import { SyncProgressBar } from './SyncProgressBar.tsx';
 
@@ -502,8 +503,11 @@ function BandwidthGrid({
       <tr key={key} className={sub ? 'group-row group-sub' : 'group-row'}>
         <td>
           <button type="button" className="group-toggle" onClick={() => toggle(key)}>
-            {collapsed.has(key) ? '▸' : '▾'} {label}{' '}
-            <span className="muted">({members.length})</span>
+            {collapsed.has(key) ? '▸' : '▾'}{' '}
+            {!label.startsWith('(') && (
+              <span className="group-mark" style={{ background: nameColor(label) }} />
+            )}
+            {label} <span className="muted">({members.length})</span>
           </button>
         </td>
         {columns.map((col) => {
@@ -524,7 +528,14 @@ function BandwidthGrid({
   const memberRow = (row: Row) => (
     <tr key={row.id}>
       <td className="person-cell">
-        <div>{row.name}</div>
+        <div>
+          <span
+            className="region-mark"
+            style={{ background: nameColor(row.region) }}
+            title={row.region ?? 'no region'}
+          />
+          {row.name}
+        </div>
         {row.editable && row.path && (
           <div className="muted small">
             <EditableNumber
@@ -618,12 +629,16 @@ function BandwidthGrid({
                     onDragStart={() => setDragKey(i.key)}
                     onDragEnd={() => setDragKey(null)}
                     onClick={() => onOpenNote(i.path)}
-                    title={`${i.summary ?? ''}${
+                    title={`${statusTitle(i.status, i.statusCategory)} — ${i.summary ?? ''}${
                       moved
                         ? `\nUNCOMMITTED: Jira has ${i.jiraSprint ?? 'Backlog'} / ${personName(board, i.jiraAssignee)}`
                         : ''
                     }${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
                   >
+                    <span
+                      className="status-dot"
+                      style={{ background: statusColor(i.status, i.statusCategory) }}
+                    />
                     {i.key}
                     {i.effectiveEffort !== null && (
                       <span className="chip-effort">{i.effectiveEffort}</span>
@@ -682,8 +697,26 @@ function BandwidthGrid({
       <p className="muted small">
         Drag a card to plan it locally (dashed = uncommitted, Jira is never modified). Click a
         capacity number to adjust bandwidth for that sprint; loads render{' '}
-        <span className="load-planned">jira → planned</span> when they differ. Fold regions and
-        teams with the ▾ toggles.
+        <span className="load-planned">jira → planned</span> when they differ. Status:{' '}
+        <span className="color-legend">
+          <span>
+            <span className="status-dot" style={{ background: 'var(--st-todo)' }} />
+            to&nbsp;do
+          </span>
+          <span>
+            <span className="status-dot" style={{ background: 'var(--st-progress)' }} />
+            in&nbsp;progress
+          </span>
+          <span>
+            <span className="status-dot" style={{ background: 'var(--st-ready)' }} />
+            ready/review
+          </span>
+          <span>
+            <span className="status-dot" style={{ background: 'var(--st-done)' }} />
+            done
+          </span>
+        </span>
+        . Fold with the ▾ toggles.
       </p>
     </section>
   );
@@ -989,7 +1022,13 @@ function SprintTable({
                       )}
                   </select>
                 </td>
-                <td className="muted">{i.status}</td>
+                <td className="muted">
+                  <span
+                    className="status-dot"
+                    style={{ background: statusColor(i.status, i.statusCategory) }}
+                  />
+                  {i.status}
+                </td>
                 <td>
                   <input
                     className="cell-input effort"

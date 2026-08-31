@@ -6,6 +6,7 @@ import {
   jiraApi,
   type SprintRow,
 } from '../api.ts';
+import { statusColor } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
 import { lastSyncSummary, SyncProgressBar } from './SyncProgressBar.tsx';
 
@@ -509,7 +510,13 @@ function IssuesSection({
       <td className="summary-cell" title={i.summary ?? ''}>
         {i.summary}
       </td>
-      <td className="muted">{i.status}</td>
+      <td className="muted">
+        <span
+          className="status-dot"
+          style={{ background: statusColor(i.status, i.status_category) }}
+        />
+        {i.status}
+      </td>
       <td className="muted">{i.assignee ?? '—'}</td>
       <td className="muted">{i.sprint ?? '—'}</td>
       {!groupByEpic && <td className="muted">{i.epic ?? '—'}</td>}
