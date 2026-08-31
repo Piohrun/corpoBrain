@@ -36,6 +36,7 @@ export interface BoardIssue {
     bucket: string | null;
     blockedOn: string[];
     note: string | null;
+    project: string | null;
   };
   effectiveSprint: string;
   effectiveAssignee: string | null;
@@ -94,6 +95,7 @@ const PLAN_KEYS = [
   'bucket',
   'blocked_on',
   'note',
+  'project',
 ] as const;
 
 export function buildBoard(v: VaultService, now = new Date()): BoardModel {
@@ -161,7 +163,8 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
       `SELECT j.*, n.frontmatter_json AS fm_json,
               p.sprint AS p_sprint, p.assignee AS p_assignee, p.rank AS p_rank,
               p.effort AS p_effort, p.risk AS p_risk, p.confidence AS p_confidence,
-              p.bucket AS p_bucket, p.blocked_on_json AS p_blocked, p.note AS p_note
+              p.bucket AS p_bucket, p.blocked_on_json AS p_blocked, p.note AS p_note,
+              p.project AS p_project
        FROM jira j
        LEFT JOIN notes n ON n.path = j.path
        LEFT JOIN plan p ON p.key = j.key ORDER BY j.key`,
@@ -208,6 +211,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
         bucket: r.p_bucket as string | null,
         blockedOn,
         note: r.p_note as string | null,
+        project: r.p_project as string | null,
       },
       effectiveSprint,
       effectiveAssignee: (r.p_assignee as string | null) ?? (r.assignee as string | null),

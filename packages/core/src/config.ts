@@ -18,6 +18,7 @@ export interface VaultConfig {
     notes: string;
     jira: string;
     people: string;
+    projects: string;
     planning: string;
     templates: string;
     private: string;
@@ -71,6 +72,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
     notes: 'notes',
     jira: 'jira',
     people: 'people',
+    projects: 'projects',
     planning: 'planning',
     templates: 'templates',
     private: 'private',

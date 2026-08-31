@@ -51,6 +51,16 @@ export function categoryFields(
       fields.set(key, { key, kind, source });
   };
 
+  if (category === v.config.folders.projects) {
+    add('status', 'text', 'builtin');
+    add('start', 'text', 'builtin');
+    add('target', 'text', 'builtin');
+    add('color', 'text', 'builtin');
+    add('epics', 'list', 'builtin'); // issues in these Jira epics join the project
+    add('labels', 'list', 'builtin'); // …or carrying these Jira labels
+    add('keys', 'list', 'builtin'); // …or listed here explicitly
+  }
+
   const isPeople = category === v.config.folders.people;
   if (isPeople) {
     add('jira', 'text', 'builtin', true); // person's Jira account id — a real field here
@@ -133,6 +143,7 @@ export function folderForCategory(v: VaultService, category: string | null): str
 export function typeForFolder(v: VaultService, folder: string): string | null {
   const f = v.config.folders;
   if (folder === f.people) return 'person';
+  if (folder === f.projects) return 'project';
   if (folder === f.notes || folder === f.daily || folder === f.templates || folder === f.planning)
     return null;
   return folder;
