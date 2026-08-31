@@ -209,6 +209,12 @@ describe('forecastProject', () => {
     ]);
   });
 
+  it('does not call unplanned work slipped when it is scheduled for the first time', () => {
+    const r = forecast([issue({ key: 'A', effectiveSprint: 'Backlog', effectiveEffort: 2 })]);
+    expect(r.blocks[0]?.sprint).toBe('Sprint 37');
+    expect(r.blocks[0]?.slipped).toBe(false);
+  });
+
   it('ignores work that is already done', () => {
     const r = forecast([issue({ statusCategory: 'done', effectiveEffort: 5 })]);
     expect(r.blocks).toEqual([]);

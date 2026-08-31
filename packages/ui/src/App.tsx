@@ -15,6 +15,7 @@ import { ObjectsPage } from './components/ObjectsPage.tsx';
 import { PersonPanel } from './components/PersonPanel.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { PrivatePage } from './components/PrivatePage.tsx';
+import { ProjectsPage } from './components/ProjectsPage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { SettingsPage } from './components/SettingsPage.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -30,7 +31,15 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<
-    'notes' | 'planning' | 'digest' | 'tasks' | 'objects' | 'jira' | 'private' | 'settings'
+    | 'notes'
+    | 'planning'
+    | 'projects'
+    | 'digest'
+    | 'tasks'
+    | 'objects'
+    | 'jira'
+    | 'private'
+    | 'settings'
   >('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
@@ -208,6 +217,14 @@ export function App() {
         </button>
         <button
           type="button"
+          className={view === 'projects' ? 'active' : ''}
+          onClick={() => setView('projects')}
+          title="Projects: timeline, forecast and dependencies"
+        >
+          ◈
+        </button>
+        <button
+          type="button"
           className={view === 'digest' ? 'active' : ''}
           onClick={() => setView('digest')}
           title="What changed in Jira since the last refresh"
@@ -257,6 +274,8 @@ export function App() {
       </nav>
       {view === 'planning' ? (
         <PlanningPage onOpenNote={openFromPlanning} />
+      ) : view === 'projects' ? (
+        <ProjectsPage onOpenNote={openFromPlanning} />
       ) : view === 'digest' ? (
         <DigestPage onOpenNote={openFromPlanning} />
       ) : view === 'tasks' ? (

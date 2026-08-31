@@ -114,6 +114,7 @@ export interface BoardIssue {
     bucket: string | null;
     blockedOn: string[];
     note: string | null;
+    project: string | null;
   };
   effectiveSprint: string;
   effectiveAssignee: string | null;
@@ -190,6 +191,7 @@ export interface JiraStatus {
 }
 
 export type PlanPatch = Partial<{
+  project: string | null;
   sprint: string | null;
   assignee: string | null;
   rank: number | null;
@@ -259,6 +261,81 @@ export interface DigestResponse {
   paths: Record<string, string>;
   people: Record<string, { name: string; path: string }>;
 }
+
+export interface ProjectSummary {
+  path: string;
+  title: string;
+  status: string | null;
+  color: string | null;
+  target: string | null;
+  issues: number;
+  done: number;
+  inProgress: number;
+  effort: number;
+  doneEffort: number;
+  remainingEffort: number;
+  unestimated: number;
+  unassigned: number;
+  blocked: number;
+  people: { assignee: string; effort: number; issues: number }[];
+  sprints: string[];
+  forecastSprint: string | null;
+  forecastDate: string | null;
+  violations: number;
+}
+
+export interface TimelineBlock {
+  key: string;
+  assignee: string;
+  sprint: string;
+  plannedSprint: string;
+  offsetDays: number;
+  days: number;
+  slipped: boolean;
+  estimated: boolean;
+  overflow: boolean;
+  summary: string | null;
+  path: string;
+  status: string | null;
+  statusCategory: string | null;
+  priority: string | null;
+  blockedBy: string[];
+  dependsOn: string[];
+}
+
+export interface TimelineModel {
+  project: Omit<ProjectSummary, 'forecastSprint' | 'forecastDate' | 'violations'>;
+  unit: string;
+  sprints: { name: string; start: string | null; end: string | null; state: string }[];
+  rows: {
+    assignee: string;
+    name: string;
+    path: string | null;
+    color: string | null;
+    capacityDays: Record<string, number>;
+  }[];
+  planBlocks: TimelineBlock[];
+  forecastBlocks: TimelineBlock[];
+  backlog: TimelineBlock[];
+  forecast: {
+    finishSprint: string | null;
+    finishDate: string | null;
+    violations: { key: string; blocker: string; detail: string }[];
+    cycles: string[][];
+    unscheduled: { key: string; reason: string }[];
+  };
+}
+
+export const projectApi = {
+  list: () => req<{ projects: ProjectSummary[]; untagged: number; unit: string }>('/api/projects'),
+  timeline: (path: string) =>
+    req<TimelineModel>(`/api/projects/timeline?path=${encodeURIComponent(path)}`),
+  create: (title: string) =>
+    req<{ ok: boolean; path: string }>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }),
+};
 
 export const digestApi = {
   get: (range: string) => req<DigestResponse>(`/api/digest?range=${encodeURIComponent(range)}`),

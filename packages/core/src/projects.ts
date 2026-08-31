@@ -334,6 +334,7 @@ export function forecastProject(input: ForecastInput): ForecastResult {
     cursors.set(who, absEnd);
     finishOf.set(key, absEnd);
     const capacityHere = budget(who, placed.band.name);
+    const plannedIdx = bands.findIndex((b) => b.name === issue.effectiveSprint);
     blocks.push({
       key,
       assignee: who,
@@ -342,9 +343,8 @@ export function forecastProject(input: ForecastInput): ForecastResult {
       plannedSprint: issue.effectiveSprint,
       offsetDays: round(placed.offset),
       days: round(days),
-      slipped:
-        bands.findIndex((b) => b.name === placed?.band.name) >
-        bands.findIndex((b) => b.name === issue.effectiveSprint),
+      // work that was never in a sprint is newly scheduled, not slipped
+      slipped: plannedIdx >= 0 && bands.findIndex((b) => b.name === placed?.band.name) > plannedIdx,
       estimated: issue.effectiveEffort !== null,
     });
   }
