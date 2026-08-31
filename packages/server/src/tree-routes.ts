@@ -120,6 +120,8 @@ export function treeRoutes(v: VaultService): Hono {
       type?: string | null;
       parent?: string | null;
       order?: number | null;
+      /** full replacement of frontmatter tags; [] or null clears the key */
+      tags?: string[] | null;
     };
     if (!body.path) throw new HttpError(400, 'path required');
     const { content, path } = v.read(body.path);
@@ -151,6 +153,19 @@ export function treeRoutes(v: VaultService): Hono {
         )?.title;
         text = setFrontmatterKey(text, 'parent', `[[${parentTitle ?? target.path}]]`);
       }
+    }
+
+    if (body.tags !== undefined) {
+      const cleaned = [
+        ...new Set(
+          (body.tags ?? [])
+            .map((t) => String(t).trim().replace(/^#/, ''))
+            .filter((t) => /^[A-Za-z0-9_/-]+$/.test(t)),
+        ),
+      ];
+      text = cleaned.length
+        ? setFrontmatterKey(text, 'tags', cleaned)
+        : deleteFrontmatterKey(text, 'tags');
     }
 
     if (body.order !== undefined) {

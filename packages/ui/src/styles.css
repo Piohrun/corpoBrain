@@ -955,3 +955,53 @@ button {
 .main .cm-editor.cm-focused .cm-selectionBackground {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
+
+.tag-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.tag-edit .tag-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.tag-open {
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.tag-open:hover {
+  text-decoration: underline;
+}
+.tag-remove {
+  color: var(--fg-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.tag-remove:hover {
+  color: var(--danger);
+}
+.tag-row.inline-tag {
+  opacity: 0.75;
+  border: 1px dashed var(--tag-fg);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.tag-add {
+  width: 90px;
+  padding: 2px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+}
+.tag-add:focus {
+  outline: none;
+  border-color: var(--accent);
+}

@@ -171,3 +171,22 @@ describe('POST /api/tree/place', () => {
     );
   });
 });
+
+describe('tags via meta endpoint', () => {
+  it('replaces frontmatter tags, cleans input, clears with empty', async () => {
+    const put = (body: object) =>
+      app.request('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) });
+    await put({ path: 'notes/loose.md', tags: ['#Alpha', 'beta/x', 'bad tag!', 'beta/x'] });
+    const text = readFileSync(join(root, 'notes', 'loose.md'), 'utf8');
+    expect(text).toContain('tags:');
+    expect(text).toContain('- Alpha');
+    expect(text).toContain('- beta/x');
+    expect(text).not.toContain('bad tag');
+    const tags = vault.indexer.db
+      .prepare("SELECT tag FROM tags WHERE path='notes/loose.md' ORDER BY tag")
+      .all();
+    expect(tags).toEqual([{ tag: 'alpha' }, { tag: 'beta/x' }]);
+    await put({ path: 'notes/loose.md', tags: [] });
+    expect(readFileSync(join(root, 'notes', 'loose.md'), 'utf8')).not.toContain('tags:');
+  });
+});

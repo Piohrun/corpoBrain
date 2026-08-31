@@ -27,6 +27,8 @@ export interface NoteResponse {
   path: string;
   content: string;
   meta: NoteMeta | null;
+  /** merged tags from the index: frontmatter + inline #tags */
+  tags: string[];
   backlinks: Backlink[];
 }
 
@@ -252,5 +254,6 @@ export const treeApi = {
     type?: string | null;
     parent?: string | null;
     order?: number | null;
+    tags?: string[] | null;
   }) => req<{ ok: boolean }>('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) }),
 };

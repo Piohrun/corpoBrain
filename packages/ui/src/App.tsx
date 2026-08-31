@@ -289,6 +289,7 @@ export function App() {
             note={note}
             notes={notes}
             onOpen={openPath}
+            onTag={openTag}
             onMetaChanged={() => {
               refreshLists();
               const current = noteRef.current;

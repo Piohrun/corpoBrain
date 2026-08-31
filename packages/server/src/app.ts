@@ -33,6 +33,9 @@ export function createApp(vault?: VaultService) {
     const meta = v.indexer.db
       .prepare('SELECT id, type, title, frontmatter_json FROM notes WHERE path = ?')
       .get(note.path) as Record<string, unknown> | undefined;
+    const tagRows = v.indexer.db
+      .prepare('SELECT tag FROM tags WHERE path = ? ORDER BY tag')
+      .all(note.path) as { tag: string }[];
     return c.json({
       ...note,
       meta: meta
@@ -43,6 +46,7 @@ export function createApp(vault?: VaultService) {
             frontmatter: JSON.parse(meta.frontmatter_json as string),
           }
         : null,
+      tags: tagRows.map((t) => t.tag),
       backlinks: v.indexer.backlinks(note.path),
     });
   });

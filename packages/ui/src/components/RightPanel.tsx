@@ -5,10 +5,11 @@ interface Props {
   note: NoteResponse | null;
   notes: NoteListItem[];
   onOpen: (path: string) => void;
+  onTag: (tag: string) => void;
   onMetaChanged: () => void;
 }
 
-export function RightPanel({ note, notes, onOpen, onMetaChanged }: Props) {
+export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props) {
   const [error, setError] = useState<string | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: clear stale errors when switching notes
   useEffect(() => setError(null), [note?.path]);
@@ -16,13 +17,23 @@ export function RightPanel({ note, notes, onOpen, onMetaChanged }: Props) {
   if (!note) return <div className="right" />;
   const fm = note.meta?.frontmatter ?? {};
   const props = Object.entries(fm).filter(
-    ([k]) => !['id', 'title', 'type', 'parent', 'order'].includes(k),
+    ([k]) => !['id', 'title', 'type', 'parent', 'order', 'tags'].includes(k),
   );
+  const fmTags = (Array.isArray(fm.tags) ? fm.tags : typeof fm.tags === 'string' ? [fm.tags] : [])
+    .filter((t): t is string => typeof t === 'string')
+    .map((t) => t.trim());
+  const fmTagsLower = new Set(fmTags.map((t) => t.toLowerCase()));
+  const inlineTags = (note.tags ?? []).filter((t) => !fmTagsLower.has(t));
   const isJira = note.meta?.type === 'jira';
   const types = [...new Set(notes.map((n) => n.type))].filter((t) => t !== 'jira').sort();
   const parentValue = typeof fm.parent === 'string' ? fm.parent.replace(/^\[\[|\]\]$/g, '') : '';
 
-  const patch = (body: { type?: string | null; parent?: string | null; order?: number | null }) => {
+  const patch = (body: {
+    type?: string | null;
+    parent?: string | null;
+    order?: number | null;
+    tags?: string[];
+  }) => {
     setError(null);
     treeApi
       .meta({ path: note.path, ...body })
@@ -88,6 +99,48 @@ export function RightPanel({ note, notes, onOpen, onMetaChanged }: Props) {
                 }}
               />
             </label>
+            <label htmlFor="cb-tag-add">tags</label>
+            <div className="tag-edit">
+              {fmTags.map((t) => (
+                <span key={t} className="tag-row">
+                  <button type="button" className="tag-open" onClick={() => onTag(t.toLowerCase())}>
+                    #{t}
+                  </button>
+                  <button
+                    type="button"
+                    className="tag-remove"
+                    title="Remove from frontmatter"
+                    onClick={() => patch({ tags: fmTags.filter((x) => x !== t) })}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              {inlineTags.map((t) => (
+                <button
+                  type="button"
+                  key={t}
+                  className="tag-row inline-tag"
+                  title="From a #tag in the note body — edit the text to remove"
+                  onClick={() => onTag(t)}
+                >
+                  #{t}
+                </button>
+              ))}
+              <input
+                id="cb-tag-add"
+                className="tag-add"
+                placeholder="+ add tag"
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter') return;
+                  const input = e.currentTarget;
+                  const v = input.value.trim().replace(/^#/, '');
+                  if (!v) return;
+                  patch({ tags: [...fmTags, v] });
+                  input.value = '';
+                }}
+              />
+            </div>
             {error && <div className="plan-error">{error}</div>}
           </div>
         </>
