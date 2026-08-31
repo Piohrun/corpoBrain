@@ -203,3 +203,46 @@ describe('dependencies and saved views', () => {
     ]);
   });
 });
+
+describe('local sprints', () => {
+  it('POST /api/jira/sprints creates a sprint note that becomes a board column', async () => {
+    const res = await app.request('/api/jira/sprints', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Sprint 40 (draft)',
+        start: '2026-10-05',
+        end: '2026-10-16',
+        goal: 'Q4 kickoff',
+      }),
+    });
+    expect(res.status).toBe(200);
+    const text = readFileSync(join(root, 'planning', 'Sprint 40 (draft).md'), 'utf8');
+    expect(text).toContain('type: sprint');
+    expect(text).toContain('state: future');
+    const sprints = (await (await app.request('/api/jira/sprints')).json()) as {
+      name: string;
+      source: string;
+    }[];
+    const local = sprints.find((s) => s.name === 'Sprint 40 (draft)');
+    expect(local).toMatchObject({ source: 'local' });
+    expect(sprints.find((s) => s.name === 'Sprint 37')).toMatchObject({ source: 'jira' });
+    const board = buildBoard(vault);
+    expect(board.columns).toContain('Sprint 40 (draft)');
+    expect(board.sprints.find((s) => s.name === 'Sprint 40 (draft)')?.source).toBe('local');
+    // duplicate name rejected
+    expect(
+      (
+        await app.request('/api/jira/sprints', {
+          method: 'POST',
+          body: JSON.stringify({ name: 'Sprint 40 (draft)' }),
+        })
+      ).status,
+    ).toBe(409);
+    // deleting the note removes the sprint
+    await app.request(`/api/note?path=${encodeURIComponent('planning/Sprint 40 (draft).md')}`, {
+      method: 'DELETE',
+    });
+    const after = (await (await app.request('/api/jira/sprints')).json()) as { name: string }[];
+    expect(after.find((s) => s.name === 'Sprint 40 (draft)')).toBeUndefined();
+  });
+});

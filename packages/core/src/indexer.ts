@@ -122,9 +122,10 @@ export class Indexer {
     } catch {
       return 0;
     }
-    this.db.exec('DELETE FROM sprints');
+    this.db.exec("DELETE FROM sprints WHERE source = 'jira'");
     const ins = this.db.prepare(
-      'INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      `INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal, source, path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'jira', NULL)`,
     );
     for (const s of sprints) {
       ins.run(
@@ -181,6 +182,7 @@ export class Indexer {
     this.db.prepare('DELETE FROM jira WHERE path = ?').run(path);
     this.db.prepare('DELETE FROM plan WHERE key NOT IN (SELECT key FROM jira)').run();
     this.db.prepare('DELETE FROM people WHERE path = ?').run(path);
+    this.db.prepare("DELETE FROM sprints WHERE source = 'local' AND path = ?").run(path);
   }
 
   /** Returns true when an id was assigned (file rewritten). */
@@ -302,6 +304,7 @@ export class Indexer {
     }
 
     if (type === 'jira') this.indexJira(f.path, fm);
+    if (type === 'sprint') this.indexLocalSprint(f.path, title, fm);
     if (type === 'person') this.indexPerson(f.path, title, fm);
     return assignedId;
   }
@@ -373,6 +376,28 @@ export class Indexer {
             .filter(Boolean),
         ),
         str(plan.note),
+      );
+  }
+
+  private indexLocalSprint(path: string, title: string, fm: Record<string, unknown>): void {
+    // deterministic negative id from the path so it never collides with Jira ids
+    let hash = 0;
+    for (let i = 0; i < path.length; i++) hash = (hash * 31 + path.charCodeAt(i)) | 0;
+    const id = -Math.abs(hash || 1);
+    const state = str(fm.state) ?? 'future';
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal, source, path)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, 'local', ?)`,
+      )
+      .run(
+        id,
+        str(fm.name) ?? title,
+        ['active', 'future', 'closed'].includes(state) ? state : 'future',
+        str(fm.start),
+        str(fm.end),
+        str(fm.goal),
+        path,
       );
   }
 

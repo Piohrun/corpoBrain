@@ -60,7 +60,14 @@ export interface BoardPerson {
 
 export interface BoardModel {
   unit: string;
-  sprints: { id: number; name: string; state: string; start: string | null; end: string | null }[];
+  sprints: {
+    id: number;
+    name: string;
+    state: string;
+    start: string | null;
+    end: string | null;
+    source: string;
+  }[];
   columns: string[]; // sprint names in order + 'Backlog'
   people: BoardPerson[];
   issues: BoardIssue[];
@@ -87,8 +94,8 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
 
   const sprints = db
     .prepare(
-      `SELECT id, name, state, start, end FROM sprints
-         WHERE state IN ('active','future') ORDER BY state = 'future', start IS NULL, start, id`,
+      `SELECT id, name, state, start, end, source FROM sprints
+       WHERE state IN ('active','future') ORDER BY state = 'future', start IS NULL, start, id`,
     )
     .all() as {
     id: number;
@@ -96,6 +103,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     state: string;
     start: string | null;
     end: string | null;
+    source: string;
   }[];
   const columns = [...sprints.map((s) => s.name), 'Backlog'];
 

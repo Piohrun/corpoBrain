@@ -126,11 +126,39 @@ export function jiraRoutes(v: VaultService): Hono {
     c.json(
       v.indexer.db
         .prepare(
-          `SELECT id, name, state, start, end, board_id, goal FROM sprints ORDER BY start IS NULL, start`,
+          `SELECT id, name, state, start, end, board_id, goal, source, path FROM sprints
+           ORDER BY state = 'closed', start IS NULL, start, name`,
         )
         .all(),
     ),
   );
+
+  /** Create a local sprint (a planning/ note with type: sprint). */
+  app.post('/sprints', async (c) => {
+    const body = (await c.req.json()) as {
+      name?: string;
+      start?: string;
+      end?: string;
+      goal?: string;
+    };
+    const name = body.name?.trim();
+    if (!name) throw new HttpError(400, 'name required');
+    const exists = v.indexer.db.prepare('SELECT 1 FROM sprints WHERE name = ?').get(name);
+    if (exists) throw new HttpError(409, `sprint "${name}" already exists`);
+    const date = (x: string | undefined) => (x && /^\d{4}-\d{2}-\d{2}$/.test(x) ? x : undefined);
+    const rel = `${v.config.folders.planning}/${name.replace(/[\\/:*?"<>|]/g, '-')}.md`;
+    const fmLines = [
+      'type: sprint',
+      `title: ${JSON.stringify(name)}`,
+      `name: ${JSON.stringify(name)}`,
+      'state: future',
+      ...(date(body.start) ? [`start: ${date(body.start)}`] : []),
+      ...(date(body.end) ? [`end: ${date(body.end)}`] : []),
+      ...(body.goal?.trim() ? [`goal: ${JSON.stringify(body.goal.trim())}`] : []),
+    ];
+    v.create(rel, name, `---\n${fmLines.join('\n')}\n---\n\n# ${name}\n\n`);
+    return c.json({ ok: true, path: rel });
+  });
 
   app.get('/people', (c) =>
     c.json(
