@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { api, privateApi } from '../api.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
+import { encryptTableCells, findTables, splitCells } from '../editor/tables.ts';
 import { useDebouncedCallback } from '../hooks.ts';
 
 interface Props {
@@ -117,7 +118,56 @@ export function Editor({
     if (!view) return;
     const sel = view.state.selection.main;
     if (sel.empty) {
-      window.alert('Select the text to encrypt first (then Ctrl+Shift+E).');
+      // cursor inside a table → offer column/row encryption
+      const table = findTables(view.state).find((t) => sel.head >= t.from && sel.head <= t.to);
+      if (!table) {
+        window.alert(
+          'Select the text to encrypt first (then Ctrl+Shift+E) — or put the cursor inside a table to encrypt a column/row.',
+        );
+        return;
+      }
+      const header = splitCells(table.lines[0] ?? '');
+      const answer = window.prompt(
+        `Encrypt table cells — enter a column (1-${header.length} or a header name: ${header.join(', ')}) or "row" for the current row:`,
+      );
+      if (!answer?.trim()) return;
+      const doc = view.state.doc;
+      const firstLine = doc.lineAt(table.from).number;
+      let target: import('../editor/tables.ts').EncryptTarget;
+      if (answer.trim().toLowerCase() === 'row') {
+        const rowIndex = doc.lineAt(sel.head).number - firstLine - 2;
+        if (rowIndex < 0 || rowIndex >= table.lines.length - 2) {
+          window.alert('Put the cursor on a data row (not the header) to encrypt a row.');
+          return;
+        }
+        target = { kind: 'row', rowIndex };
+      } else {
+        const byNumber = Number(answer.trim());
+        const index = Number.isInteger(byNumber)
+          ? byNumber - 1
+          : header.findIndex((h) => h.toLowerCase() === answer.trim().toLowerCase());
+        if (index < 0 || index >= header.length) {
+          window.alert(`No such column: ${answer.trim()}`);
+          return;
+        }
+        target = { kind: 'column', index };
+      }
+      if (!(await ensureUnlocked())) return;
+      try {
+        const { lines, encrypted } = await encryptTableCells(table.lines, target, async (t) => {
+          const { data } = await privateApi.encrypt(t);
+          return data;
+        });
+        if (encrypted === 0) {
+          window.alert('Nothing to encrypt there (cells empty or already encrypted).');
+          return;
+        }
+        view.dispatch({
+          changes: { from: table.from, to: table.to, insert: lines.join('\n') },
+        });
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'encrypt failed');
+      }
       return;
     }
     const text = view.state.doc.sliceString(sel.from, sel.to);

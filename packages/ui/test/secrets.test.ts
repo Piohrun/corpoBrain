@@ -72,3 +72,46 @@ describe('table rendering field', () => {
     expect(state.doc.lines).toBe(5);
   });
 });
+
+describe('encryptTableCells', () => {
+  const LINES = [
+    '| Name | Pay | Note |',
+    '| --- | ---: | --- |',
+    '| Anna | 1000 | a\\|b |',
+    '| Bob |  | `🔒Q0JWMWFiY2RlZmdo` |',
+  ];
+  const fakeEncrypt = async (t: string) => `ENC(${t})`;
+
+  it('column mode encrypts non-empty, non-token cells and preserves escaping', async () => {
+    const { encryptTableCells } = await import('../src/editor/tables.ts');
+    const { lines, encrypted } = await encryptTableCells(
+      LINES,
+      { kind: 'column', index: 1 },
+      fakeEncrypt,
+    );
+    expect(encrypted).toBe(1); // only Anna's Pay; Bob's is empty
+    expect(lines[2]).toContain('`🔒ENC(1000)`');
+    expect(lines[2]).toContain('a\\|b'); // untouched cell keeps its escape
+    expect(lines[3]).toBe(LINES[3]); // row without changes untouched
+  });
+
+  it('row mode encrypts the whole row but skips existing tokens and empties', async () => {
+    const { encryptTableCells } = await import('../src/editor/tables.ts');
+    const { lines, encrypted } = await encryptTableCells(
+      LINES,
+      { kind: 'row', rowIndex: 1 },
+      fakeEncrypt,
+    );
+    expect(encrypted).toBe(1); // only "Bob" — Pay empty, Note already a token
+    expect(lines[3]).toContain('`🔒ENC(Bob)`');
+    expect(lines[3]).toContain('`🔒Q0JWMWFiY2RlZmdo`');
+    expect(lines[2]).toBe(LINES[2]);
+  });
+
+  it('header and separator are never touched', async () => {
+    const { encryptTableCells } = await import('../src/editor/tables.ts');
+    const { lines } = await encryptTableCells(LINES, { kind: 'column', index: 0 }, fakeEncrypt);
+    expect(lines[0]).toBe(LINES[0]);
+    expect(lines[1]).toBe(LINES[1]);
+  });
+});

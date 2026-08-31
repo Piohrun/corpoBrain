@@ -127,6 +127,51 @@ function ciphersInColumn(rows: string[][], col: number): string[] {
   return out;
 }
 
+export type EncryptTarget = { kind: 'column'; index: number } | { kind: 'row'; rowIndex: number };
+
+function escapeCell(cell: string): string {
+  return cell.replace(/\|/g, '\\|');
+}
+
+function isWholeToken(cell: string): boolean {
+  INLINE_SECRET.lastIndex = 0;
+  const m = INLINE_SECRET.exec(cell.trim());
+  return m !== null && m[0] === cell.trim();
+}
+
+/**
+ * Encrypt every targeted body cell into an inline token. Pure w.r.t. the
+ * encryption function; empty cells and cells that are already tokens are
+ * left alone. Header and separator rows are never touched.
+ */
+export async function encryptTableCells(
+  lines: string[],
+  target: EncryptTarget,
+  encrypt: (text: string) => Promise<string>,
+): Promise<{ lines: string[]; encrypted: number }> {
+  const out = [...lines];
+  let encrypted = 0;
+  const rowIndexes = target.kind === 'row' ? [target.rowIndex] : lines.slice(2).map((_l, i) => i);
+  for (const r of rowIndexes) {
+    const lineIdx = r + 2;
+    const raw = out[lineIdx];
+    if (raw === undefined) continue;
+    const cells = splitCells(raw);
+    const cellIndexes = target.kind === 'column' ? [target.index] : cells.map((_c, i) => i);
+    let changed = false;
+    for (const c of cellIndexes) {
+      const cell = cells[c];
+      if (cell === undefined || cell.trim() === '' || isWholeToken(cell)) continue;
+      const data = await encrypt(cell);
+      cells[c] = '`\u{1F512}' + data + '`';
+      encrypted++;
+      changed = true;
+    }
+    if (changed) out[lineIdx] = `| ${cells.map(escapeCell).join(' | ')} |`;
+  }
+  return { lines: out, encrypted };
+}
+
 class TableWidget extends WidgetType {
   constructor(
     readonly text: string,
