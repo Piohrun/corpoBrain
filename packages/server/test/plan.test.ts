@@ -422,7 +422,38 @@ describe('tree order carries into planning', () => {
     const names = board.people.map((p) => p.name);
     // ordered people first (Zed 10, Mia 20), unordered alphabetical after
     expect(names).toEqual(['Zed', 'Mia', 'Anna', 'John']);
-    expect(board.people[0]?.sortOrder).toBe(10);
-    expect(board.people[2]?.sortOrder).toBeNull();
+    // sortOrder is the depth-first tree rank, not the raw frontmatter number
+    expect(board.people.map((p) => p.sortOrder)).toEqual([0, 1, 2, 3]);
+  });
+
+  it('is hierarchical: a region hub on top lifts its whole subtree', () => {
+    // EMEA (order 1) before APAC (order 5); people carry only sibling-local orders
+    writeFileSync(
+      join(root, 'people', 'EMEA.md'),
+      '---\ntype: person\ntitle: EMEA\nregion: EMEA\nactive: false\norder: 1\n---\n',
+    );
+    writeFileSync(
+      join(root, 'people', 'APAC.md'),
+      '---\ntype: person\ntitle: APAC\nregion: APAC\nactive: false\norder: 5\n---\n',
+    );
+    writeFileSync(
+      join(root, 'people', 'alice.md'),
+      '---\ntype: person\ntitle: Alice\njira: alice\nparent: "[[APAC]]"\norder: 1\n---\n',
+    );
+    writeFileSync(
+      join(root, 'people', 'bobby.md'),
+      '---\ntype: person\ntitle: Bobby\njira: bobby\nparent: "[[EMEA]]"\norder: 99\n---\n',
+    );
+    vault.indexer.rebuild();
+    const board = buildBoard(vault, new Date('2026-08-30T12:00:00Z'));
+    // Bobby (order 99, but inside EMEA) beats Alice (order 1, inside APAC)
+    expect(board.people.map((p) => p.name)).toEqual([
+      'EMEA',
+      'Bobby',
+      'APAC',
+      'Alice',
+      'Anna',
+      'John',
+    ]);
   });
 });

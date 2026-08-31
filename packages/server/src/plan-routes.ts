@@ -12,7 +12,7 @@ import {
 } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { resolveAvailability } from './availability.ts';
-import { syncRegionParent } from './tree-routes.ts';
+import { buildTree, syncRegionParent, type TreeNode } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
 export interface BoardIssue {
@@ -69,7 +69,11 @@ export interface BoardPerson {
   loadOverrides: Record<string, number>;
   /** explicit display color (hub notes); falls back to a name-derived hue */
   color: string | null;
-  /** position from the notes tree (frontmatter `order`); null sorts last */
+  /**
+   * Depth-first position in the notes tree. Hierarchical: everyone under the
+   * first region hub sorts before anyone under the second, at every level.
+   * null (not in the people tree) sorts last.
+   */
   sortOrder: number | null;
   /** for country-wide bank holidays */
   country: string | null;
@@ -112,6 +116,21 @@ const PLAN_KEYS = [
   'start',
 ] as const;
 
+/** path → depth-first rank across the people folder's tree (hubs included). */
+function peopleTreeRank(v: VaultService): Map<string, number> {
+  const rank = new Map<string, number>();
+  let i = 0;
+  const walk = (n: TreeNode): void => {
+    rank.set(n.path, i++);
+    for (const c of n.children) walk(c);
+  };
+  for (const f of buildTree(v).folders) {
+    if (f.folder !== v.config.folders.people) continue;
+    for (const r of f.roots) walk(r);
+  }
+  return rank;
+}
+
 export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   const db = v.indexer.db;
   const cap = v.config.capacity;
@@ -132,6 +151,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
   }[];
   const columns = [...sprints.map((s) => s.name), 'Backlog'];
 
+  const treeRank = peopleTreeRank(v);
   const people = (
     db
       .prepare(
@@ -163,11 +183,16 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     team: p.team,
     loadOverrides: safeObj(p.load_overrides_json),
     color: p.color,
-    sortOrder: p.sort_order,
+    sortOrder: treeRank.get(p.path) ?? null,
     country: p.country,
     suggested: {} as Record<string, number>,
     absence: {} as Record<string, Absence>,
   }));
+  people.sort(
+    (a, b) =>
+      (a.sortOrder ?? Number.POSITIVE_INFINITY) - (b.sortOrder ?? Number.POSITIVE_INFINITY) ||
+      a.name.localeCompare(b.name),
+  );
 
   // out-of-office and support rota reduce bandwidth before anything else reads it
   const availability = resolveAvailability(
