@@ -21,6 +21,7 @@ export function WritebackSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showJournal, setShowJournal] = useState(false);
+  const [rowStatus, setRowStatus] = useState<Record<string, string>>({});
 
   const refresh = useCallback(() => {
     writebackApi
@@ -78,6 +79,47 @@ export function WritebackSection({
       .finally(() => setBusy(false));
   };
 
+  /** preview + apply a single staged change, with the same safety rails */
+  const pushOne = (staged: StagedChange) => {
+    const id = `${staged.key}:${staged.field}`;
+    setBusy(true);
+    setError(null);
+    setRowStatus((m) => ({ ...m, [id]: 'checking…' }));
+    writebackApi
+      .preview([staged.key])
+      .then((rows) => {
+        const row = rows.find((r) => r.key === staged.key && r.field === staged.field);
+        if (!row) throw new Error('no longer staged — refresh');
+        if (row.conflict) {
+          setRowStatus((m) => ({
+            ...m,
+            [id]: `conflict: ${row.conflictReason ?? 'changed in Jira'}`,
+          }));
+          return null;
+        }
+        if (
+          mode === 'on' &&
+          !window.confirm(`Push ${staged.key} ${staged.field} → "${staged.to}" to Jira?`)
+        ) {
+          setRowStatus((m) => ({ ...m, [id]: '' }));
+          return null;
+        }
+        return writebackApi.apply([{ key: staged.key, field: staged.field, to: staged.to }]);
+      })
+      .then((r) => {
+        if (!r) return;
+        const res = r.results[0];
+        setRowStatus((m) => ({
+          ...m,
+          [id]: res ? `${res.status}${res.detail ? ` — ${res.detail}` : ''}` : 'done',
+        }));
+        refresh();
+        onChanged();
+      })
+      .catch((e: Error) => setRowStatus((m) => ({ ...m, [id]: `error: ${e.message}` })))
+      .finally(() => setBusy(false));
+  };
+
   const lastRealBatch = journal.find((e) => e.ok === true && e.dryRun === false);
 
   const doUndo = () => {
@@ -118,17 +160,43 @@ export function WritebackSection({
         <p className="muted small">No uncommitted plan changes to push.</p>
       ) : (
         <div className="changes-panel">
-          {writable.map((s) => (
-            <div key={`${s.key}:${s.field}`} className="change-row">
-              <span className="key-link">{s.key}</span>
-              <span className="change-diffs">
-                <span className="change-diff">
-                  {s.field}: <span className="load-committed">{s.from ?? '—'}</span> →{' '}
-                  <b className="load-planned">{s.to}</b>
+          {writable.map((s) => {
+            const id = `${s.key}:${s.field}`;
+            const status = rowStatus[id];
+            return (
+              <div key={id} className="change-row">
+                <span className="key-link">{s.key}</span>
+                <span className="change-diffs">
+                  <span className="change-diff">
+                    {s.field}: <span className="load-committed">{s.from ?? '—'}</span> →{' '}
+                    <b className="load-planned">{s.to}</b>
+                  </span>
+                  {status && (
+                    <span
+                      className={`muted small${status.startsWith('conflict') || status.startsWith('error') ? ' plan-error' : ''}`}
+                    >
+                      {status}
+                    </span>
+                  )}
                 </span>
-              </span>
-            </div>
-          ))}
+                <button
+                  type="button"
+                  className="risk-chip"
+                  disabled={busy || mode === 'off'}
+                  title={
+                    mode === 'off'
+                      ? 'Enable dry-run in Connection settings first'
+                      : mode === 'dry-run'
+                        ? 'Simulate pushing just this change'
+                        : 'Push just this change to Jira (with live conflict check)'
+                  }
+                  onClick={() => pushOne(s)}
+                >
+                  {mode === 'dry-run' ? '→ dry-run' : '→ Jira'}
+                </button>
+              </div>
+            );
+          })}
           {unwritable.map((s) => (
             <div key={`${s.key}:${s.field}`} className="change-row muted">
               <span className="key-link">{s.key}</span>
