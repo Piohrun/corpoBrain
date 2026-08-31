@@ -1,5 +1,5 @@
 /** Holds the vault state for the server: config, db, indexer, watcher. */
-import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   Indexer,
@@ -42,6 +42,36 @@ export class VaultService {
     );
     this.indexer.update();
     this.indexer.loadSprints();
+  }
+
+  /** Merge partial jira settings into config.json and the live config. */
+  updateJiraConfig(partial: Partial<VaultConfig['jira']>): void {
+    const cfgPath = join(this.root, '.corpobrain', 'config.json');
+    let onDisk: Record<string, unknown> = {};
+    try {
+      onDisk = JSON.parse(readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
+    } catch {
+      onDisk = { version: 1 };
+    }
+    onDisk.jira = { ...(onDisk.jira as Record<string, unknown> | undefined), ...partial };
+    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
+    writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
+    Object.assign(this.config.jira, partial);
+  }
+
+  /** Store Jira credentials in the gitignored secrets file (0600). */
+  saveJiraSecrets(update: { token?: string; email?: string }): void {
+    const file = join(this.root, '.corpobrain', 'secrets.json');
+    let secrets: Record<string, string> = {};
+    try {
+      secrets = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
+    } catch {
+      /* fresh */
+    }
+    if (update.token !== undefined) secrets.jiraToken = update.token;
+    if (update.email !== undefined) secrets.jiraEmail = update.email;
+    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
+    writeFileSync(file, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
   }
 
   startWatching(): void {

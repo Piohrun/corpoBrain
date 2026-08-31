@@ -1,5 +1,11 @@
 /** Jira + planning API routes (read side; plan writes arrive in Phase 4). */
-import { createJiraAdapter, JiraSync, type SyncReport } from '@corpobrain/core';
+import {
+  createJiraAdapter,
+  JiraSync,
+  loadJiraAuth,
+  type SyncReport,
+  type VaultConfig,
+} from '@corpobrain/core';
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -33,6 +39,73 @@ export interface JiraIssueRow {
 export function jiraRoutes(v: VaultService): Hono {
   const app = new Hono();
   let syncing = false;
+
+  const sanitizedConfig = () => ({
+    baseUrl: v.config.jira.baseUrl,
+    deployment: v.config.jira.deployment,
+    auth: v.config.jira.auth,
+    projectKeys: v.config.jira.projectKeys,
+    estimateField: v.config.jira.estimateField,
+    estimateUnit: v.config.jira.estimateUnit,
+    syncComments: v.config.jira.syncComments,
+    profiles: v.config.jira.profiles,
+    tokenSet: loadJiraAuth(v.root, v.config) !== null,
+  });
+
+  app.get('/config', (c) => c.json(sanitizedConfig()));
+
+  app.put('/config', async (c) => {
+    const body = (await c.req.json()) as Partial<VaultConfig['jira']> & {
+      token?: string;
+      email?: string;
+    };
+    const { token, email, ...rest } = body;
+    const partial: Partial<VaultConfig['jira']> = {};
+    if (typeof rest.baseUrl === 'string') partial.baseUrl = rest.baseUrl.trim().replace(/\/+$/, '');
+    if (rest.deployment && ['auto', 'datacenter', 'cloud'].includes(rest.deployment))
+      partial.deployment = rest.deployment;
+    if (rest.auth && ['bearer', 'basic'].includes(rest.auth)) partial.auth = rest.auth;
+    if (Array.isArray(rest.projectKeys))
+      partial.projectKeys = rest.projectKeys
+        .map((k) => String(k).trim().toUpperCase())
+        .filter((k) => /^[A-Z][A-Z0-9_]*$/.test(k));
+    if (typeof rest.estimateField === 'string') partial.estimateField = rest.estimateField.trim();
+    if (rest.estimateUnit && ['points', 'days', 'hours', 'seconds'].includes(rest.estimateUnit))
+      partial.estimateUnit = rest.estimateUnit;
+    if (typeof rest.syncComments === 'boolean') partial.syncComments = rest.syncComments;
+    if (Array.isArray(rest.profiles)) {
+      partial.profiles = rest.profiles
+        .filter((p) => p && typeof p.name === 'string' && typeof p.jql === 'string')
+        .map((p) => ({
+          name: p.name.trim(),
+          jql: p.jql.trim(),
+          folder: typeof p.folder === 'string' && p.folder.trim() ? p.folder.trim() : 'jira',
+          intervalMinutes: Number(p.intervalMinutes) >= 0 ? Number(p.intervalMinutes) : 0,
+          boards: Array.isArray(p.boards)
+            ? p.boards.map(Number).filter((b) => Number.isInteger(b) && b > 0)
+            : [],
+          futureSprints: Number.isInteger(Number(p.futureSprints)) ? Number(p.futureSprints) : 3,
+        }));
+    }
+    if (Object.keys(partial).length) v.updateJiraConfig(partial);
+    if (token !== undefined || email !== undefined) {
+      v.saveJiraSecrets({
+        ...(token !== undefined && token !== '' ? { token } : {}),
+        ...(email !== undefined ? { email } : {}),
+      });
+    }
+    return c.json(sanitizedConfig());
+  });
+
+  app.post('/probe', async (c) => {
+    try {
+      const adapter = createJiraAdapter(v.root, v.config);
+      const info = await adapter.probe();
+      return c.json({ ok: true, ...info });
+    } catch (e) {
+      throw new HttpError(502, e instanceof Error ? e.message : 'probe failed');
+    }
+  });
 
   app.get('/issues', (c) =>
     c.json(
