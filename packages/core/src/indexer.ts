@@ -263,11 +263,18 @@ export class Indexer {
     for (const l of scan.links)
       insLink.run(f.path, l.target, l.kind, l.fragment, l.alias, l.line, l.col);
 
+    // Tags come exclusively from frontmatter (SPEC §3.2). Inline #tags in the
+    // body are styling only; the scanner still reports them for rendering.
     const insTag = this.db.prepare('INSERT INTO tags(path, tag) VALUES (?, ?)');
-    const tagSet = new Set(scan.tags);
-    if (Array.isArray(fm.tags))
-      for (const t of fm.tags) if (typeof t === 'string') tagSet.add(t.toLowerCase());
-    for (const t of tagSet) insTag.run(f.path, t);
+    const tagSet = new Set<string>();
+    if (Array.isArray(fm.tags)) {
+      for (const t of fm.tags) {
+        if (typeof t === 'string') tagSet.add(t.trim().toLowerCase());
+      }
+    } else if (typeof fm.tags === 'string') {
+      tagSet.add(fm.tags.trim().toLowerCase());
+    }
+    for (const t of tagSet) if (t) insTag.run(f.path, t);
 
     const insTask = this.db.prepare(
       'INSERT INTO tasks(path, line, block_id, text, done, due) VALUES (?, ?, ?, ?, ?, ?)',

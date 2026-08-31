@@ -15,7 +15,7 @@ beforeEach(() => {
   mkdirSync(join(root, 'private'), { recursive: true });
   writeFileSync(
     join(root, 'notes', 'a.md'),
-    '---\nid: A\ntitle: Alpha\n---\nSee [[Beta]].\n#x\n- [ ] todo\n',
+    '---\nid: A\ntitle: Alpha\ntags: [x]\n---\nSee [[Beta]].\n#x\n- [ ] todo\n',
   );
   writeFileSync(join(root, 'notes', 'b.md'), '---\nid: B\ntitle: Beta\n---\nBody beta.\n');
   writeFileSync(join(root, 'private', 'p.md.enc'), 'SECRET');
@@ -186,7 +186,7 @@ describe('objects and tasks', () => {
   it('toggles a task and detects drift', async () => {
     const res = await app.request('/api/task/toggle', {
       method: 'POST',
-      body: JSON.stringify({ path: 'notes/a.md', line: 7 }),
+      body: JSON.stringify({ path: 'notes/a.md', line: 8 }),
     });
     expect(res.status).toBe(200);
     const note = (await (await app.request('/api/note?path=notes/a.md')).json()) as {

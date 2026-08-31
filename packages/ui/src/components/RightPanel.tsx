@@ -22,8 +22,7 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
   const fmTags = (Array.isArray(fm.tags) ? fm.tags : typeof fm.tags === 'string' ? [fm.tags] : [])
     .filter((t): t is string => typeof t === 'string')
     .map((t) => t.trim());
-  const fmTagsLower = new Set(fmTags.map((t) => t.toLowerCase()));
-  const inlineTags = (note.tags ?? []).filter((t) => !fmTagsLower.has(t));
+
   const isJira = note.meta?.type === 'jira';
   const types = [...new Set(notes.map((n) => n.type))].filter((t) => t !== 'jira').sort();
   const parentValue = typeof fm.parent === 'string' ? fm.parent.replace(/^\[\[|\]\]$/g, '') : '';
@@ -115,17 +114,6 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
                     ✕
                   </button>
                 </span>
-              ))}
-              {inlineTags.map((t) => (
-                <button
-                  type="button"
-                  key={t}
-                  className="tag-row inline-tag"
-                  title="From a #tag in the note body — edit the text to remove"
-                  onClick={() => onTag(t)}
-                >
-                  #{t}
-                </button>
               ))}
               <input
                 id="cb-tag-add"

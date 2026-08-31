@@ -1,6 +1,6 @@
 # corpoBrain Vault Format Specification
 
-Version: 0.1.0 (draft, 2026-08-30)
+Version: 0.2.0 (draft, 2026-08-31)
 
 This document is the contract that every package depends on. Change it
 deliberately, bump the version, and update the golden tests.
@@ -92,7 +92,7 @@ All reserved keys are optional unless stated.
 | `type` | string | object type: `note` (default), `person`, `meeting`, `decision`, `project`, `topic`, `jira`, `view`, `scenario`. Unknown types are allowed and treated like `note`. |
 | `title` | string | display title; overrides H1 |
 | `aliases` | string[] | alternative link targets |
-| `tags` | string[] | tags without `#`; merged with inline `#tags` from the body |
+| `tags` | string[] | the note's authoritative tag set, without `#`. Inline `#tags` in the body are rendered with tag styling but are NOT part of the note's tags. |
 | `created` | ISO-8601 datetime | |
 | `updated` | ISO-8601 datetime | maintained by the tool on save; not authoritative (mtime wins for indexing) |
 | `template` | string | path of the template this note was created from |
@@ -111,9 +111,10 @@ type `property` in addition to being a property.
 
 - CommonMark + GFM (tables, task lists, strikethrough).
 - Wikilinks and embeds per Section 5.
-- Inline tags: `#tag`, `#nested/tag`. Must be preceded by start-of-line or
-  whitespace and followed by whitespace, punctuation or EOL. Not recognised
-  inside code spans, code fences, or URLs.
+- Inline tag tokens: `#tag`, `#nested/tag`. Must be preceded by start-of-line
+  or whitespace and followed by whitespace, punctuation or EOL. Not recognised
+  inside code spans, code fences, or URLs. Recognition is for RENDERING only —
+  a note's tags come exclusively from frontmatter `tags:` (§3.2).
 - Block IDs: a line MAY end with ` ^blockid` (space, caret, `[A-Za-z0-9-]+`).
   The ID addresses that block (paragraph, list item, heading, table row).
 - Tasks: GFM `- [ ]` / `- [x]`. The indexer records each task with its text,

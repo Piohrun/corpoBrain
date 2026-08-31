@@ -57,7 +57,6 @@ function renderTags(
   offset: number,
   onTag: ((tag: string) => void) | undefined,
 ): React.ReactNode[] {
-  if (!onTag) return [chunk];
   const parts: React.ReactNode[] = [];
   let last = 0;
   TAG.lastIndex = 0;
@@ -66,17 +65,23 @@ function renderTags(
     if (m.index + prefix.length > last) parts.push(chunk.slice(last, m.index + prefix.length));
     const tag = (m[2] ?? '').toLowerCase();
     parts.push(
-      <button
-        type="button"
-        key={`t${offset}:${m.index}`}
-        className="tag-row clickable"
-        onClick={(e) => {
-          e.stopPropagation();
-          onTag(tag);
-        }}
-      >
-        #{m[2]}
-      </button>,
+      onTag ? (
+        <button
+          type="button"
+          key={`t${offset}:${m.index}`}
+          className="tag-row clickable"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTag(tag);
+          }}
+        >
+          #{m[2]}
+        </button>
+      ) : (
+        <span key={`t${offset}:${m.index}`} className="tag-row" title="display only">
+          #{m[2]}
+        </span>
+      ),
     );
     last = m.index + m[0].length;
   }

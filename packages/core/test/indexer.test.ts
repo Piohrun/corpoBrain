@@ -25,7 +25,7 @@ beforeEach(() => {
   mkdirSync(root, { recursive: true });
   write(
     'notes/alpha.md',
-    '---\nid: A1\ntitle: Alpha Note\naliases: [alfa]\n---\n# Alpha\n\nLinks to [[Beta]] and [[EXEC-7]] and [[missing one]].\n#project/x\n- [ ] follow up 📅 2026-09-01\n',
+    '---\nid: A1\ntitle: Alpha Note\naliases: [alfa]\ntags: [Project/X]\n---\n# Alpha\n\nLinks to [[Beta]] and [[EXEC-7]] and [[missing one]].\n#project/x\n- [ ] follow up 📅 2026-09-01\n',
   );
   write(
     'notes/beta.md',

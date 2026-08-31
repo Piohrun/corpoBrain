@@ -3,13 +3,7 @@ import { api, type TaskItem } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { WikiText } from './WikiText.tsx';
 
-export function TasksPage({
-  onOpenNote,
-  onTag,
-}: {
-  onOpenNote: (path: string) => void;
-  onTag: (tag: string) => void;
-}) {
+export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
 
@@ -84,7 +78,6 @@ export function TasksPage({
                   text={t.text}
                   className={t.done ? 'muted done-task' : ''}
                   onOpen={onOpenNote}
-                  onTag={onTag}
                 />
                 {t.due && (
                   <button

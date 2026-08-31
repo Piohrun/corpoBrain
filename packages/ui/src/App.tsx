@@ -222,7 +222,7 @@ export function App() {
       {view === 'planning' ? (
         <PlanningPage onOpenNote={openFromPlanning} />
       ) : view === 'tasks' ? (
-        <TasksPage onOpenNote={openFromPlanning} onTag={openTag} />
+        <TasksPage onOpenNote={openFromPlanning} />
       ) : view === 'objects' ? (
         <ObjectsPage onOpenNote={openFromPlanning} />
       ) : view === 'private' ? (
@@ -269,10 +269,23 @@ export function App() {
                   content={note.content}
                   completions={completions}
                   onNavigate={navigate}
-                  onTagClick={openTag}
                   onSaveState={setSaveState}
                   onSaved={onSaved}
                 />
+                {note.tags.length > 0 && (
+                  <div className="tag-footer">
+                    {note.tags.map((t) => (
+                      <button
+                        type="button"
+                        key={t}
+                        className="tag-row clickable"
+                        onClick={() => openTag(t)}
+                      >
+                        #{t}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             ) : (
               <div className="empty-state">

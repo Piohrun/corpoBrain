@@ -932,13 +932,6 @@ button {
 .due-chip.clickable:hover {
   text-decoration: underline;
 }
-.cm-cb-tag {
-  cursor: pointer;
-}
-.cm-cb-tag:hover {
-  filter: brightness(1.12);
-  text-decoration: underline;
-}
 
 /* CodeMirror injects its theme with class-pair specificity (.x .cm-cursor),
    so these need three levels to win. drawSelection() hides the native caret
@@ -1004,4 +997,12 @@ button {
 .tag-add:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.tag-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 24px 10px;
+  border-top: 1px solid var(--border);
 }
