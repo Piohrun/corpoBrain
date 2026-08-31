@@ -1,7 +1,117 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 /** Note hierarchy (SPEC §3.5) and note-metadata edits (type/parent/order). */
 import { deleteFrontmatterKey, parseFrontmatter, setFrontmatterKey } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
+
+export interface CategoryField {
+  key: string;
+  kind: 'text' | 'number' | 'boolean' | 'list';
+  source: 'builtin' | 'template' | 'seen';
+}
+
+const FIELD_EXCLUDED = new Set([
+  'id',
+  'type',
+  'title',
+  'parent',
+  'order',
+  'tags',
+  'created',
+  'updated',
+  'template',
+  'aliases',
+  'jira',
+  'plan',
+  'key',
+  'capacity_overrides',
+]);
+
+function kindOf(v: unknown): CategoryField['kind'] {
+  if (typeof v === 'number') return 'number';
+  if (typeof v === 'boolean') return 'boolean';
+  if (Array.isArray(v)) return 'list';
+  return 'text';
+}
+
+/** Suggested editable frontmatter fields for a category (folder). */
+export function categoryFields(
+  v: VaultService,
+  category: string,
+): { fields: CategoryField[]; sprintOverrides: string[] | null } {
+  const fields = new Map<string, CategoryField>();
+  const add = (
+    key: string,
+    kind: CategoryField['kind'],
+    source: CategoryField['source'],
+    force = false,
+  ) => {
+    if (!fields.has(key) && (force || !FIELD_EXCLUDED.has(key)))
+      fields.set(key, { key, kind, source });
+  };
+
+  const isPeople = category === v.config.folders.people;
+  if (isPeople) {
+    add('jira', 'text', 'builtin', true); // person's Jira account id — a real field here
+    add('role', 'text', 'builtin');
+    add('region', 'text', 'builtin');
+    add('team', 'text', 'builtin');
+    add('capacity', 'number', 'builtin');
+    add('active', 'boolean', 'builtin');
+  }
+
+  // the category's template frontmatter declares expected fields
+  let mapped: string | null = null;
+  try {
+    mapped = typeForFolder(v, category);
+  } catch {
+    mapped = null;
+  }
+  for (const name of new Set([category, mapped].filter(Boolean) as string[])) {
+    const tpl = join(v.root, v.config.folders.templates, `${name}.md`);
+    if (!existsSync(tpl)) continue;
+    try {
+      const fm = parseFrontmatter(readFileSync(tpl, 'utf8')).data;
+      for (const [k, val] of Object.entries(fm)) add(k, kindOf(val), 'template');
+    } catch {
+      /* unreadable template */
+    }
+  }
+
+  // keys already used by notes in this category
+  const seen = v.indexer.db
+    .prepare(
+      `SELECT p.key, COUNT(*) AS n FROM properties p JOIN notes n ON n.path = p.path
+       WHERE n.path LIKE ? AND n.protected = 0
+       GROUP BY p.key ORDER BY n DESC LIMIT 12`,
+    )
+    .all(`${category}/%`) as { key: string }[];
+  for (const row of seen) {
+    const sample = v.indexer.db
+      .prepare('SELECT value_json FROM properties WHERE key = ? AND path LIKE ? LIMIT 1')
+      .get(row.key, `${category}/%`) as { value_json: string } | undefined;
+    let kind: CategoryField['kind'] = 'text';
+    try {
+      kind = kindOf(JSON.parse(sample?.value_json ?? '""'));
+    } catch {
+      /* text */
+    }
+    add(row.key, kind, 'seen');
+  }
+
+  const sprintOverrides = isPeople
+    ? (
+        v.indexer.db
+          .prepare(
+            "SELECT name FROM sprints WHERE state IN ('active','future') ORDER BY state = 'future', start IS NULL, start, id",
+          )
+          .all() as { name: string }[]
+      ).map((r) => r.name)
+    : null;
+
+  return { fields: [...fields.values()], sprintOverrides };
+}
 
 /** Category = top-level folder. Map a category/type name to its folder. */
 export function folderForCategory(v: VaultService, category: string | null): string {
@@ -51,6 +161,16 @@ export function applyCategory(
   let text = content;
   const wanted = typeForFolder(v, folder);
   text = wanted ? setFrontmatterKey(text, 'type', wanted) : deleteFrontmatterKey(text, 'type');
+  // Additive template: seed the category's expected fields as blank keys.
+  // Existing properties are NEVER removed on a category change.
+  const existingKeys = new Set(Object.keys(parseFrontmatter(text).data));
+  for (const field of categoryFields(v, folder).fields) {
+    if (existingKeys.has(field.key)) continue;
+    text = setFrontmatterKey(text, field.key, null).replace(
+      new RegExp(`^${field.key.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}: null$`, 'm'),
+      `${field.key}:`,
+    );
+  }
   if (!opts.keepParent) {
     const fm = parseFrontmatter(text).data;
     const rawParent = typeof fm.parent === 'string' ? fm.parent : null;
@@ -231,8 +351,10 @@ export function treeRoutes(v: VaultService): Hono {
     }
 
     if (body.set !== undefined) {
+      const inPeople = path.startsWith(`${v.config.folders.people}/`);
       for (const [key, value] of Object.entries(body.set)) {
-        if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(key) || RESERVED_PROP_KEYS.has(key))
+        const reserved = RESERVED_PROP_KEYS.has(key) && !(inPeople && key === 'jira');
+        if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(key) || reserved)
           throw new HttpError(400, `cannot set property: ${key}`);
         if (!isPlainValue(value)) throw new HttpError(400, `unsupported value for ${key}`);
         text =

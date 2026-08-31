@@ -262,3 +262,27 @@ describe('generic property writes and category fields', () => {
     expect(none.sprintOverrides).toBeNull();
   });
 });
+
+describe('additive category templates', () => {
+  it('moving into people seeds blank builtin fields without removing anything', async () => {
+    const put = (body: object) =>
+      app.request('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) });
+    // give the note a pre-existing custom property that must survive
+    await put({ path: 'notes/loose.md', set: { favourite_editor: 'vim' } });
+    const res = await put({ path: 'notes/loose.md', type: 'people' });
+    expect(res.status).toBe(200);
+    const text = readFileSync(join(root, 'people', 'loose.md'), 'utf8');
+    expect(text).toContain('type: person');
+    expect(text).toContain('favourite_editor: vim'); // never destructive
+    for (const key of ['jira:', 'role:', 'region:', 'team:', 'capacity:']) {
+      expect(text).toContain(`\n${key}`); // seeded blank
+    }
+    expect(text).not.toContain(': null');
+    // jira id is settable on a people note
+    const setJira = await put({ path: 'people/loose.md', set: { jira: 'lnote' } });
+    expect(setJira.status).toBe(200);
+    expect(readFileSync(join(root, 'people', 'loose.md'), 'utf8')).toContain('jira: lnote');
+    // …but stays reserved elsewhere
+    expect((await put({ path: 'notes/gateway.md', set: { jira: 'x' } })).status).toBe(400);
+  });
+});
