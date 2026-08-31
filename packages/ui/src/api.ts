@@ -230,3 +230,27 @@ export const privateApi = {
       `/api/private/search?q=${encodeURIComponent(q)}`,
     ),
 };
+
+// ------------------------------------------------------------------- tree
+
+export interface TreeNode {
+  path: string;
+  title: string;
+  type: string;
+  order: number | null;
+  children: TreeNode[];
+}
+
+export interface TreeModel {
+  folders: { folder: string; roots: TreeNode[] }[];
+}
+
+export const treeApi = {
+  get: () => req<TreeModel>('/api/tree'),
+  meta: (body: {
+    path: string;
+    type?: string | null;
+    parent?: string | null;
+    order?: number | null;
+  }) => req<{ ok: boolean }>('/api/tree/meta', { method: 'PUT', body: JSON.stringify(body) }),
+};

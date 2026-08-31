@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type NoteListItem, type NoteResponse, type TagCount } from './api.ts';
+import {
+  api,
+  type NoteListItem,
+  type NoteResponse,
+  type TagCount,
+  type TreeModel,
+  treeApi,
+} from './api.ts';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
 import { Editor } from './components/Editor.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
@@ -12,6 +19,7 @@ import { useVaultEvents } from './hooks.ts';
 
 export function App() {
   const [notes, setNotes] = useState<NoteListItem[]>([]);
+  const [tree, setTree] = useState<TreeModel | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
@@ -28,6 +36,10 @@ export function App() {
     api
       .tags()
       .then(setTags)
+      .catch(() => {});
+    treeApi
+      .get()
+      .then(setTree)
       .catch(() => {});
   }, []);
 
@@ -212,13 +224,22 @@ export function App() {
       ) : (
         <>
           <Sidebar
-            notes={notes}
+            tree={tree}
             tags={tags}
             currentPath={note?.path ?? null}
             onOpen={openPath}
             onDaily={openDaily}
             onNew={() => setPaletteOpen(true)}
             onPalette={() => setPaletteOpen(true)}
+            onTreeChanged={() => {
+              refreshLists();
+              const current = noteRef.current;
+              if (current)
+                api
+                  .note(current.path)
+                  .then(setNote)
+                  .catch(() => {});
+            }}
           />
           <div className="main">
             {note ? (
@@ -255,7 +276,20 @@ export function App() {
               </div>
             )}
           </div>
-          <RightPanel note={note} onOpen={openPath} />
+          <RightPanel
+            note={note}
+            notes={notes}
+            onOpen={openPath}
+            onMetaChanged={() => {
+              refreshLists();
+              const current = noteRef.current;
+              if (current)
+                api
+                  .note(current.path)
+                  .then(setNote)
+                  .catch(() => {});
+            }}
+          />
         </>
       )}
       <CommandPalette

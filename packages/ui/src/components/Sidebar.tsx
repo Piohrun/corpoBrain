@@ -1,17 +1,28 @@
-import { useEffect, useMemo, useState } from 'react';
-import { api, type NoteListItem, type SearchHit, type TagCount } from '../api.ts';
+import { useEffect, useState } from 'react';
+import { api, type SearchHit, type TagCount, type TreeModel } from '../api.ts';
+import { NoteTree } from './NoteTree.tsx';
 
 interface Props {
-  notes: NoteListItem[];
+  tree: TreeModel | null;
   tags: TagCount[];
   currentPath: string | null;
   onOpen: (path: string) => void;
   onDaily: () => void;
   onNew: () => void;
   onPalette: () => void;
+  onTreeChanged: () => void;
 }
 
-export function Sidebar({ notes, tags, currentPath, onOpen, onDaily, onNew, onPalette }: Props) {
+export function Sidebar({
+  tree,
+  tags,
+  currentPath,
+  onOpen,
+  onDaily,
+  onNew,
+  onPalette,
+  onTreeChanged,
+}: Props) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
 
@@ -31,27 +42,6 @@ export function Sidebar({ notes, tags, currentPath, onOpen, onDaily, onNew, onPa
       clearTimeout(t);
     };
   }, [query]);
-
-  const folders = useMemo(() => {
-    const groups = new Map<string, NoteListItem[]>();
-    for (const n of notes) {
-      if (n.protected) continue;
-      const folder = n.path.includes('/') ? (n.path.split('/')[0] as string) : '';
-      const arr = groups.get(folder) ?? [];
-      arr.push(n);
-      groups.set(folder, arr);
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [notes]);
-
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set(['jira']));
-  const toggle = (folder: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(folder)) next.delete(folder);
-      else next.add(folder);
-      return next;
-    });
 
   return (
     <div className="sidebar">
@@ -90,8 +80,7 @@ export function Sidebar({ notes, tags, currentPath, onOpen, onDaily, onNew, onPa
                 <div className="hit-title">{h.title}</div>
                 <div
                   className="hit-snippet"
-                  // snippet uses << >> markers from FTS; render as <mark>
-                  // biome-ignore lint/security/noDangerouslySetInnerHtml: sanitized below
+                  // biome-ignore lint/security/noDangerouslySetInnerHtml: escaped in renderSnippet
                   dangerouslySetInnerHTML={{ __html: renderSnippet(h.snippet) }}
                 />
               </button>
@@ -100,26 +89,14 @@ export function Sidebar({ notes, tags, currentPath, onOpen, onDaily, onNew, onPa
           </>
         ) : (
           <>
-            {folders.map(([folder, items]) => (
-              <div key={folder || '(root)'}>
-                <button type="button" className="tree-folder" onClick={() => toggle(folder)}>
-                  {collapsed.has(folder) ? '▸' : '▾'} {folder || 'vault'}{' '}
-                  <span className="muted">({items.length})</span>
-                </button>
-                {!collapsed.has(folder) &&
-                  items.map((n) => (
-                    <button
-                      type="button"
-                      key={n.path}
-                      className={`tree-item${n.path === currentPath ? ' active' : ''}`}
-                      onClick={() => onOpen(n.path)}
-                      title={n.path}
-                    >
-                      {n.title}
-                    </button>
-                  ))}
-              </div>
-            ))}
+            {tree && (
+              <NoteTree
+                tree={tree}
+                currentPath={currentPath}
+                onOpen={onOpen}
+                onChanged={onTreeChanged}
+              />
+            )}
             {tags.length > 0 && (
               <>
                 <h3>Tags</h3>

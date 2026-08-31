@@ -96,6 +96,8 @@ All reserved keys are optional unless stated.
 | `created` | ISO-8601 datetime | |
 | `updated` | ISO-8601 datetime | maintained by the tool on save; not authoritative (mtime wins for indexing) |
 | `template` | string | path of the template this note was created from |
+| `parent` | wikilink string | places this note under another note in the hierarchy tree (§3.5). Any note may be a parent; the tree is derived, files never move. |
+| `order` | number | sort position among siblings in the tree; ties sort by title |
 | `plan` | object | local planning overlay (Section 7). Only meaningful for `type: jira`. |
 | `jira` | object | tool-owned mirror metadata (Section 6). Only for `type: jira`. |
 
@@ -132,6 +134,14 @@ When it does so it MUST:
   any file that fails to parse.
 
 This is opt-in per vault (`config.index.assignIds`, default `true`).
+
+### 3.5 Hierarchy
+
+Notes form a forest derived from the `parent` frontmatter key. `parent` holds
+a wikilink resolved with the standard rules (§5.2). A note whose `parent` is
+missing, unresolvable, or part of a cycle is a root. Children sort by `order`
+(ascending, missing last), then title. `type: jira` notes use `parent` for
+the Jira issue hierarchy and are excluded from the notes tree.
 
 ---
 

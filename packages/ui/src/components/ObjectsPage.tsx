@@ -84,6 +84,40 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
             {t.type} <b>{t.count}</b>
           </button>
         ))}
+        <button
+          type="button"
+          className="risk-chip"
+          title="Create a category: the first note of a new type"
+          onClick={() => {
+            const type = window.prompt('New category (type) name, e.g. retro, vendor, incident:');
+            if (!type?.trim()) return;
+            const t = type
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9-]+/g, '-');
+            const title = window.prompt(`Title of the first ${t} note:`);
+            if (!title?.trim()) return;
+            createTyped(t, title.trim(), () => {
+              setSelected(t);
+              refresh();
+            });
+          }}
+        >
+          + new category
+        </button>
+        {selected && (
+          <button
+            type="button"
+            className="risk-chip"
+            onClick={() => {
+              const title = window.prompt(`Title of the new ${selected} note:`);
+              if (!title?.trim()) return;
+              createTyped(selected, title.trim(), refresh);
+            }}
+          >
+            + new {selected}
+          </button>
+        )}
         <span className="spacer" />
         <select className="cell-input" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
           <option value="">no grouping</option>
@@ -134,6 +168,17 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
       </div>
     </div>
   );
+}
+
+function createTyped(type: string, title: string, done: () => void): void {
+  const folder = type === 'person' ? 'people' : 'notes';
+  const safe = title.replace(/[\\:*?"<>|/]/g, '-');
+  fetch('/api/note', {
+    method: 'POST',
+    body: JSON.stringify({ path: `${folder}/${safe}.md`, title, type }),
+  })
+    .then(done)
+    .catch(() => {});
 }
 
 function formatValue(v: unknown): string {

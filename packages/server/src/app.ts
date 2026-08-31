@@ -5,6 +5,7 @@ import { jiraRoutes } from './jira-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { privateRoutes } from './private-routes.ts';
+import { treeRoutes } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
 export function createApp(vault?: VaultService) {
@@ -139,6 +140,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/plan', planRoutes(v));
   app.route('/api/objects', objectRoutes(v));
   app.route('/api/private', privateRoutes(v).app);
+  app.route('/api/tree', treeRoutes(v));
   app.route('/api/task', taskRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.

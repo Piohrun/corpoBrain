@@ -1,16 +1,97 @@
-import type { NoteResponse } from '../api.ts';
+import { useEffect, useState } from 'react';
+import { type NoteListItem, type NoteResponse, treeApi } from '../api.ts';
 
 interface Props {
   note: NoteResponse | null;
+  notes: NoteListItem[];
   onOpen: (path: string) => void;
+  onMetaChanged: () => void;
 }
 
-export function RightPanel({ note, onOpen }: Props) {
+export function RightPanel({ note, notes, onOpen, onMetaChanged }: Props) {
+  const [error, setError] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: clear stale errors when switching notes
+  useEffect(() => setError(null), [note?.path]);
+
   if (!note) return <div className="right" />;
   const fm = note.meta?.frontmatter ?? {};
-  const props = Object.entries(fm).filter(([k]) => !['id', 'title'].includes(k));
+  const props = Object.entries(fm).filter(
+    ([k]) => !['id', 'title', 'type', 'parent', 'order'].includes(k),
+  );
+  const isJira = note.meta?.type === 'jira';
+  const types = [...new Set(notes.map((n) => n.type))].filter((t) => t !== 'jira').sort();
+  const parentValue = typeof fm.parent === 'string' ? fm.parent.replace(/^\[\[|\]\]$/g, '') : '';
+
+  const patch = (body: { type?: string | null; parent?: string | null; order?: number | null }) => {
+    setError(null);
+    treeApi
+      .meta({ path: note.path, ...body })
+      .then(onMetaChanged)
+      .catch((e: Error) => setError(e.message));
+  };
+
   return (
     <div className="right">
+      {!isJira && (
+        <>
+          <h3>Organize</h3>
+          <div className="meta-edit">
+            <label>
+              category (type)
+              <input
+                key={`type:${note.path}`}
+                list="cb-types"
+                defaultValue={note.meta?.type === 'note' ? '' : (note.meta?.type ?? '')}
+                placeholder="note"
+                onBlur={(e) => {
+                  const v = e.target.value.trim() || null;
+                  if (v !== (note.meta?.type === 'note' ? null : note.meta?.type))
+                    patch({ type: v });
+                }}
+              />
+            </label>
+            <datalist id="cb-types">
+              {types.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+            <label>
+              parent note
+              <input
+                key={`parent:${note.path}`}
+                list="cb-parents"
+                defaultValue={parentValue}
+                placeholder="none (top level)"
+                onBlur={(e) => {
+                  const v = e.target.value.trim() || null;
+                  if (v !== (parentValue || null)) patch({ parent: v });
+                }}
+              />
+            </label>
+            <datalist id="cb-parents">
+              {notes
+                .filter((n) => !n.protected && n.type !== 'jira' && n.path !== note.path)
+                .map((n) => (
+                  <option key={n.path} value={n.title} />
+                ))}
+            </datalist>
+            <label>
+              order among siblings
+              <input
+                key={`order:${note.path}`}
+                type="number"
+                defaultValue={typeof fm.order === 'number' ? fm.order : ''}
+                placeholder="—"
+                onBlur={(e) => {
+                  const v = e.target.value === '' ? null : Number(e.target.value);
+                  if (v !== (typeof fm.order === 'number' ? fm.order : null)) patch({ order: v });
+                }}
+              />
+            </label>
+            {error && <div className="plan-error">{error}</div>}
+          </div>
+        </>
+      )}
       <h3>Backlinks ({note.backlinks.length})</h3>
       {note.backlinks.length === 0 && <div className="backlink muted">Nothing links here yet</div>}
       {note.backlinks.map((b) => (
