@@ -8,6 +8,7 @@ import {
   treeApi,
 } from './api.ts';
 import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
+import { DigestPage } from './components/DigestPage.tsx';
 import { Editor } from './components/Editor.tsx';
 import { JiraPage } from './components/JiraPage.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
@@ -29,7 +30,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<
-    'notes' | 'planning' | 'tasks' | 'objects' | 'jira' | 'private' | 'settings'
+    'notes' | 'planning' | 'digest' | 'tasks' | 'objects' | 'jira' | 'private' | 'settings'
   >('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
@@ -207,6 +208,14 @@ export function App() {
         </button>
         <button
           type="button"
+          className={view === 'digest' ? 'active' : ''}
+          onClick={() => setView('digest')}
+          title="What changed in Jira since the last refresh"
+        >
+          ⟳
+        </button>
+        <button
+          type="button"
           className={view === 'tasks' ? 'active' : ''}
           onClick={() => setView('tasks')}
           title="Tasks"
@@ -248,6 +257,8 @@ export function App() {
       </nav>
       {view === 'planning' ? (
         <PlanningPage onOpenNote={openFromPlanning} />
+      ) : view === 'digest' ? (
+        <DigestPage onOpenNote={openFromPlanning} />
       ) : view === 'tasks' ? (
         <TasksPage onOpenNote={openFromPlanning} />
       ) : view === 'objects' ? (

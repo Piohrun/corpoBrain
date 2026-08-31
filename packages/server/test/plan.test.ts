@@ -350,3 +350,59 @@ describe('default capacity', () => {
     ).toBe(400);
   });
 });
+
+describe('sprint health', () => {
+  it('reports the problems in the active sprint', async () => {
+    const res = await app.request('/api/plan/health');
+    expect(res.status).toBe(200);
+    const report = (await res.json()) as {
+      sprint: string;
+      counts: Record<string, number>;
+      problems: { kind: string; issueKey: string | null; personName: string | null }[];
+      totals: { issues: number; effort: number };
+    };
+    expect(report.sprint).toBe('Sprint 37');
+    // EXEC-1 (4 days) sits in Sprint 37 against Anna's 8 days: room to spare
+    expect(report.problems.map((p) => p.kind)).toContain('underloaded');
+    expect(report.totals.issues).toBe(1);
+    expect(report.totals.effort).toBe(4);
+  });
+
+  it('checks a named sprint and flags unassigned, unestimated work', async () => {
+    writeFileSync(
+      join(root, 'jira', 'EXEC-9.md'),
+      jiraFile(
+        'EXEC-9',
+        'summary: Nine\nstatus: To Do\nstatus_category: new\nsprint: Sprint 37\nestimate: 13\nupdated: 2026-08-29T00:00:00Z\n',
+      ),
+    );
+    vault.indexer.rebuild();
+    const res = await app.request('/api/plan/health?sprint=Sprint%2037');
+    const report = (await res.json()) as { counts: Record<string, number> };
+    expect(report.counts['no-assignee']).toBe(1);
+    expect(report.counts.oversized).toBe(1); // 13 points ≥ the default threshold of 8
+  });
+
+  it('404s when the sprint is unknown', async () => {
+    const res = await app.request('/api/plan/health?sprint=Nope');
+    expect(res.status).toBe(404);
+  });
+
+  it('stores health thresholds through the planning settings route', async () => {
+    const res = await app.request('/api/plan/capacity-config', {
+      method: 'PUT',
+      body: JSON.stringify({ health: { bigIssue: 5 } }),
+    });
+    expect(res.status).toBe(200);
+    expect(vault.config.health.bigIssue).toBe(5);
+    const onDisk = JSON.parse(readFileSync(join(root, '.corpobrain', 'config.json'), 'utf8')) as {
+      health: { bigIssue: number };
+    };
+    expect(onDisk.health.bigIssue).toBe(5);
+    const bad = await app.request('/api/plan/capacity-config', {
+      method: 'PUT',
+      body: JSON.stringify({ health: { staleDays: -1 } }),
+    });
+    expect(bad.status).toBe(400);
+  });
+});

@@ -10,6 +10,7 @@ import {
 } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { SprintHealth } from './SprintHealth.tsx';
 import { SyncProgressBar } from './SyncProgressBar.tsx';
 
 interface Props {
@@ -47,9 +48,15 @@ export function PlanningPage({ onOpenNote }: Props) {
     () => lsGet('cb.plan.groupBy', 'region') as GroupBy,
   );
   const [horizon, setHorizon] = useState<number>(() => Number(lsGet('cb.plan.horizon', '3')));
+  const [bottom, setBottom] = useState<'health' | 'issues'>(
+    () => lsGet('cb.plan.bottom', 'health') as 'health' | 'issues',
+  );
+  const [healthSprint, setHealthSprint] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => lsSet('cb.plan.groupBy', groupBy), [groupBy]);
   useEffect(() => lsSet('cb.plan.horizon', String(horizon)), [horizon]);
+  useEffect(() => lsSet('cb.plan.bottom', bottom), [bottom]);
 
   const refresh = useCallback(() => {
     planApi
@@ -66,7 +73,10 @@ export function PlanningPage({ onOpenNote }: Props) {
       .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
-  useVaultEvents(() => refresh());
+  useVaultEvents(() => {
+    refresh();
+    setReloadKey((k) => k + 1);
+  });
 
   const patch = useCallback(
     (key: string, p: PlanPatch) => {
@@ -249,7 +259,38 @@ export function PlanningPage({ onOpenNote }: Props) {
           onOpenNote={onOpenNote}
         />
         <ChangesPanel board={board} onPatch={patch} onOpenNote={onOpenNote} />
-        <SprintTable board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
+        <div className="bottom-tabs">
+          <button
+            type="button"
+            className={`tab${bottom === 'health' ? ' active' : ''}`}
+            onClick={() => setBottom('health')}
+          >
+            ⚠ Sprint health
+          </button>
+          <button
+            type="button"
+            className={`tab${bottom === 'issues' ? ' active' : ''}`}
+            onClick={() => setBottom('issues')}
+          >
+            ☰ All issues ({issues.length})
+          </button>
+        </div>
+        {bottom === 'health' ? (
+          <SprintHealth
+            sprints={board.sprints.map((s) => s.name)}
+            sprint={
+              healthSprint ||
+              (board.sprints.find((s) => s.state === 'active')?.name ??
+                board.sprints[0]?.name ??
+                '')
+            }
+            onSprint={setHealthSprint}
+            onOpenNote={onOpenNote}
+            reloadKey={reloadKey}
+          />
+        ) : (
+          <SprintTable board={board} issues={issues} onPatch={patch} onOpenNote={onOpenNote} />
+        )}
       </div>
     </div>
   );

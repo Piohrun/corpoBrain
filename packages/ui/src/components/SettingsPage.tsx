@@ -32,15 +32,17 @@ export function SettingsPage() {
   const [git, setGit] = useState<GitStatus | null>(null);
   const [hubs, setHubs] = useState<BoardPerson[]>([]);
 
-  const [planCfg, setPlanCfg] = useState<{ unit: string; defaultCapacity: number | null } | null>(
-    null,
-  );
+  const [planCfg, setPlanCfg] = useState<{
+    unit: string;
+    defaultCapacity: number | null;
+    health: { bigIssue: number; staleDays: number; underloadPct: number };
+  } | null>(null);
   const refreshHubs = useCallback(() => {
     planApi
       .board()
       .then((b) => {
         setHubs(b.people.filter((p) => p.name === p.region || p.name === p.team));
-        setPlanCfg({ unit: b.unit, defaultCapacity: b.defaultCapacity });
+        setPlanCfg({ unit: b.unit, defaultCapacity: b.defaultCapacity, health: b.health });
       })
       .catch(() => {});
   }, []);
@@ -210,6 +212,53 @@ export function SettingsPage() {
               <p className="muted small">
                 People without an explicit capacity inherit the default on the planning board;
                 per-person values (Organize panel or the grid) always win.
+              </p>
+              <div className="settings-grid">
+                <label htmlFor="s-bigissue">split issues at or above</label>
+                <input
+                  id="s-bigissue"
+                  type="number"
+                  step="1"
+                  min="1"
+                  defaultValue={planCfg.health.bigIssue}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value);
+                    if (!(v > 0) || v === planCfg.health.bigIssue) return;
+                    planApi.saveCapacityConfig({ health: { bigIssue: v } }).catch(() => {});
+                  }}
+                />
+                <label htmlFor="s-staledays">stalled after (days)</label>
+                <input
+                  id="s-staledays"
+                  type="number"
+                  step="1"
+                  min="1"
+                  defaultValue={planCfg.health.staleDays}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value);
+                    if (!(v > 0) || v === planCfg.health.staleDays) return;
+                    planApi.saveCapacityConfig({ health: { staleDays: v } }).catch(() => {});
+                  }}
+                />
+                <label htmlFor="s-underload">spare bandwidth below (%)</label>
+                <input
+                  id="s-underload"
+                  type="number"
+                  step="5"
+                  min="1"
+                  max="100"
+                  defaultValue={Math.round(planCfg.health.underloadPct * 100)}
+                  onBlur={(e) => {
+                    const v = Number(e.target.value) / 100;
+                    if (!(v > 0) || v === planCfg.health.underloadPct) return;
+                    planApi.saveCapacityConfig({ health: { underloadPct: v } }).catch(() => {});
+                  }}
+                />
+              </div>
+              <p className="muted small">
+                Thresholds for Planning → Sprint health: issues at or above the first number are
+                flagged for splitting, in-progress issues untouched for that many days count as
+                stalled, and people below that share of their bandwidth are listed as having room.
               </p>
             </div>
           </section>

@@ -74,6 +74,20 @@ export class VaultService {
     Object.assign(this.config.capacity, partial);
   }
 
+  updateHealthConfig(partial: Partial<VaultConfig['health']>): void {
+    const cfgPath = join(this.root, '.corpobrain', 'config.json');
+    let onDisk: Record<string, unknown> = {};
+    try {
+      onDisk = JSON.parse(readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
+    } catch {
+      onDisk = { version: 1 };
+    }
+    onDisk.health = { ...(onDisk.health as Record<string, unknown> | undefined), ...partial };
+    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
+    writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
+    Object.assign(this.config.health, partial);
+  }
+
   /** Store Jira credentials in the gitignored secrets file (0600). */
   saveJiraSecrets(update: { token?: string; email?: string }): void {
     const file = join(this.root, '.corpobrain', 'secrets.json');

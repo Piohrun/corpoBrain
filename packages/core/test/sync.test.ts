@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -6,6 +6,7 @@ import { DEFAULT_CONFIG, type VaultConfig } from '../src/config.ts';
 import { openDb } from '../src/db.ts';
 import { Indexer } from '../src/indexer.ts';
 import type { JiraSprint, RawIssue } from '../src/jira/adapter.ts';
+import { DigestStore } from '../src/jira/digest.ts';
 import { type AdapterLike, JiraSync, jqlDate } from '../src/jira/sync.ts';
 
 const config: VaultConfig = {
@@ -273,5 +274,35 @@ describe('full re-sync', () => {
     // and the watermark is refreshed afterwards for the next incremental
     await sync.run();
     expect(adapter.jqls[3]).toContain('updated >=');
+  });
+
+  it('records a change digest from the second sync onwards', async () => {
+    adapter.issues = [issue('EXEC-1', 'First thing', 'anna')];
+    const [first] = await sync.run();
+    // nothing to compare against on the first pass: baseline only
+    expect(first?.changes).toBe(0);
+    expect(existsSync(join(root, '.corpobrain/jira-cache/digest.jsonl'))).toBe(false);
+
+    const moved = issue('EXEC-1', 'First thing renamed', 'bob');
+    (moved.fields as Record<string, unknown>).status = {
+      name: 'Done',
+      statusCategory: { key: 'done' },
+    };
+    adapter.issues = [moved, issue('EXEC-3', 'Brand new')];
+    const [second] = await sync.run();
+    expect(second?.changes).toBeGreaterThan(0);
+
+    const events = new DigestStore(join(root, '.corpobrain/jira-cache')).read();
+    const forOne = events.filter((e) => e.key === 'EXEC-1');
+    // no phantom 'sprint' move: EXEC-1's sprint comes from board membership,
+    // which is not in the cached raw issue but is in the mirrored file
+    expect(forOne.map((e) => e.kind).sort()).toEqual(['assignee', 'done', 'summary']);
+    expect(forOne.find((e) => e.kind === 'assignee')?.to).toBe('BOB');
+    expect(events.find((e) => e.key === 'EXEC-3')?.kind).toBe('created');
+    // every event from one refresh shares the run timestamp
+    expect(new Set(events.map((e) => e.at)).size).toBe(1);
+
+    const state = JSON.parse(readFileSync(join(root, '.corpobrain/jira-cache/state.json'), 'utf8'));
+    expect(state.lastSyncAt.team).toBe('2026-08-30T12:00:00.000Z');
   });
 });

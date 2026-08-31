@@ -5,6 +5,8 @@ import type { JiraProfile, VaultConfig } from '../config.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { writeFileAtomic } from '../vault.ts';
 import type { JiraSprint, RawIssue } from './adapter.ts';
+import type { ChangeEvent } from './digest.ts';
+import { DigestStore, diffIssue, snapshotOf } from './digest.ts';
 import { mergeIssueFile, normalizeIssue } from './render.ts';
 
 /** Structural subset of JiraAdapter so tests can stub it. */
@@ -39,12 +41,16 @@ export interface SyncReport {
   peopleCreated: string[];
   sprints: number;
   warnings: string[];
+  /** field-level changes since the previous refresh (0 on the very first sync) */
+  changes: number;
 }
 
 interface SyncState {
   watermarks: Record<string, string>;
   /** detected sprint custom field id (per instance), cached across runs */
   sprintField?: string | null;
+  /** when each profile last completed a refresh, for the change digest */
+  lastSyncAt?: Record<string, string>;
 }
 
 export class JiraSync {
@@ -193,10 +199,22 @@ export class JiraSync {
       peopleCreated: [],
       sprints: allSprints.length,
       warnings,
+      changes: 0,
     };
 
     const syncedAt = syncStart.toISOString();
     const knownPeople = this.knownPeopleIds();
+    const normOpts = {
+      baseUrl: this.config.jira.baseUrl,
+      ...(this.config.jira.estimateField ? { estimateField: this.config.jira.estimateField } : {}),
+    };
+    // The cached raw JSON of the previous sync is the digest's "before" state.
+    // On a vault whose cache is still empty there is nothing to compare against,
+    // so the first pass only establishes the baseline.
+    const issuesDir = join(this.cacheDir(), 'issues');
+    const baseline = readdirSync(issuesDir).length === 0;
+    const digest = new DigestStore(this.cacheDir());
+    const events: ChangeEvent[] = [];
     let issueIdx = 0;
     for (const raw of issues) {
       issueIdx++;
@@ -209,16 +227,17 @@ export class JiraSync {
           detail: raw.key,
         });
       }
-      writeFileSync(
-        join(this.cacheDir(), 'issues', `${raw.key}.json`),
-        `${JSON.stringify(raw, null, 2)}\n`,
-      );
-      const issue = normalizeIssue(raw, {
-        baseUrl: this.config.jira.baseUrl,
-        ...(this.config.jira.estimateField
-          ? { estimateField: this.config.jira.estimateField }
-          : {}),
-      });
+      const cacheFile = join(issuesDir, `${raw.key}.json`);
+      let before: RawIssue | null = null;
+      if (!baseline && existsSync(cacheFile)) {
+        try {
+          before = JSON.parse(readFileSync(cacheFile, 'utf8')) as RawIssue;
+        } catch {
+          before = null; // unreadable cache: treat as no baseline for this issue
+        }
+      }
+      writeFileSync(cacheFile, `${JSON.stringify(raw, null, 2)}\n`);
+      const issue = normalizeIssue(raw, normOpts);
       // field-derived sprint (normalizeIssue) wins; membership fills gaps
       const agile = sprintByKey.get(issue.key);
       if (!issue.sprint && agile) issue.sprint = agile;
@@ -226,6 +245,24 @@ export class JiraSync {
       const relPath = `${profile.folder}/${issue.key}.md`;
       const abs = join(this.root, relPath);
       const existing = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+
+      if (!baseline && !(before === null && existing !== null)) {
+        const prev = before ? snapshotOf(normalizeIssue(before, normOpts)) : null;
+        if (prev && prev.sprint === null && existing) {
+          // A sprint that came from board membership is not in the cached raw
+          // issue, but it is in the file we wrote last time — without this the
+          // digest would report a phantom move on every refresh.
+          const last = parseFrontmatter(existing).data.sprint;
+          if (typeof last === 'string') prev.sprint = last;
+        }
+        events.push(
+          ...diffIssue(prev, snapshotOf(issue), {
+            at: syncedAt,
+            profile: profile.name,
+            key: issue.key,
+          }),
+        );
+      }
       const outcome = mergeIssueFile(issue, existing, {
         config: this.config,
         profile: profile.name,
@@ -245,6 +282,10 @@ export class JiraSync {
         report.peopleCreated.push(path);
       }
     }
+
+    digest.append(events);
+    report.changes = events.length;
+    state.lastSyncAt = { ...state.lastSyncAt, [profile.name]: syncedAt };
 
     // Watermark: overlap by 5 minutes to survive clock skew; Jira JQL format.
     const wm = new Date(syncStart.getTime() - 5 * 60 * 1000);

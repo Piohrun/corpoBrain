@@ -140,6 +140,7 @@ export interface BoardPerson {
 
 export interface BoardModel {
   unit: string;
+  health: { bigIssue: number; staleDays: number; underloadPct: number };
   defaultCapacity: number | null;
   sprints: {
     id: number;
@@ -167,6 +168,7 @@ export interface SyncProgress {
 export interface SyncReportSummary {
   profile: string;
   fetched: number;
+  changes?: number;
   created: string[];
   updated: string[];
   unchanged: number;
@@ -199,8 +201,73 @@ export type PlanPatch = Partial<{
   note: string | null;
 }>;
 
+export interface HealthProblem {
+  kind: string;
+  severity: 'high' | 'medium' | 'low';
+  detail: string;
+  issueKey: string | null;
+  path: string | null;
+  summary: string | null;
+  personName: string | null;
+  personPath: string | null;
+  value: number | null;
+  limit: number | null;
+}
+
+export interface HealthReport {
+  sprint: string;
+  unit: string;
+  generatedAt: string;
+  elapsedPct: number | null;
+  daysLeft: number | null;
+  totals: {
+    issues: number;
+    done: number;
+    inProgress: number;
+    todo: number;
+    effort: number;
+    doneEffort: number;
+    capacity: number;
+    unassignedEffort: number;
+    unestimated: number;
+  };
+  counts: Record<string, number>;
+  problems: HealthProblem[];
+}
+
+export interface ChangeEvent {
+  at: string;
+  profile: string;
+  key: string;
+  kind: string;
+  from: string | null;
+  to: string | null;
+  summary: string;
+  assignee: string | null;
+  assigneeName: string | null;
+  sprint: string | null;
+  statusCategory: string | null;
+}
+
+export interface DigestResponse {
+  range: string;
+  since: string | null;
+  lastSync: { profile: string; at: string }[];
+  runs: { at: string; count: number }[];
+  counts: Record<string, number>;
+  events: ChangeEvent[];
+  paths: Record<string, string>;
+  people: Record<string, { name: string; path: string }>;
+}
+
+export const digestApi = {
+  get: (range: string) => req<DigestResponse>(`/api/digest?range=${encodeURIComponent(range)}`),
+};
+
 export const planApi = {
   board: () => req<BoardModel>('/api/plan/board'),
+  health: (sprint?: string) =>
+    req<HealthReport>(`/api/plan/health${sprint ? `?sprint=${encodeURIComponent(sprint)}` : ''}`),
   patchIssue: (key: string, patch: PlanPatch) =>
     req<{ ok: boolean }>(`/api/plan/issue/${encodeURIComponent(key)}`, {
       method: 'PUT',
@@ -216,7 +283,11 @@ export const planApi = {
     team?: string | null;
     color?: string | null;
   }) => req<{ ok: boolean }>('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) }),
-  saveCapacityConfig: (body: { defaultCapacity?: number | null; unit?: string }) =>
+  saveCapacityConfig: (body: {
+    defaultCapacity?: number | null;
+    unit?: string;
+    health?: { bigIssue?: number; staleDays?: number; underloadPct?: number };
+  }) =>
     req<{ ok: boolean }>('/api/plan/capacity-config', {
       method: 'PUT',
       body: JSON.stringify(body),

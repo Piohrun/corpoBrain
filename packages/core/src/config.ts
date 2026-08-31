@@ -51,6 +51,15 @@ export interface VaultConfig {
     writeback: 'off' | 'dry-run' | 'on';
     profiles: JiraProfile[];
   };
+  /** sprint-health thresholds (Planning → Sprint health) */
+  health: {
+    /** raw estimate at or above which an issue should be split */
+    bigIssue: number;
+    /** days without an update before an in-progress issue is flagged */
+    staleDays: number;
+    /** flag people below this fraction of their bandwidth as having room */
+    underloadPct: number;
+  };
   private: { lockAfterMinutes: number };
   git: { autoCommit: boolean; intervalMinutes: number };
 }
@@ -92,6 +101,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
     writeback: 'off',
     profiles: [],
   },
+  health: { bigIssue: 8, staleDays: 5, underloadPct: 0.5 },
   private: { lockAfterMinutes: 10 },
   git: { autoCommit: true, intervalMinutes: 10 },
 };

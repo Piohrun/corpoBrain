@@ -6,6 +6,7 @@ import {
   parseFrontmatter,
   type RiskFlag,
   setFrontmatterKey,
+  sprintHealth,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { syncRegionParent } from './tree-routes.ts';
@@ -66,6 +67,7 @@ export interface BoardPerson {
 
 export interface BoardModel {
   unit: string;
+  health: { bigIssue: number; staleDays: number; underloadPct: number };
   sprints: {
     id: number;
     name: string;
@@ -250,6 +252,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
 
   return {
     unit: cap.unit,
+    health: v.config.health,
     defaultCapacity: cap.defaultCapacity,
     sprints,
     columns,
@@ -306,6 +309,23 @@ export function planRoutes(v: VaultService): Hono {
 
   app.get('/board', (c) => c.json(buildBoard(v)));
 
+  /** Problems in one sprint (default: the active one). */
+  app.get('/health', (c) => {
+    const board = buildBoard(v);
+    const wanted = c.req.query('sprint');
+    const sprint = wanted
+      ? board.sprints.find((s) => s.name === wanted)
+      : (board.sprints.find((s) => s.state === 'active') ?? board.sprints[0]);
+    if (!sprint) throw new HttpError(404, 'no active or future sprint to check');
+    return c.json(
+      sprintHealth(
+        { sprint, issues: board.issues, people: board.people, unit: board.unit },
+        new Date(),
+        v.config.health,
+      ),
+    );
+  });
+
   /** vault-wide planning settings */
   app.put('/capacity-config', async (c) => {
     const body = (await c.req.json()) as { defaultCapacity?: number | null; unit?: string };
@@ -318,7 +338,19 @@ export function planRoutes(v: VaultService): Hono {
     if (body.unit && ['days', 'points', 'hours'].includes(body.unit))
       partial.unit = body.unit as typeof v.config.capacity.unit;
     if (Object.keys(partial).length) v.updateCapacityConfig(partial);
-    return c.json({ ok: true, capacity: v.config.capacity });
+    const h = (body as { health?: Record<string, unknown> }).health;
+    if (h) {
+      const hp: Partial<typeof v.config.health> = {};
+      for (const k of ['bigIssue', 'staleDays', 'underloadPct'] as const) {
+        if (h[k] !== undefined) {
+          const n = Number(h[k]);
+          if (!(n > 0)) throw new HttpError(400, `health.${k} must be a positive number`);
+          hp[k] = n;
+        }
+      }
+      if (Object.keys(hp).length) v.updateHealthConfig(hp);
+    }
+    return c.json({ ok: true, capacity: v.config.capacity, health: v.config.health });
   });
 
   /** PATCH plan fields of one issue. null clears a field; {} allowed. */

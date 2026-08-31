@@ -29,6 +29,18 @@ export {
   setFrontmatterKey,
   splitFrontmatter,
 } from './frontmatter.ts';
+export type {
+  HealthIssue,
+  HealthKind,
+  HealthOptions,
+  HealthPerson,
+  HealthProblem,
+  HealthReport,
+  HealthSprint,
+  HealthTotals,
+  Severity,
+} from './health.ts';
+export { DEFAULT_HEALTH, sprintHealth } from './health.ts';
 export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
 export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
 export type {
@@ -41,6 +53,8 @@ export type {
 export { describeNetworkError, JiraAdapter, JiraError } from './jira/adapter.ts';
 export { fence, jiraTextToMarkdown, wikiToMarkdown } from './jira/convert.ts';
 export { createJiraAdapter, loadJiraAuth } from './jira/credentials.ts';
+export type { ChangeEvent, ChangeKind, IssueSnapshot } from './jira/digest.ts';
+export { DigestStore, diffIssue, formatEvent, snapshotOf } from './jira/digest.ts';
 export { createProxyFetch, resolveProxyUrl } from './jira/proxy.ts';
 export type { MergeOutcome, NormalizedIssue } from './jira/render.ts';
 export {
