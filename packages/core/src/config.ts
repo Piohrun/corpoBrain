@@ -45,6 +45,8 @@ export interface VaultConfig {
     createPeople: boolean;
     autolinkMentions: boolean;
     missingMarker: 'skip' | 'append' | 'overwrite';
+    /** write-back safety ladder; nothing is ever sent to Jira unless 'on' */
+    writeback: 'off' | 'dry-run' | 'on';
     profiles: JiraProfile[];
   };
   private: { lockAfterMinutes: number };
@@ -79,6 +81,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
     createPeople: true,
     autolinkMentions: false,
     missingMarker: 'skip',
+    writeback: 'off',
     profiles: [],
   },
   private: { lockAfterMinutes: 10 },

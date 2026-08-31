@@ -109,6 +109,77 @@ export class JiraAdapter {
     return (await res.json()) as T;
   }
 
+  /** Write helper: PUT/POST with the same error wrapping as get(). */
+  private async send(
+    method: 'PUT' | 'POST',
+    path: string,
+    body: unknown,
+    params: Record<string, string> = {},
+  ): Promise<unknown> {
+    const url = new URL(path, this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`);
+    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+    let res: Response;
+    try {
+      res = await this.fetchFn(url, {
+        method,
+        headers: { ...this.headers(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (e) {
+      throw new JiraError(0, `cannot reach ${url.host}: ${describeNetworkError(e)}`);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new JiraError(
+        res.status,
+        `${res.status} ${res.statusText} for ${method} ${path}: ${text.slice(0, 300)}`,
+      );
+    }
+    if (res.status === 204) return null;
+    return await res.json().catch(() => null);
+  }
+
+  /** Current values of specific fields for one issue (preview/recheck). */
+  async issueFields(key: string, fields: string[]): Promise<Record<string, unknown>> {
+    const data = await this.get<{ fields: Record<string, unknown> }>(
+      `rest/api/2/issue/${encodeURIComponent(key)}`,
+      { fields: fields.join(',') },
+    );
+    return data.fields ?? {};
+  }
+
+  /**
+   * Set (or clear with null) the assignee. DC identifies by name, Cloud by
+   * accountId. On DC, notifyUsers=false suppresses the email storm a batch
+   * would otherwise cause.
+   */
+  async setAssignee(key: string, assignee: string | null): Promise<void> {
+    const deployment = await this.ensureDeployment();
+    const value =
+      assignee === null
+        ? null
+        : deployment === 'datacenter'
+          ? { name: assignee }
+          : { accountId: assignee };
+    await this.send(
+      'PUT',
+      `rest/api/2/issue/${encodeURIComponent(key)}`,
+      { fields: { assignee: value } },
+      deployment === 'datacenter' ? { notifyUsers: 'false' } : {},
+    );
+  }
+
+  /** Move issues into a sprint (Agile API; max 50 per call, we send few). */
+  async moveIssuesToSprint(sprintId: number, keys: string[]): Promise<void> {
+    await this.send('POST', `rest/agile/1.0/sprint/${sprintId}/issue`, { issues: keys });
+  }
+
+  /** Move issues out of any sprint, back to the backlog. */
+  async moveIssuesToBacklog(keys: string[]): Promise<void> {
+    await this.send('POST', 'rest/agile/1.0/backlog/issue', { issues: keys });
+  }
+
   /** Detect deployment type; also a cheap auth check. */
   async probe(): Promise<JiraDeploymentInfo> {
     const info = await this.get<{ deploymentType?: string; version?: string }>(
