@@ -39,3 +39,13 @@ describe('secret block state field', () => {
     expect(state.doc.lines).toBe(3);
   });
 });
+
+describe('inline secret tokens', () => {
+  it('a doc with inline tokens constructs and updates cleanly', () => {
+    const doc = '| Name | Pay |\n| --- | --- |\n| Anna | `🔒Q0JWMWFiY2RlZmdo` |\n';
+    const state = stateWith(doc, 0, { Q0JWMWFiY2RlZmdo: 'revealed!' });
+    expect(state.doc.toString()).toBe(doc);
+    const tr = state.update({ changes: { from: 0, insert: 'x' } });
+    expect(tr.state.doc.lines).toBe(4);
+  });
+});

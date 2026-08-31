@@ -89,6 +89,29 @@ export function Editor({
     }
   };
 
+  const revealMany = async (ciphers: string[]) => {
+    const missing = ciphers.filter((c) => !revealed.current.has(c));
+    if (missing.length) {
+      if (!(await ensureUnlocked())) return;
+      try {
+        const { texts } = await privateApi.decryptMany(missing);
+        missing.forEach((cipher, i) => {
+          const text = texts[i];
+          if (text === null || text === undefined) return;
+          revealed.current.set(cipher, text);
+          hideTimers.current.set(
+            cipher,
+            setTimeout(() => hideSecret(cipher), 30_000),
+          );
+        });
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : 'decrypt failed');
+        return;
+      }
+    }
+    refreshDecorations();
+  };
+
   const onEncryptSelection = async () => {
     const view = viewRef.current;
     if (!view) return;
@@ -101,8 +124,11 @@ export function Editor({
     if (!(await ensureUnlocked())) return;
     try {
       const { data } = await privateApi.encrypt(text);
+      const insert = text.includes('\n')
+        ? '\n```secret\n' + data + '\n```\n'
+        : '`\u{1F512}' + data + '`';
       view.dispatch({
-        changes: { from: sel.from, to: sel.to, insert: `\n\`\`\`secret\n${data}\n\`\`\`\n` },
+        changes: { from: sel.from, to: sel.to, insert },
       });
     } catch (e) {
       window.alert(e instanceof Error ? e.message : 'encrypt failed');
@@ -153,6 +179,7 @@ export function Editor({
           isResolved: (t) => latest.current.resolveMap.get(t.toLowerCase()),
           getSecret: (cipher) => revealed.current.get(cipher) ?? null,
           onSecretClick: (cipher) => void onSecretClick(cipher),
+          onRevealMany: (ciphers) => void revealMany(ciphers),
           onEncryptSelection: () => void onEncryptSelection(),
           completions: () => latest.current.completions(),
         }),

@@ -26,6 +26,8 @@ export interface LivePreviewConfig {
   /** revealed plaintext for an inline secret, or null while hidden */
   getSecret?: (cipher: string) => string | null;
   onSecretClick?: (cipher: string) => void;
+  /** batch reveal (table columns) */
+  onRevealMany?: (ciphers: string[]) => void;
   /** true = note exists; false/undefined = placeholder (Obsidian-style dimming) */
   isResolved?: (target: string) => boolean | undefined;
 }
@@ -39,6 +41,7 @@ export const livePreviewConfig = Facet.define<LivePreviewConfig, LivePreviewConf
 
 const WIKILINK = /(!?)\[\[([^[\]|#]*)(#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
 const TAG = /(^|[\s(,;])#([A-Za-z0-9_/-]*[A-Za-z_/-][A-Za-z0-9_/-]*)/g;
+const INLINE_SECRET = /`\u{1F512}([A-Za-z0-9+/=]{8,})`/gu;
 const CHECKBOX = /^(\s*[-*+] )\[( |x|X)\] /;
 
 class CheckboxWidget extends WidgetType {
@@ -213,7 +216,16 @@ function buildDecorations(view: EditorView): DecorationSet {
       }
 
       if (!ctx.inCodeBlock && (fmEnd < 0 || line.number > fmEnd)) {
-        collectInline(line.from, line.text, ctx, cursor, inline, emphasis, config.isResolved);
+        collectInline(
+          line.from,
+          line.text,
+          ctx,
+          cursor,
+          inline,
+          emphasis,
+          config.isResolved,
+          config.getSecret,
+        );
       }
 
       inline.sort((a, b) => a.from - b.from || a.to - b.to);
@@ -238,8 +250,25 @@ function collectInline(
   out: { from: number; to: number; deco: Decoration }[],
   emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[],
   isResolved?: (target: string) => boolean | undefined,
+  getSecret?: (cipher: string) => string | null,
 ): void {
   const lineTo = lineFrom + text.length;
+
+  // inline secret tokens replace their whole code span with a chip; pushed
+  // first so overlapping code-span styling is dropped by the overlap filter
+  if (!ctx.cursorTouches) {
+    INLINE_SECRET.lastIndex = 0;
+    for (let m = INLINE_SECRET.exec(text); m; m = INLINE_SECRET.exec(text)) {
+      const cipher = m[1] as string;
+      out.push({
+        from: lineFrom + m.index,
+        to: lineFrom + m.index + m[0].length,
+        deco: Decoration.replace({
+          widget: new SecretWidget(cipher, getSecret?.(cipher) ?? null),
+        }),
+      });
+    }
+  }
 
   // emphasis / inline code within this line
   for (const e of emphasis) {

@@ -274,6 +274,11 @@ export const privateApi = {
       method: 'POST',
       body: JSON.stringify({ text }),
     }),
+  decryptMany: (items: string[]) =>
+    req<{ texts: (string | null)[] }>('/api/private/decrypt-many', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
   decrypt: (data: string) =>
     req<{ text: string }>('/api/private/decrypt', {
       method: 'POST',
