@@ -70,6 +70,8 @@ export class JiraAdapter {
     readonly auth: JiraAuth,
     deployment: 'auto' | 'datacenter' | 'cloud' = 'auto',
     private readonly fetchFn: FetchFn = fetch,
+    /** per-request timeout; a blackholed connection fails fast instead of hanging */
+    private readonly timeoutMs = 30_000,
   ) {
     this.deployment = deployment === 'auto' ? null : deployment;
   }
@@ -90,7 +92,10 @@ export class JiraAdapter {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     let res: Response;
     try {
-      res = await this.fetchFn(url, { headers: this.headers() });
+      res = await this.fetchFn(url, {
+        headers: this.headers(),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
     } catch (e) {
       throw new JiraError(0, `cannot reach ${url.host}: ${describeNetworkError(e)}`);
     }
@@ -212,6 +217,10 @@ export function describeNetworkError(e: unknown): string {
     } else {
       break;
     }
+  }
+  const name = (e as { name?: string } | null)?.name;
+  if (name === 'TimeoutError' || name === 'AbortError') {
+    return 'request timed out — connection silently dropped; the host may only be reachable through a proxy, or a firewall is blackholing it';
   }
   const detail = seen[seen.length - 1] ?? 'fetch failed';
   const hints: Record<string, string> = {

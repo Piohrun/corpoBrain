@@ -92,3 +92,22 @@ describe('describeNetworkError', () => {
     );
   });
 });
+
+describe('request timeout', () => {
+  it('a hanging fetch aborts and reports a proxy/firewall hint', async () => {
+    const { JiraAdapter, JiraError } = await import('../src/jira/adapter.ts');
+    const hangingFetch = ((_url: unknown, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      })) as unknown as typeof fetch;
+    const adapter = new JiraAdapter(
+      'https://jira.example.com',
+      { mode: 'bearer', token: 't' },
+      'datacenter',
+      hangingFetch,
+      50, // 50ms timeout for the test
+    );
+    await expect(adapter.probe()).rejects.toThrow(JiraError);
+    await expect(adapter.probe()).rejects.toThrow(/timed out.*proxy|proxy.*timed out/i);
+  }, 5000);
+});
