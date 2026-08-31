@@ -68,3 +68,27 @@ describe('jiraTextToMarkdown (ADF)', () => {
     expect(jiraTextToMarkdown('plain h1. no')).toBe('plain h1. no');
   });
 });
+
+describe('describeNetworkError', () => {
+  it('digs codes out of undici-style causes and adds hints', async () => {
+    const { describeNetworkError, JiraAdapter, JiraError } = await import('../src/jira/adapter.ts');
+    const cause = Object.assign(new Error('unable to verify the first certificate'), {
+      code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+    });
+    const wrapped = Object.assign(new TypeError('fetch failed'), { cause });
+    expect(describeNetworkError(wrapped)).toContain('UNABLE_TO_VERIFY_LEAF_SIGNATURE');
+    expect(describeNetworkError(wrapped)).toContain('NODE_EXTRA_CA_CERTS');
+    expect(describeNetworkError(new TypeError('fetch failed'))).toBe('fetch failed');
+    // adapter surfaces it through JiraError with the host
+    const adapter = new JiraAdapter(
+      'https://jira.example.com',
+      { mode: 'bearer', token: 't' },
+      'datacenter',
+      (() => Promise.reject(wrapped)) as unknown as typeof fetch,
+    );
+    await expect(adapter.search('project = X')).rejects.toThrow(JiraError);
+    await expect(adapter.search('project = X')).rejects.toThrow(
+      /jira\.example\.com.*UNABLE_TO_VERIFY/,
+    );
+  });
+});

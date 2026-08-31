@@ -88,7 +88,12 @@ export class JiraAdapter {
   private async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
     const url = new URL(path, this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const res = await this.fetchFn(url, { headers: this.headers() });
+    let res: Response;
+    try {
+      res = await this.fetchFn(url, { headers: this.headers() });
+    } catch (e) {
+      throw new JiraError(0, `cannot reach ${url.host}: ${describeNetworkError(e)}`);
+    }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new JiraError(
@@ -188,4 +193,40 @@ export class JiraAdapter {
     }
     return null;
   }
+}
+
+/** Unwrap undici's generic "fetch failed" into the actionable cause. */
+export function describeNetworkError(e: unknown): string {
+  const seen: string[] = [];
+  let cur: unknown = e;
+  for (let i = 0; i < 5 && cur; i++) {
+    if (cur instanceof AggregateError && cur.errors.length) {
+      cur = cur.errors[0];
+      continue;
+    }
+    if (typeof cur === 'object' && cur !== null) {
+      const err = cur as { code?: string; message?: string; cause?: unknown };
+      if (err.code) seen.push(err.code);
+      else if (err.message && err.message !== 'fetch failed') seen.push(err.message);
+      cur = err.cause;
+    } else {
+      break;
+    }
+  }
+  const detail = seen[seen.length - 1] ?? 'fetch failed';
+  const hints: Record<string, string> = {
+    ENOTFOUND: 'DNS lookup failed — check the URL / VPN',
+    ECONNREFUSED: 'connection refused — wrong port, or the host needs a proxy',
+    ETIMEDOUT: 'timed out — likely blocked by a firewall or needs a proxy',
+    ECONNRESET: 'connection reset — often TLS interception or a proxy in the path',
+    UNABLE_TO_VERIFY_LEAF_SIGNATURE:
+      'TLS chain not trusted — set NODE_EXTRA_CA_CERTS to your corporate root CA file',
+    SELF_SIGNED_CERT_IN_CHAIN:
+      'corporate TLS interception — set NODE_EXTRA_CA_CERTS to your corporate root CA file',
+    DEPTH_ZERO_SELF_SIGNED_CERT:
+      'self-signed certificate — set NODE_EXTRA_CA_CERTS to your corporate root CA file',
+    CERT_HAS_EXPIRED: 'server certificate expired',
+  };
+  const hint = hints[detail];
+  return hint ? `${detail} (${hint})` : detail;
 }
