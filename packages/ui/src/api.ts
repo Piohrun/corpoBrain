@@ -139,6 +139,7 @@ export interface BoardPerson {
 
 export interface BoardModel {
   unit: string;
+  defaultCapacity: number | null;
   sprints: {
     id: number;
     name: string;
@@ -214,6 +215,11 @@ export const planApi = {
     team?: string | null;
     color?: string | null;
   }) => req<{ ok: boolean }>('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) }),
+  saveCapacityConfig: (body: { defaultCapacity?: number | null; unit?: string }) =>
+    req<{ ok: boolean }>('/api/plan/capacity-config', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
   jiraStatus: () => req<JiraStatus>('/api/jira/status'),
   jiraSync: (full = false) =>
     req<{ ok: boolean }>('/api/jira/sync', { method: 'POST', body: JSON.stringify({ full }) }),

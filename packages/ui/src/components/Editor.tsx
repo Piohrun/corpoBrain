@@ -1,6 +1,6 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, privateApi } from '../api.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
@@ -33,6 +33,12 @@ export function Editor({
   const host = useRef<HTMLDivElement>(null);
   /** revealed inline secrets: cipher → plaintext (memory only, self-expiring) */
   const revealed = useRef(new Map<string, string>());
+  const [passRequest, setPassRequest] = useState<{
+    resolve: (value: string | null) => void;
+  } | null>(null);
+
+  const promptPassphrase = () =>
+    new Promise<string | null>((resolve) => setPassRequest({ resolve }));
   const hideTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
   const refreshDecorations = () => viewRef.current?.dispatch({ effects: linksUpdated.of(null) });
@@ -60,7 +66,7 @@ export function Editor({
       );
       return false;
     }
-    const pass = window.prompt('Passphrase to unlock secrets:');
+    const pass = await promptPassphrase();
     if (!pass) return false;
     try {
       await privateApi.unlock(pass);
@@ -356,5 +362,48 @@ export function Editor({
     viewRef.current?.dispatch({ effects: linksUpdated.of(null) });
   }, [resolveMap]);
 
-  return <div className="editor-host" ref={host} />;
+  return (
+    <>
+      <div className="editor-host" ref={host} />
+      {passRequest && (
+        // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click cancels; Escape handled on the input
+        <div
+          className="palette-backdrop"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) {
+              passRequest.resolve(null);
+              setPassRequest(null);
+            }
+          }}
+        >
+          <form
+            className="unlock-box"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const input = (e.currentTarget.elements.namedItem('pass') as HTMLInputElement).value;
+              passRequest.resolve(input || null);
+              setPassRequest(null);
+            }}
+          >
+            <h2>🔒 Unlock secrets</h2>
+            <input
+              name="pass"
+              type="password"
+              placeholder="Passphrase"
+              ref={(el) => el?.focus()}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  passRequest.resolve(null);
+                  setPassRequest(null);
+                }
+              }}
+            />
+            <button type="submit" className="plan-btn">
+              Unlock
+            </button>
+          </form>
+        </div>
+      )}
+    </>
+  );
 }

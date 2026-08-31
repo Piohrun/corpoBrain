@@ -32,10 +32,16 @@ export function SettingsPage() {
   const [git, setGit] = useState<GitStatus | null>(null);
   const [hubs, setHubs] = useState<BoardPerson[]>([]);
 
+  const [planCfg, setPlanCfg] = useState<{ unit: string; defaultCapacity: number | null } | null>(
+    null,
+  );
   const refreshHubs = useCallback(() => {
     planApi
       .board()
-      .then((b) => setHubs(b.people.filter((p) => p.name === p.region || p.name === p.team)))
+      .then((b) => {
+        setHubs(b.people.filter((p) => p.name === p.region || p.name === p.team));
+        setPlanCfg({ unit: b.unit, defaultCapacity: b.defaultCapacity });
+      })
       .catch(() => {});
   }, []);
   useEffect(refreshHubs, [refreshHubs]);
@@ -163,6 +169,51 @@ export function SettingsPage() {
             </div>
           </div>
         </section>
+
+        {planCfg && (
+          <section>
+            <h2 className="plan-h2">Planning</h2>
+            <div className="settings-card">
+              <div className="settings-grid">
+                <label htmlFor="s-defcap">default capacity</label>
+                <input
+                  id="s-defcap"
+                  type="number"
+                  step="0.5"
+                  placeholder="— (none: assign per person)"
+                  defaultValue={planCfg.defaultCapacity ?? ''}
+                  onBlur={(e) => {
+                    const v = e.target.value === '' ? null : Number(e.target.value);
+                    if (v === planCfg.defaultCapacity) return;
+                    planApi
+                      .saveCapacityConfig({ defaultCapacity: v })
+                      .then(refreshHubs)
+                      .catch(() => {});
+                  }}
+                />
+                <label htmlFor="s-unit">capacity unit</label>
+                <select
+                  id="s-unit"
+                  value={planCfg.unit}
+                  onChange={(e) => {
+                    planApi
+                      .saveCapacityConfig({ unit: e.target.value })
+                      .then(refreshHubs)
+                      .catch(() => {});
+                  }}
+                >
+                  <option value="days">person-days</option>
+                  <option value="points">story points</option>
+                  <option value="hours">hours</option>
+                </select>
+              </div>
+              <p className="muted small">
+                People without an explicit capacity inherit the default on the planning board;
+                per-person values (Organize panel or the grid) always win.
+              </p>
+            </div>
+          </section>
+        )}
 
         {hubs.length > 0 && (
           <section>

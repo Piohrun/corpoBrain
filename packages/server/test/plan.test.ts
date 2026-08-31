@@ -315,3 +315,36 @@ describe('person overview', () => {
     expect((await app2.request('/api/person?path=notes/oneonone.md')).status).toBe(404);
   });
 });
+
+describe('default capacity', () => {
+  it('fills in for people without explicit capacity; explicit wins; persists', async () => {
+    mkdirSync(join(root, 'people'), { recursive: true });
+    writeFileSync(
+      join(root, 'people', 'nocap.md'),
+      '---\ntype: person\ntitle: NoCap\njira: nocap\n---\n',
+    );
+    vault.indexer.update();
+    // before: null
+    expect(buildBoard(vault).people.find((p) => p.name === 'NoCap')?.capacity).toBeNull();
+    const res = await app.request('/api/plan/capacity-config', {
+      method: 'PUT',
+      body: JSON.stringify({ defaultCapacity: 7.5 }),
+    });
+    expect(res.status).toBe(200);
+    const board = buildBoard(vault);
+    expect(board.defaultCapacity).toBe(7.5);
+    expect(board.people.find((p) => p.name === 'NoCap')?.capacity).toBe(7.5);
+    expect(board.people.find((p) => p.name === 'Anna')?.capacity).toBe(8); // explicit wins
+    // persisted to config.json
+    const onDisk = JSON.parse(readFileSync(join(root, '.corpobrain', 'config.json'), 'utf8'));
+    expect(onDisk.capacity.defaultCapacity).toBe(7.5);
+    expect(
+      (
+        await app.request('/api/plan/capacity-config', {
+          method: 'PUT',
+          body: JSON.stringify({ defaultCapacity: -1 }),
+        })
+      ).status,
+    ).toBe(400);
+  });
+});

@@ -31,6 +31,8 @@ export interface VaultConfig {
     pointsPerDay: number;
     hoursPerDay: number;
     sprintLengthDays: number;
+    /** pre-filled bandwidth for people without an explicit capacity */
+    defaultCapacity: number | null;
   };
   jira: {
     baseUrl: string;
@@ -68,7 +70,13 @@ export const DEFAULT_CONFIG: VaultConfig = {
   ignore: [],
   index: { assignIds: true },
   links: { newNoteFolder: 'notes' },
-  capacity: { unit: 'days', pointsPerDay: 1, hoursPerDay: 8, sprintLengthDays: 10 },
+  capacity: {
+    unit: 'days',
+    pointsPerDay: 1,
+    hoursPerDay: 8,
+    sprintLengthDays: 10,
+    defaultCapacity: null,
+  },
   jira: {
     baseUrl: '',
     proxyUrl: '',

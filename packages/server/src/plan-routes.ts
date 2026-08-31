@@ -75,6 +75,7 @@ export interface BoardModel {
   columns: string[]; // sprint names in order + 'Backlog'
   people: BoardPerson[];
   issues: BoardIssue[];
+  defaultCapacity: number | null;
   /** loads[personKey][column] = summed effective effort */
   loads: Record<string, Record<string, number>>;
 }
@@ -132,7 +133,7 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     path: p.path,
     name: p.name,
     jiraIds: safeArr(p.jira_id),
-    capacity: p.capacity,
+    capacity: p.capacity ?? cap.defaultCapacity,
     overrides: safeObj(p.overrides_json),
     active: p.active === 1,
     region: p.region,
@@ -244,7 +245,15 @@ export function buildBoard(v: VaultService, now = new Date()): BoardModel {
     loads[pk][col] = Math.round(((loads[pk][col] ?? 0) + (i.effectiveEffort ?? 0)) * 100) / 100;
   }
 
-  return { unit: cap.unit, sprints, columns, people, issues, loads };
+  return {
+    unit: cap.unit,
+    defaultCapacity: cap.defaultCapacity,
+    sprints,
+    columns,
+    people,
+    issues,
+    loads,
+  };
 }
 
 const WIKILINK_VALUE = /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/;
@@ -293,6 +302,21 @@ export function planRoutes(v: VaultService): Hono {
   const app = new Hono();
 
   app.get('/board', (c) => c.json(buildBoard(v)));
+
+  /** vault-wide planning settings */
+  app.put('/capacity-config', async (c) => {
+    const body = (await c.req.json()) as { defaultCapacity?: number | null; unit?: string };
+    const partial: Partial<typeof v.config.capacity> = {};
+    if (body.defaultCapacity !== undefined) {
+      if (body.defaultCapacity !== null && !(Number(body.defaultCapacity) > 0))
+        throw new HttpError(400, 'defaultCapacity must be a positive number or null');
+      partial.defaultCapacity = body.defaultCapacity === null ? null : Number(body.defaultCapacity);
+    }
+    if (body.unit && ['days', 'points', 'hours'].includes(body.unit))
+      partial.unit = body.unit as typeof v.config.capacity.unit;
+    if (Object.keys(partial).length) v.updateCapacityConfig(partial);
+    return c.json({ ok: true, capacity: v.config.capacity });
+  });
 
   /** PATCH plan fields of one issue. null clears a field; {} allowed. */
   app.put('/issue/:key', async (c) => {

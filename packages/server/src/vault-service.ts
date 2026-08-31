@@ -59,6 +59,21 @@ export class VaultService {
     Object.assign(this.config.jira, partial);
   }
 
+  /** Merge partial capacity settings into config.json and the live config. */
+  updateCapacityConfig(partial: Partial<VaultConfig['capacity']>): void {
+    const cfgPath = join(this.root, '.corpobrain', 'config.json');
+    let onDisk: Record<string, unknown> = {};
+    try {
+      onDisk = JSON.parse(readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
+    } catch {
+      onDisk = { version: 1 };
+    }
+    onDisk.capacity = { ...(onDisk.capacity as Record<string, unknown> | undefined), ...partial };
+    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
+    writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
+    Object.assign(this.config.capacity, partial);
+  }
+
   /** Store Jira credentials in the gitignored secrets file (0600). */
   saveJiraSecrets(update: { token?: string; email?: string }): void {
     const file = join(this.root, '.corpobrain', 'secrets.json');
