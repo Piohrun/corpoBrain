@@ -5,6 +5,8 @@ import { NoteTree } from './NoteTree.tsx';
 interface Props {
   tree: TreeModel | null;
   tags: TagCount[];
+  tagFilter: string | null;
+  onTagFilter: (tag: string | null) => void;
   currentPath: string | null;
   onOpen: (path: string) => void;
   onDaily: () => void;
@@ -16,6 +18,8 @@ interface Props {
 export function Sidebar({
   tree,
   tags,
+  tagFilter,
+  onTagFilter,
   currentPath,
   onOpen,
   onDaily,
@@ -25,6 +29,18 @@ export function Sidebar({
 }: Props) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const [tagged, setTagged] = useState<{ path: string; title: string }[]>([]);
+
+  useEffect(() => {
+    if (!tagFilter) {
+      setTagged([]);
+      return;
+    }
+    api
+      .tag(tagFilter)
+      .then(setTagged)
+      .catch(() => setTagged([]));
+  }, [tagFilter]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -67,7 +83,28 @@ export function Sidebar({
         />
       </div>
       <div className="sidebar-scroll">
-        {query.trim() ? (
+        {tagFilter && !query.trim() ? (
+          <>
+            <h3>
+              #{tagFilter} ({tagged.length}){' '}
+              <button type="button" className="tag-clear" onClick={() => onTagFilter(null)}>
+                ✕
+              </button>
+            </h3>
+            {tagged.map((n) => (
+              <button
+                type="button"
+                key={n.path}
+                className={`tree-item${n.path === currentPath ? ' active' : ''}`}
+                onClick={() => onOpen(n.path)}
+                title={n.path}
+              >
+                {n.title}
+              </button>
+            ))}
+            {tagged.length === 0 && <div className="tree-item muted">No notes with this tag</div>}
+          </>
+        ) : query.trim() ? (
           <>
             <h3>Results</h3>
             {hits.map((h) => (
@@ -102,9 +139,15 @@ export function Sidebar({
                 <h3>Tags</h3>
                 <div style={{ padding: '0 6px' }}>
                   {tags.map((t) => (
-                    <span key={t.tag} className="tag-row" title={`${t.count} notes`}>
+                    <button
+                      type="button"
+                      key={t.tag}
+                      className={`tag-row clickable${t.tag === tagFilter ? ' active' : ''}`}
+                      title={`${t.count} notes`}
+                      onClick={() => onTagFilter(t.tag === tagFilter ? null : t.tag)}
+                    >
                       #{t.tag}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </>

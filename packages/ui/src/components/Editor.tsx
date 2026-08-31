@@ -10,15 +10,24 @@ interface Props {
   content: string;
   completions: () => { title: string; path: string }[];
   onNavigate: (target: string) => void;
+  onTagClick: (tag: string) => void;
   onSaveState: (state: 'saved' | 'saving' | 'error') => void;
   onSaved: () => void;
 }
 
-export function Editor({ path, content, completions, onNavigate, onSaveState, onSaved }: Props) {
+export function Editor({
+  path,
+  content,
+  completions,
+  onNavigate,
+  onTagClick,
+  onSaveState,
+  onSaved,
+}: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const latest = useRef({ path, onNavigate, completions, onSaveState, onSaved });
-  latest.current = { path, onNavigate, completions, onSaveState, onSaved };
+  const latest = useRef({ path, onNavigate, onTagClick, completions, onSaveState, onSaved });
+  latest.current = { path, onNavigate, onTagClick, completions, onSaveState, onSaved };
 
   const [save, flushSave] = useDebouncedCallback((p: string, text: string) => {
     latest.current.onSaveState('saving');
@@ -40,6 +49,7 @@ export function Editor({ path, content, completions, onNavigate, onSaveState, on
       extensions: [
         editorExtensions({
           onNavigate: (t) => latest.current.onNavigate(t),
+          onTagClick: (t) => latest.current.onTagClick(t),
           completions: () => latest.current.completions(),
         }),
         EditorView.updateListener.of((u) => {

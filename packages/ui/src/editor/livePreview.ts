@@ -16,6 +16,7 @@ import {
 
 export interface LivePreviewConfig {
   onNavigate: (target: string) => void;
+  onTagClick?: (tag: string) => void;
 }
 
 export const livePreviewConfig = Facet.define<LivePreviewConfig, LivePreviewConfig>({
@@ -249,7 +250,9 @@ function collectInline(
     out.push({
       from: start,
       to: start + 1 + (m[2] as string).length,
-      deco: Decoration.mark({ class: 'cm-cb-tag' }),
+      deco: Decoration.mark({
+        attributes: { class: 'cm-cb-tag', 'data-tag': (m[2] as string).toLowerCase() },
+      }),
     });
   }
 }
@@ -270,8 +273,16 @@ const plugin = ViewPlugin.fromClass(
 );
 
 const clickHandler = (view: EditorView, event: MouseEvent): boolean => {
-  const el = (event.target as HTMLElement).closest('.cm-cb-wikilink');
+  const el = (event.target as HTMLElement).closest('.cm-cb-wikilink, .cm-cb-tag');
   if (!el) return false;
+  if (el.classList.contains('cm-cb-tag')) {
+    const tag = el.getAttribute('data-tag');
+    const onTagClick = view.state.facet(livePreviewConfig).onTagClick;
+    if (!tag || !onTagClick) return false;
+    event.preventDefault();
+    onTagClick(tag);
+    return true;
+  }
   const target = el.getAttribute('data-target');
   if (!target || target === 'SELF') return false;
   event.preventDefault();

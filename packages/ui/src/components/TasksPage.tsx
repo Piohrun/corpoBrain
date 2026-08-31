@@ -3,7 +3,13 @@ import { api, type TaskItem } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { WikiText } from './WikiText.tsx';
 
-export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+export function TasksPage({
+  onOpenNote,
+  onTag,
+}: {
+  onOpenNote: (path: string) => void;
+  onTag: (tag: string) => void;
+}) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
 
@@ -78,8 +84,23 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
                   text={t.text}
                   className={t.done ? 'muted done-task' : ''}
                   onOpen={onOpenNote}
+                  onTag={onTag}
                 />
-                {t.due && <span className="due-chip">{t.due}</span>}
+                {t.due && (
+                  <button
+                    type="button"
+                    className="due-chip clickable"
+                    title={`Open daily note ${t.due}`}
+                    onClick={() => {
+                      api
+                        .daily(t.due as string)
+                        .then((r) => onOpenNote(r.path))
+                        .catch(() => {});
+                    }}
+                  >
+                    {t.due}
+                  </button>
+                )}
                 <button type="button" className="key-link small" onClick={() => onOpenNote(t.path)}>
                   {t.title}
                 </button>

@@ -904,3 +904,41 @@ button {
 .done-task .wiki-inline {
   color: inherit;
 }
+
+.tag-row.clickable {
+  cursor: pointer;
+  border: none;
+  font: inherit;
+  font-size: 12px;
+}
+.tag-row.clickable:hover {
+  filter: brightness(1.12);
+  text-decoration: underline;
+}
+.tag-row.active {
+  outline: 1.5px solid var(--tag-fg);
+}
+.tag-clear {
+  color: var(--fg-muted);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.tag-clear:hover {
+  color: var(--danger);
+}
+.due-chip.clickable {
+  cursor: pointer;
+  border: none;
+  font: inherit;
+  font-size: 11px;
+}
+.due-chip.clickable:hover {
+  text-decoration: underline;
+}
+.cm-cb-tag {
+  cursor: pointer;
+}
+.cm-cb-tag:hover {
+  filter: brightness(1.12);
+  text-decoration: underline;
+}

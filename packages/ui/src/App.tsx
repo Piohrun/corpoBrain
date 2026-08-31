@@ -24,6 +24,7 @@ export function App() {
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<'notes' | 'planning' | 'tasks' | 'objects' | 'private'>('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
@@ -161,6 +162,11 @@ export function App() {
     [notes],
   );
 
+  const openTag = useCallback((tag: string | null) => {
+    setTagFilter(tag);
+    if (tag) setView('notes');
+  }, []);
+
   const openFromPlanning = useCallback(
     (path: string) => {
       setView('notes');
@@ -216,7 +222,7 @@ export function App() {
       {view === 'planning' ? (
         <PlanningPage onOpenNote={openFromPlanning} />
       ) : view === 'tasks' ? (
-        <TasksPage onOpenNote={openFromPlanning} />
+        <TasksPage onOpenNote={openFromPlanning} onTag={openTag} />
       ) : view === 'objects' ? (
         <ObjectsPage onOpenNote={openFromPlanning} />
       ) : view === 'private' ? (
@@ -226,6 +232,8 @@ export function App() {
           <Sidebar
             tree={tree}
             tags={tags}
+            tagFilter={tagFilter}
+            onTagFilter={openTag}
             currentPath={note?.path ?? null}
             onOpen={openPath}
             onDaily={openDaily}
@@ -261,6 +269,7 @@ export function App() {
                   content={note.content}
                   completions={completions}
                   onNavigate={navigate}
+                  onTagClick={openTag}
                   onSaveState={setSaveState}
                   onSaved={onSaved}
                 />
