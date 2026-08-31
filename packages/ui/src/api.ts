@@ -330,6 +330,7 @@ export interface JiraProfileCfg {
 export interface JiraConfig {
   baseUrl: string;
   proxyUrl: string;
+  writeback: 'off' | 'dry-run' | 'on';
   deployment: 'auto' | 'datacenter' | 'cloud';
   auth: 'bearer' | 'basic';
   projectKeys: string[];
@@ -401,4 +402,65 @@ export interface GitStatus {
 export const gitApi = {
   status: () => req<GitStatus>('/api/git/status'),
   commit: () => req<{ ok: boolean; hash: string | null }>('/api/git/commit', { method: 'POST' }),
+};
+
+// --------------------------------------------------------------- writeback
+
+export interface StagedChange {
+  key: string;
+  path: string;
+  field: 'sprint' | 'assignee';
+  from: string | null;
+  to: string;
+  writable: boolean;
+  reason?: string;
+}
+
+export interface PreviewRow extends StagedChange {
+  liveUpdated: string | null;
+  mirrorUpdated: string | null;
+  liveAssignee: string | null;
+  conflict: boolean;
+  conflictReason?: string;
+}
+
+export interface WriteApplyItem {
+  key: string;
+  field: 'sprint' | 'assignee';
+  to: string;
+  force?: boolean;
+}
+
+export interface WriteApplyReport {
+  batchId: string;
+  dryRun: boolean;
+  stopped: boolean;
+  results: {
+    key: string;
+    field: string;
+    to: string;
+    status: 'applied' | 'dry-run' | 'conflict' | 'error' | 'not-run';
+    detail?: string;
+  }[];
+}
+
+export const writebackApi = {
+  staged: () => req<StagedChange[]>('/api/jira/writeback/staged'),
+  preview: (keys?: string[]) =>
+    req<PreviewRow[]>('/api/jira/writeback/preview', {
+      method: 'POST',
+      body: JSON.stringify(keys ? { keys } : {}),
+    }),
+  apply: (items: WriteApplyItem[]) =>
+    req<WriteApplyReport>('/api/jira/writeback/apply', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
+  journal: (limit = 30) =>
+    req<Record<string, unknown>[]>(`/api/jira/writeback/journal?limit=${limit}`),
+  undo: (batchId: string) =>
+    req<{ items: WriteApplyItem[] }>('/api/jira/writeback/undo', {
+      method: 'POST',
+      body: JSON.stringify({ batchId }),
+    }),
 };

@@ -9,6 +9,7 @@ import {
 import { statusColor } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
 import { lastSyncSummary, SyncProgressBar } from './SyncProgressBar.tsx';
+import { WritebackSection } from './WritebackSection.tsx';
 
 export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const [config, setConfig] = useState<JiraConfig | null>(null);
@@ -91,6 +92,7 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
         )}
         {config && <SettingsCard config={config} onSaved={refresh} />}
         <SprintsSection sprints={sprints} onOpenNote={onOpenNote} onChanged={refresh} />
+        {config && <WritebackSection config={config} onChanged={refresh} />}
         <IssuesSection issues={issues} onOpenNote={onOpenNote} />
       </div>
     </div>
@@ -122,6 +124,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
         projectKeys: draft.projectKeys,
         estimateField: draft.estimateField,
         estimateUnit: draft.estimateUnit,
+        writeback: draft.writeback,
         profiles: draft.profiles,
         ...(token ? { token } : {}),
         ...(email ? { email } : {}),
@@ -243,6 +246,18 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               <option value="days">days</option>
               <option value="hours">hours</option>
               <option value="seconds">seconds (time estimate)</option>
+            </select>
+            <label htmlFor="j-writeback">write-back</label>
+            <select
+              id="j-writeback"
+              value={draft.writeback}
+              onChange={(e) =>
+                setDraft({ ...draft, writeback: e.target.value as JiraConfig['writeback'] })
+              }
+            >
+              <option value="off">off — never write to Jira (default)</option>
+              <option value="dry-run">dry-run — simulate and journal only</option>
+              <option value="on">ON — apply reviewed batches to Jira</option>
             </select>
           </div>
 

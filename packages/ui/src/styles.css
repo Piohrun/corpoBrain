@@ -1425,3 +1425,26 @@ th.backlog-col {
 .backlog-count {
   padding: 2px 0;
 }
+
+.wb-mode {
+  font-size: 11px;
+  border-radius: 8px;
+  padding: 2px 8px;
+  vertical-align: 1px;
+}
+.wb-off {
+  background: var(--bg-active);
+  color: var(--fg-muted);
+}
+.wb-dry-run {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.wb-on {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+  font-weight: 700;
+}
+tr.wb-conflict td {
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}

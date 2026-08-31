@@ -910,7 +910,7 @@ function ChangesPanel({
     <section>
       <h2 className="plan-h2">
         Uncommitted changes ({changes.length}){' '}
-        <span className="muted small">local only — Jira is untouched</span>
+        <span className="muted small">local only — push to Jira from the ⚙ page (write-back)</span>
         <button
           type="button"
           className="risk-chip clear"
