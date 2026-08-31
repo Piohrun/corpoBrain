@@ -15,12 +15,16 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
   const [sprints, setSprints] = useState<SprintRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     jiraApi
       .config()
-      .then(setConfig)
-      .catch(() => {});
+      .then((c) => {
+        setConfig(c);
+        setConfigError(null);
+      })
+      .catch((e: Error) => setConfigError(e.message));
     jiraApi
       .issues()
       .then(setIssues)
@@ -60,6 +64,15 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
         </button>
       </div>
       <div className="planning-scroll">
+        {configError && (
+          <section>
+            <h2 className="plan-h2">Connection settings</h2>
+            <div className="plan-error">
+              Could not load Jira settings: {configError} — is the server build current? (git pull +
+              npm run build:work, then restart)
+            </div>
+          </section>
+        )}
         {config && <SettingsCard config={config} onSaved={refresh} />}
         <SprintsSection sprints={sprints} onOpenNote={onOpenNote} onChanged={refresh} />
         <IssuesSection issues={issues} onOpenNote={onOpenNote} />
