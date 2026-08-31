@@ -1,7 +1,7 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
-import { api } from '../api.ts';
+import { api, privateApi } from '../api.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
 import { useDebouncedCallback } from '../hooks.ts';
@@ -30,6 +30,94 @@ export function Editor({
   onSaved,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  /** revealed inline secrets: cipher → plaintext (memory only, self-expiring) */
+  const revealed = useRef(new Map<string, string>());
+  const hideTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const refreshDecorations = () => viewRef.current?.dispatch({ effects: linksUpdated.of(null) });
+
+  const hideSecret = (cipher?: string) => {
+    if (cipher) {
+      revealed.current.delete(cipher);
+      const t = hideTimers.current.get(cipher);
+      if (t) clearTimeout(t);
+      hideTimers.current.delete(cipher);
+    } else {
+      revealed.current.clear();
+      for (const t of hideTimers.current.values()) clearTimeout(t);
+      hideTimers.current.clear();
+    }
+    refreshDecorations();
+  };
+
+  const ensureUnlocked = async (): Promise<boolean> => {
+    const st = await privateApi.status();
+    if (st.unlocked) return true;
+    if (!st.initialized) {
+      window.alert(
+        'Set up protected notes first (\u{1F512} page) — inline secrets share that passphrase.',
+      );
+      return false;
+    }
+    const pass = window.prompt('Passphrase to unlock secrets:');
+    if (!pass) return false;
+    try {
+      await privateApi.unlock(pass);
+      return true;
+    } catch {
+      window.alert('Wrong passphrase.');
+      return false;
+    }
+  };
+
+  const onSecretClick = async (cipher: string) => {
+    if (revealed.current.has(cipher)) {
+      hideSecret(cipher);
+      return;
+    }
+    if (!(await ensureUnlocked())) return;
+    try {
+      const { text } = await privateApi.decrypt(cipher);
+      revealed.current.set(cipher, text);
+      hideTimers.current.set(
+        cipher,
+        setTimeout(() => hideSecret(cipher), 30_000),
+      );
+      refreshDecorations();
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'decrypt failed');
+    }
+  };
+
+  const onEncryptSelection = async () => {
+    const view = viewRef.current;
+    if (!view) return;
+    const sel = view.state.selection.main;
+    if (sel.empty) {
+      window.alert('Select the text to encrypt first (then Ctrl+Shift+E).');
+      return;
+    }
+    const text = view.state.doc.sliceString(sel.from, sel.to);
+    if (!(await ensureUnlocked())) return;
+    try {
+      const { data } = await privateApi.encrypt(text);
+      view.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: `\n\`\`\`secret\n${data}\n\`\`\`\n` },
+      });
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'encrypt failed');
+    }
+  };
+
+  // hide all revealed secrets when the tab loses visibility
+  // biome-ignore lint/correctness/useExhaustiveDependencies: hideSecret reads refs only; attach once
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) hideSecret();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
   const viewRef = useRef<EditorView | null>(null);
   const latest = useRef({
     path,
@@ -63,6 +151,9 @@ export function Editor({
         editorExtensions({
           onNavigate: (t) => latest.current.onNavigate(t),
           isResolved: (t) => latest.current.resolveMap.get(t.toLowerCase()),
+          getSecret: (cipher) => revealed.current.get(cipher) ?? null,
+          onSecretClick: (cipher) => void onSecretClick(cipher),
+          onEncryptSelection: () => void onEncryptSelection(),
           completions: () => latest.current.completions(),
         }),
         EditorView.updateListener.of((u) => {
@@ -77,6 +168,9 @@ export function Editor({
       // hand the final text back before unmount so a remount shows what was
       // typed (the flush below persists it, but app state must match too)
       latest.current.onSnapshot(path, view.state.doc.toString());
+      revealed.current.clear();
+      for (const t of hideTimers.current.values()) clearTimeout(t);
+      hideTimers.current.clear();
       flushSave();
       view.destroy();
       viewRef.current = null;

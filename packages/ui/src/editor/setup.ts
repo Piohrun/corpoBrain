@@ -18,6 +18,9 @@ import { livePreview } from './livePreview.ts';
 export interface EditorConfig {
   onNavigate: (target: string) => void;
   isResolved: (target: string) => boolean | undefined;
+  getSecret: (cipher: string) => string | null;
+  onSecretClick: (cipher: string) => void;
+  onEncryptSelection: () => void;
   /** note titles/paths for [[ autocompletion */
   completions: () => { title: string; path: string }[];
 }
@@ -61,8 +64,20 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     highlightSelectionMatches(),
     closeBrackets(),
     autocompletion({ override: [wikilinkCompletions(cfg)], icons: false }),
-    livePreview({ onNavigate: cfg.onNavigate, isResolved: cfg.isResolved }),
+    livePreview({
+      onNavigate: cfg.onNavigate,
+      isResolved: cfg.isResolved,
+      getSecret: cfg.getSecret,
+      onSecretClick: cfg.onSecretClick,
+    }),
     keymap.of([
+      {
+        key: 'Mod-Shift-e',
+        run: () => {
+          cfg.onEncryptSelection();
+          return true;
+        },
+      },
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...historyKeymap,

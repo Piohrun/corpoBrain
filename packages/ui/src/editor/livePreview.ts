@@ -16,6 +16,9 @@ import {
 
 export interface LivePreviewConfig {
   onNavigate: (target: string) => void;
+  /** revealed plaintext for an inline secret, or null while hidden */
+  getSecret?: (cipher: string) => string | null;
+  onSecretClick?: (cipher: string) => void;
   /** true = note exists; false/undefined = placeholder (Obsidian-style dimming) */
   isResolved?: (target: string) => boolean | undefined;
 }
@@ -59,6 +62,46 @@ class CheckboxWidget extends WidgetType {
   }
 }
 
+class SecretWidget extends WidgetType {
+  constructor(
+    readonly cipher: string,
+    readonly revealed: string | null,
+  ) {
+    super();
+  }
+  override eq(other: SecretWidget) {
+    return other.cipher === this.cipher && other.revealed === this.revealed;
+  }
+  toDOM(view: EditorView) {
+    const wrap = document.createElement('span');
+    wrap.className = `cm-secret${this.revealed !== null ? ' revealed' : ''}`;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cm-secret-btn';
+    btn.textContent =
+      this.revealed === null ? '\u{1F512} encrypted \u2014 click to reveal' : '\u{1F513}';
+    btn.onmousedown = (e) => {
+      e.preventDefault();
+      view.state.facet(livePreviewConfig).onSecretClick?.(this.cipher);
+    };
+    wrap.appendChild(btn);
+    if (this.revealed !== null) {
+      const value = document.createElement('span');
+      value.className = 'cm-secret-value';
+      value.textContent = this.revealed;
+      wrap.appendChild(value);
+      const note = document.createElement('span');
+      note.className = 'cm-secret-note';
+      note.textContent = 'auto-hides';
+      wrap.appendChild(note);
+    }
+    return wrap;
+  }
+  override ignoreEvent() {
+    return true;
+  }
+}
+
 interface LineCtx {
   cursorTouches: boolean;
   inCodeBlock: boolean;
@@ -86,6 +129,14 @@ function buildDecorations(view: EditorView): DecorationSet {
   // Collect syntax info for the viewport.
   const headings = new Map<number, { level: number; markEnd: number }>();
   const codeLines = new Set<number>();
+  /** fenced secret blocks: from/to of the whole node + inner ciphertext */
+  const secretBlocks: {
+    from: number;
+    to: number;
+    firstLine: number;
+    lastLine: number;
+    cipher: string;
+  }[] = [];
   const quoteLines = new Set<number>();
   const emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[] = [];
 
@@ -106,6 +157,21 @@ function buildDecorations(view: EditorView): DecorationSet {
         } else if (name === 'FencedCode' || name === 'CodeBlock') {
           const first = doc.lineAt(node.from).number;
           const last = doc.lineAt(node.to).number;
+          if (doc.line(first).text.trimEnd() === '```secret') {
+            const inner: string[] = [];
+            for (let l = first + 1; l <= last; l++) {
+              const t = doc.line(l).text;
+              if (t.startsWith('```')) break;
+              inner.push(t.trim());
+            }
+            secretBlocks.push({
+              from: node.from,
+              to: node.to,
+              firstLine: first,
+              lastLine: last,
+              cipher: inner.join(''),
+            });
+          }
           for (let l = first; l <= last; l++) codeLines.add(l);
         } else if (name === 'Blockquote') {
           const first = doc.lineAt(node.from).number;
@@ -134,6 +200,20 @@ function buildDecorations(view: EditorView): DecorationSet {
     let pos = from;
     while (pos <= to) {
       const line = doc.lineAt(pos);
+      const secret = secretBlocks.find((b) => b.firstLine === line.number);
+      if (secret && (cursor < secret.from || cursor > secret.to)) {
+        builder.add(
+          secret.from,
+          secret.to,
+          Decoration.replace({
+            widget: new SecretWidget(secret.cipher, config.getSecret?.(secret.cipher) ?? null),
+          }),
+        );
+        const endLine = doc.line(secret.lastLine);
+        if (endLine.to + 1 > to) break;
+        pos = endLine.to + 1;
+        continue;
+      }
       const ctx: LineCtx = {
         cursorTouches: cursor >= line.from && cursor <= line.to,
         inCodeBlock: codeLines.has(line.number),

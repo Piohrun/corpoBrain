@@ -269,6 +269,16 @@ export const privateApi = {
     req<{ ok: boolean }>(`/api/private/note?file=${encodeURIComponent(file)}`, {
       method: 'DELETE',
     }),
+  encrypt: (text: string) =>
+    req<{ data: string }>('/api/private/encrypt', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+  decrypt: (data: string) =>
+    req<{ text: string }>('/api/private/decrypt', {
+      method: 'POST',
+      body: JSON.stringify({ data }),
+    }),
   search: (q: string) =>
     req<{ file: string; title: string; snippet: string }[]>(
       `/api/private/search?q=${encodeURIComponent(q)}`,
