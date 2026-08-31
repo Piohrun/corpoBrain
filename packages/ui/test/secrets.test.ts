@@ -164,3 +164,24 @@ describe('tokenCipher (surrogate-pair regression)', () => {
     expect(tokenCipher('`not a token`')).toBeNull();
   });
 });
+
+describe('encrypted-column pending detection', () => {
+  const LINES = [
+    '| Name | Pay |',
+    '| --- | --- |',
+    '| Anna | `🔒Q0JWMWFiY2RlZmdo` |',
+    '| NewGuy | 999 |',
+    '| Empty |  |',
+  ];
+
+  it('tokenColumns finds columns with tokens; pendingCells flags new plaintext', async () => {
+    const { tokenColumns, pendingCells } = await import('../src/editor/tables.ts');
+    expect(tokenColumns(LINES)).toEqual([1]);
+    expect(pendingCells(LINES)).toEqual([{ rowIndex: 1, colIndex: 1 }]); // 999 only; empty skipped
+  });
+
+  it('a table with no tokens has nothing pending', async () => {
+    const { pendingCells } = await import('../src/editor/tables.ts');
+    expect(pendingCells(['| a | b |', '| --- | --- |', '| 1 | 2 |'])).toEqual([]);
+  });
+});

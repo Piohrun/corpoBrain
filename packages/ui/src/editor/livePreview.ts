@@ -29,6 +29,8 @@ export interface LivePreviewConfig {
   onSecretClick?: (cipher: string) => void;
   /** batch reveal (table columns) */
   onRevealMany?: (ciphers: string[]) => void;
+  /** encrypt new plaintext cells in an encrypted column (tableFrom, colIndex) */
+  onEncryptPending?: (tableFrom: number, colIndex: number) => void;
   /** true = note exists; false/undefined = placeholder (Obsidian-style dimming) */
   isResolved?: (target: string) => boolean | undefined;
 }

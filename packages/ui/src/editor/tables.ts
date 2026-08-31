@@ -140,6 +140,34 @@ function ciphersInColumn(rows: string[][], col: number): string[] {
   return out;
 }
 
+/** column indexes that contain at least one encrypted cell */
+export function tokenColumns(lines: string[]): number[] {
+  const body = lines.slice(2).map(splitCells);
+  const width = splitCells(lines[0] ?? '').length;
+  const out: number[] = [];
+  for (let c = 0; c < width; c++) {
+    if (ciphersInColumn(body, c).length > 0) out.push(c);
+  }
+  return out;
+}
+
+/** non-empty plaintext cells sitting in token columns (rowIndex is body-relative) */
+export function pendingCells(lines: string[]): { rowIndex: number; colIndex: number }[] {
+  const cols = tokenColumns(lines);
+  if (!cols.length) return [];
+  const body = lines.slice(2).map(splitCells);
+  const out: { rowIndex: number; colIndex: number }[] = [];
+  body.forEach((cells, r) => {
+    for (const c of cols) {
+      const cell = cells[c];
+      if (cell !== undefined && cell.trim() !== '' && !isWholeToken(cell)) {
+        out.push({ rowIndex: r, colIndex: c });
+      }
+    }
+  });
+  return out;
+}
+
 export type EncryptTarget = { kind: 'column'; index: number } | { kind: 'row'; rowIndex: number };
 
 function escapeCell(cell: string): string {
@@ -190,11 +218,16 @@ class TableWidget extends WidgetType {
     readonly text: string,
     /** signature of revealed state so eq() re-renders on reveal/hide */
     readonly revealSig: string,
+    readonly tableFrom: number,
   ) {
     super();
   }
   override eq(other: TableWidget) {
-    return other.text === this.text && other.revealSig === this.revealSig;
+    return (
+      other.text === this.text &&
+      other.revealSig === this.revealSig &&
+      other.tableFrom === this.tableFrom
+    );
   }
   toDOM(view: EditorView) {
     const config = view.state.facet(livePreviewConfig);
@@ -214,6 +247,24 @@ class TableWidget extends WidgetType {
       th.style.textAlign = aligns[i] ?? 'left';
       renderCell(cell, th, view);
       const ciphers = ciphersInColumn(bodyRows, i);
+      const pendingInCol = bodyRows.filter((row) => {
+        const cell = row[i];
+        return (
+          ciphers.length > 0 && cell !== undefined && cell.trim() !== '' && !isWholeToken(cell)
+        );
+      }).length;
+      if (ciphers.length && pendingInCol > 0 && config.onEncryptPending) {
+        const warn = document.createElement('button');
+        warn.type = 'button';
+        warn.className = 'cm-table-reveal cm-table-pending';
+        warn.textContent = `⚠️${pendingInCol}`;
+        warn.title = `${pendingInCol} new unencrypted cell(s) in this encrypted column — click to encrypt`;
+        warn.onmousedown = (e) => {
+          e.preventDefault();
+          config.onEncryptPending?.(this.tableFrom, i);
+        };
+        th.appendChild(warn);
+      }
       if (ciphers.length && config.onRevealMany) {
         const allRevealed = ciphers.every((c) => (config.getSecret?.(c) ?? null) !== null);
         const btn = document.createElement('button');
@@ -234,12 +285,18 @@ class TableWidget extends WidgetType {
     thead.appendChild(headRow);
     table.appendChild(thead);
     const tbody = document.createElement('tbody');
+    const secretCols = new Set(tokenColumns(lines));
     for (const row of bodyRows) {
       const tr = document.createElement('tr');
       header.forEach((_h, i) => {
         const td = document.createElement('td');
         td.style.textAlign = aligns[i] ?? 'left';
-        renderCell(row[i] ?? '', td, view);
+        const cell = row[i] ?? '';
+        if (secretCols.has(i) && cell.trim() !== '' && !isWholeToken(cell)) {
+          td.className = 'cm-cell-pending';
+          td.title = 'Unencrypted value in an encrypted column';
+        }
+        renderCell(cell, td, view);
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -271,7 +328,7 @@ function buildTableDecorations(state: EditorState): DecorationSet {
     builder.add(
       block.from,
       block.to,
-      Decoration.replace({ widget: new TableWidget(text, sig), block: true }),
+      Decoration.replace({ widget: new TableWidget(text, sig, block.from), block: true }),
     );
   }
   return builder.finish();

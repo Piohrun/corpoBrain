@@ -1566,3 +1566,11 @@ tr.wb-conflict td {
   border-color: var(--accent);
   font-family: var(--mono);
 }
+
+.cm-cell-pending {
+  background: color-mix(in srgb, var(--link-unresolved) 12%, transparent) !important;
+  border-bottom: 2px dashed var(--link-unresolved) !important;
+}
+.cm-table-pending {
+  color: var(--link-unresolved);
+}

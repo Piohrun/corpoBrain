@@ -21,6 +21,7 @@ export interface EditorConfig {
   getSecret: (cipher: string) => string | null;
   onSecretClick: (cipher: string) => void;
   onRevealMany: (ciphers: string[]) => void;
+  onEncryptPending: (tableFrom: number, colIndex: number) => void;
   onEncryptSelection: () => void;
   /** note titles/paths for [[ autocompletion */
   completions: () => { title: string; path: string }[];
@@ -71,6 +72,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
       getSecret: cfg.getSecret,
       onSecretClick: cfg.onSecretClick,
       onRevealMany: cfg.onRevealMany,
+      onEncryptPending: cfg.onEncryptPending,
     }),
     keymap.of([
       {

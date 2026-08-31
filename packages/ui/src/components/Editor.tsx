@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { api, privateApi } from '../api.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
-import { encryptTableCells, findTables, splitCells } from '../editor/tables.ts';
+import { encryptTableCells, findTables, pendingCells, splitCells } from '../editor/tables.ts';
 import { useDebouncedCallback } from '../hooks.ts';
 
 interface Props {
@@ -124,6 +124,69 @@ export function Editor({
     refreshDecorations();
   };
 
+  /** encrypt the plaintext cells of one encrypted column (header ⚠ button) */
+  const onEncryptPending = async (tableFrom: number, colIndex: number) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const table = findTables(view.state).find((t) => t.from === tableFrom);
+    if (!table) return;
+    if (!(await ensureUnlocked())) return;
+    try {
+      const { lines, encrypted } = await encryptTableCells(
+        table.lines,
+        { kind: 'column', index: colIndex },
+        async (t) => (await privateApi.encrypt(t)).data,
+      );
+      if (encrypted > 0) {
+        view.dispatch({ changes: { from: table.from, to: table.to, insert: lines.join('\n') } });
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'encrypt failed');
+    }
+  };
+
+  /**
+   * Auto-heal: when the doc settles and the cursor is outside a table that
+   * has plaintext cells in encrypted columns, encrypt them — but only if
+   * the session is already unlocked (never prompt spontaneously; locked
+   * sessions leave the cells visibly flagged instead).
+   */
+  const autoEncryptPending = async () => {
+    const view = viewRef.current;
+    if (!view) return;
+    const head = view.state.selection.main.head;
+    const targets = findTables(view.state).filter(
+      (t) => (head < t.from || head > t.to) && pendingCells(t.lines).length > 0,
+    );
+    if (!targets.length) return;
+    try {
+      const st = await privateApi.status();
+      if (!st.unlocked) return; // flagged in the UI; user encrypts explicitly
+    } catch {
+      return;
+    }
+    for (const table of targets) {
+      const current = findTables(view.state).find((t) => t.from === table.from);
+      if (!current) continue;
+      const cols = [...new Set(pendingCells(current.lines).map((c) => c.colIndex))];
+      let lines = current.lines;
+      let total = 0;
+      for (const col of cols) {
+        const res = await encryptTableCells(lines, { kind: 'column', index: col }, async (t) => {
+          const { data } = await privateApi.encrypt(t);
+          return data;
+        });
+        lines = res.lines;
+        total += res.encrypted;
+      }
+      if (total > 0 && viewRef.current) {
+        viewRef.current.dispatch({
+          changes: { from: current.from, to: current.to, insert: lines.join('\n') },
+        });
+      }
+    }
+  };
+
   const onEncryptSelection = async () => {
     const view = viewRef.current;
     if (!view) return;
@@ -228,6 +291,10 @@ export function Editor({
       .catch(() => latest.current.onSaveState('error'));
   }, 700);
 
+  const [scheduleAutoEncrypt] = useDebouncedCallback(() => {
+    void autoEncryptPending();
+  }, 1200);
+
   // (Re)create the editor whenever the note path changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: recreate only on path change; content is the initial doc, callbacks go through latest ref
   useEffect(() => {
@@ -241,11 +308,15 @@ export function Editor({
           getSecret: (cipher) => revealed.current.get(cipher) ?? null,
           onSecretClick: (cipher) => void onSecretClick(cipher),
           onRevealMany: (ciphers) => void revealMany(ciphers),
+          onEncryptPending: (tableFrom, colIndex) => void onEncryptPending(tableFrom, colIndex),
           onEncryptSelection: () => void onEncryptSelection(),
           completions: () => latest.current.completions(),
         }),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) save(path, u.state.doc.toString());
+          if (u.docChanged) {
+            save(path, u.state.doc.toString());
+            scheduleAutoEncrypt();
+          }
         }),
       ],
     });
