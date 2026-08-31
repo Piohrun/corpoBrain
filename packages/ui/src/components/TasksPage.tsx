@@ -13,6 +13,29 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
       .then(setTasks)
       .catch(() => {});
   }, []);
+
+  const [newText, setNewText] = useState('');
+  const [newDue, setNewDue] = useState('');
+
+  const addTask = useCallback(() => {
+    const text = newText.trim();
+    if (!text) return;
+    const line = `- [ ] ${text}${newDue ? ` 📅 ${newDue}` : ''}`;
+    api
+      .daily()
+      .then((d) => api.note(d.path))
+      .then((note) => {
+        const sep = note.content.endsWith('\n') ? '' : '\n';
+        return api.save(note.path, `${note.content}${sep}${line}\n`);
+      })
+      .then(() => {
+        setNewText('');
+        setNewDue('');
+        refresh();
+      })
+      .catch(() => {});
+  }, [newText, newDue, refresh]);
+
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
 
@@ -57,6 +80,25 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
       <div className="planning-header">
         <span className="title">Tasks</span>
         <span className="muted">{tasks.filter((t) => !t.done).length} open</span>
+        <input
+          className="plan-filter"
+          placeholder="Quick task → today's daily note…"
+          value={newText}
+          onChange={(e) => setNewText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') addTask();
+          }}
+        />
+        <input
+          type="date"
+          className="cell-input"
+          title="Due date (optional)"
+          value={newDue}
+          onChange={(e) => setNewDue(e.target.value)}
+        />
+        <button type="button" className="plan-btn" onClick={addTask} disabled={!newText.trim()}>
+          + Add
+        </button>
         <span className="spacer" />
         <label className="muted small">
           <input
