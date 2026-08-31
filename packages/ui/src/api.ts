@@ -142,8 +142,30 @@ export interface BoardModel {
   loads: Record<string, Record<string, number>>;
 }
 
+export interface SyncProgress {
+  profile: string;
+  phase: 'search' | 'sprints' | 'membership' | 'issues' | 'people' | 'done';
+  current: number;
+  total: number;
+  detail?: string;
+  startedAt: string;
+}
+
+export interface SyncReportSummary {
+  profile: string;
+  fetched: number;
+  created: string[];
+  updated: string[];
+  unchanged: number;
+  skipped: { key: string; reason: string }[];
+  peopleCreated: string[];
+}
+
 export interface JiraStatus {
   syncing: boolean;
+  progress: SyncProgress | null;
+  lastReports: SyncReportSummary[] | null;
+  lastSyncError: string | null;
   configured: boolean;
   baseUrl: string;
   profiles: string[];

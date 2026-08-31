@@ -145,3 +145,24 @@ describe('jqlDate', () => {
     expect(jqlDate(new Date('2026-01-05T09:07:00Z'))).toBe('2026/01/05 09:07');
   });
 });
+
+describe('sync progress', () => {
+  it('emits phases with counts through a full run', async () => {
+    adapter.issues = [
+      issue('EXEC-1', 'a'),
+      issue('EXEC-2', 'b'),
+      issue('EXEC-3', 'c'),
+      issue('EXEC-4', 'd'),
+      issue('EXEC-5', 'e'),
+    ];
+    const events: string[] = [];
+    sync.onProgress = (p) => events.push(`${p.phase}:${p.current}/${p.total}`);
+    await sync.run();
+    expect(events[0]).toBe('search:0/0');
+    expect(events).toContain('search:5/5');
+    expect(events).toContain('sprints:1/1');
+    expect(events.some((e) => e.startsWith('membership:'))).toBe(true);
+    expect(events).toContain('issues:5/5');
+    expect(events[events.length - 1]).toBe('done:5/5');
+  });
+});

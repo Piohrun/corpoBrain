@@ -7,14 +7,14 @@ import {
   planApi,
   type SprintRow,
 } from '../api.ts';
-import { useVaultEvents } from '../hooks.ts';
+import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { lastSyncSummary, SyncProgressBar } from './SyncProgressBar.tsx';
 
 export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const [config, setConfig] = useState<JiraConfig | null>(null);
   const [issues, setIssues] = useState<JiraIssueRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -37,15 +37,7 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
 
-  const sync = useCallback(() => {
-    setSyncing(true);
-    setError(null);
-    planApi
-      .jiraSync()
-      .then(refresh)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setSyncing(false));
-  }, [refresh]);
+  const { syncing, status: syncStatus, start: sync, error: syncError } = useJiraSync(refresh);
 
   return (
     <div className="planning">
@@ -58,11 +50,17 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
           </span>
         )}
         <span className="spacer" />
-        {error && <span className="plan-error">{error}</span>}
+        {(error || syncError || syncStatus?.lastSyncError) && (
+          <span className="plan-error">{error ?? syncError ?? syncStatus?.lastSyncError}</span>
+        )}
+        {!syncing && lastSyncSummary(syncStatus) && (
+          <span className="muted small">{lastSyncSummary(syncStatus)}</span>
+        )}
         <button type="button" className="plan-btn" onClick={sync} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
+      <SyncProgressBar status={syncStatus} />
       <div className="planning-scroll">
         {configError && (
           <section>

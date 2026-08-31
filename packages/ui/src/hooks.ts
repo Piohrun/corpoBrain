@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { type JiraStatus, planApi } from './api.ts';
 
 /** Subscribe to server-sent vault change events. */
 export function useVaultEvents(onPaths: (paths: string[]) => void): void {
@@ -43,4 +44,51 @@ export function useDebouncedCallback<A extends unknown[]>(
   // biome-ignore lint/correctness/useExhaustiveDependencies: flush pending work on unmount only
   useEffect(() => flush, []);
   return [call, flush];
+}
+
+/** Trigger a Jira sync and poll live progress until it settles. */
+export function useJiraSync(onDone: () => void): {
+  syncing: boolean;
+  status: JiraStatus | null;
+  start: () => void;
+  error: string | null;
+} {
+  const [status, setStatus] = useState<JiraStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  const poll = useCallback(() => {
+    planApi
+      .jiraStatus()
+      .then((st) => {
+        setStatus(st);
+        if (!st.syncing && timer.current) {
+          clearInterval(timer.current);
+          timer.current = null;
+          setSyncing(false);
+          doneRef.current();
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    poll();
+    return () => {
+      if (timer.current) clearInterval(timer.current);
+    };
+  }, [poll]);
+
+  const start = useCallback(() => {
+    setSyncing(true);
+    setError(null);
+    if (!timer.current) timer.current = setInterval(poll, 700);
+    planApi.jiraSync().catch((e: Error) => setError(e.message));
+    poll();
+  }, [poll]);
+
+  return { syncing: syncing || (status?.syncing ?? false), status, start, error };
 }

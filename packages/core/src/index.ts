@@ -50,7 +50,7 @@ export {
   RENDER_VERSION,
   renderIssueFile,
 } from './jira/render.ts';
-export type { AdapterLike, SyncReport } from './jira/sync.ts';
+export type { AdapterLike, SyncProgress, SyncReport } from './jira/sync.ts';
 export { JiraSync, jqlDate } from './jira/sync.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';
 export { convertEffort, issueRiskFlags } from './planning.ts';

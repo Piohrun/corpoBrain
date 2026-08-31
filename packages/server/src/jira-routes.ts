@@ -3,6 +3,7 @@ import {
   createJiraAdapter,
   JiraSync,
   loadJiraAuth,
+  type SyncProgress,
   type SyncReport,
   type VaultConfig,
 } from '@corpobrain/core';
@@ -35,6 +36,11 @@ export interface JiraIssueRow {
   plan_blocked_on: string | null;
   plan_note: string | null;
 }
+
+/** Module-level sync progress (one vault per server process). */
+let liveProgress: (SyncProgress & { startedAt: string }) | null = null;
+let lastReports: SyncReport[] | null = null;
+let lastSyncError: string | null = null;
 
 export function jiraRoutes(v: VaultService): Hono {
   const app = new Hono();
@@ -193,7 +199,10 @@ export function jiraRoutes(v: VaultService): Hono {
       synced: string | null;
     };
     return c.json({
-      syncing,
+      syncing: liveProgress !== null || syncing,
+      progress: liveProgress,
+      lastReports,
+      lastSyncError,
       configured: v.config.jira.baseUrl !== '' && v.config.jira.profiles.length > 0,
       baseUrl: v.config.jira.baseUrl,
       profiles: v.config.jira.profiles.map((p) => p.name),
@@ -207,11 +216,24 @@ export function jiraRoutes(v: VaultService): Hono {
 export async function runSync(v: VaultService, profile?: string): Promise<SyncReport[]> {
   const adapter = createJiraAdapter(v.root, v.config);
   const sync = new JiraSync(v.root, v.config, adapter);
-  const reports = await sync.run(profile);
-  v.indexer.loadSprints();
-  v.indexer.update();
-  v.notifyJiraChanged(reports);
-  return reports;
+  const startedAt = new Date().toISOString();
+  sync.onProgress = (p) => {
+    liveProgress = { ...p, startedAt };
+  };
+  try {
+    const reports = await sync.run(profile);
+    lastReports = reports;
+    lastSyncError = null;
+    v.indexer.loadSprints();
+    v.indexer.update();
+    v.notifyJiraChanged(reports);
+    return reports;
+  } catch (e) {
+    lastSyncError = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    liveProgress = null;
+  }
 }
 
 /** Background scheduler honouring each profile's intervalMinutes. */

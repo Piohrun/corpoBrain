@@ -1232,3 +1232,38 @@ button {
   font-weight: 600;
   font-size: 12.5px;
 }
+
+/* ---------- sync progress ---------- */
+.sync-progress {
+  padding: 6px 16px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.sync-progress-label {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin-bottom: 4px;
+}
+.sync-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-active);
+  overflow: hidden;
+}
+.sync-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.sync-progress-track.indeterminate .sync-progress-fill {
+  width: 35%;
+  animation: cb-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes cb-indeterminate {
+  0% {
+    margin-left: -35%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}

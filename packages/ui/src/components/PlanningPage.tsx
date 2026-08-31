@@ -8,7 +8,8 @@ import {
   type SavedView,
   viewApi,
 } from '../api.ts';
-import { useVaultEvents } from '../hooks.ts';
+import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { SyncProgressBar } from './SyncProgressBar.tsx';
 
 interface Props {
   onOpenNote: (path: string) => void;
@@ -39,7 +40,7 @@ export function PlanningPage({ onOpenNote }: Props) {
   const [filter, setFilter] = useState('');
   const [flagFilter, setFlagFilter] = useState<string | null>(null);
   const [sprintFilter, setSprintFilter] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
+
   const [views, setViews] = useState<SavedView[]>([]);
   const [groupBy, setGroupBy] = useState<GroupBy>(
     () => lsGet('cb.plan.groupBy', 'region') as GroupBy,
@@ -86,15 +87,7 @@ export function PlanningPage({ onOpenNote }: Props) {
     [refresh],
   );
 
-  const sync = useCallback(() => {
-    setSyncing(true);
-    setError(null);
-    planApi
-      .jiraSync()
-      .then(refresh)
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setSyncing(false));
-  }, [refresh]);
+  const { syncing, status: syncStatus, start: sync, error: syncError } = useJiraSync(refresh);
 
   /** Visible sprint columns: first N sprints, Backlog always last. */
   const visibleColumns = useMemo(() => {
@@ -151,10 +144,12 @@ export function PlanningPage({ onOpenNote }: Props) {
         {status?.lastSynced && (
           <span className="muted">synced {status.lastSynced.slice(0, 16).replace('T', ' ')}</span>
         )}
+        {syncError && <span className="plan-error">{syncError}</span>}
         <button type="button" className="plan-btn" onClick={sync} disabled={syncing}>
           {syncing ? 'Syncing…' : 'Sync Jira'}
         </button>
       </div>
+      <SyncProgressBar status={syncStatus} />
 
       <div className="views-bar">
         <label className="muted small">

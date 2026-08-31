@@ -14,6 +14,16 @@ export interface AdapterLike {
   sprintIssueKeys(sprintId: number): Promise<string[]>;
 }
 
+export interface SyncProgress {
+  profile: string;
+  /** searching → sprints → membership → issues → people → done */
+  phase: 'search' | 'sprints' | 'membership' | 'issues' | 'people' | 'done';
+  current: number;
+  /** 0 = unknown/indeterminate */
+  total: number;
+  detail?: string;
+}
+
 export interface SyncReport {
   profile: string;
   fetched: number;
@@ -30,12 +40,19 @@ interface SyncState {
 }
 
 export class JiraSync {
+  /** optional live progress feed for UIs */
+  onProgress: ((p: SyncProgress) => void) | undefined;
+
   constructor(
     readonly root: string,
     readonly config: VaultConfig,
     readonly adapter: AdapterLike,
     private readonly now: () => Date = () => new Date(),
   ) {}
+
+  private emit(p: SyncProgress): void {
+    this.onProgress?.(p);
+  }
 
   private cacheDir(): string {
     const dir = join(this.root, '.corpobrain', 'jira-cache');
@@ -72,18 +89,43 @@ export class JiraSync {
     const watermark = state.watermarks[profile.name];
     const jql = watermark ? `(${profile.jql}) AND updated >= "${watermark}"` : profile.jql;
     const extraFields = this.config.jira.estimateField ? [this.config.jira.estimateField] : [];
+    this.emit({ profile: profile.name, phase: 'search', current: 0, total: 0, detail: jql });
     const issues = await this.adapter.search(jql, extraFields);
+    this.emit({
+      profile: profile.name,
+      phase: 'search',
+      current: issues.length,
+      total: issues.length,
+    });
 
     // Sprints + membership come from the Agile API (no custom-field guessing).
     const sprintByKey = new Map<string, { id: number; name: string }>();
     const allSprints: JiraSprint[] = [];
+    let boardIdx = 0;
     for (const boardId of profile.boards) {
+      boardIdx++;
+      this.emit({
+        profile: profile.name,
+        phase: 'sprints',
+        current: boardIdx,
+        total: profile.boards.length,
+        detail: `board ${boardId}`,
+      });
       const sprints = await this.adapter.sprints(boardId);
       allSprints.push(...sprints);
       const considered = sprints
         .filter((s) => s.state !== 'closed')
         .slice(0, 1 + profile.futureSprints + 5);
+      let sprintIdx = 0;
       for (const sprint of considered) {
+        sprintIdx++;
+        this.emit({
+          profile: profile.name,
+          phase: 'membership',
+          current: sprintIdx,
+          total: considered.length,
+          detail: sprint.name,
+        });
         for (const key of await this.adapter.sprintIssueKeys(sprint.id)) {
           if (sprint.state === 'active' || !sprintByKey.has(key)) {
             sprintByKey.set(key, { id: sprint.id, name: sprint.name });
@@ -112,7 +154,18 @@ export class JiraSync {
 
     const syncedAt = syncStart.toISOString();
     const knownPeople = this.knownPeopleIds();
+    let issueIdx = 0;
     for (const raw of issues) {
+      issueIdx++;
+      if (issueIdx % 5 === 0 || issueIdx === issues.length) {
+        this.emit({
+          profile: profile.name,
+          phase: 'issues',
+          current: issueIdx,
+          total: issues.length,
+          detail: raw.key,
+        });
+      }
       writeFileSync(
         join(this.cacheDir(), 'issues', `${raw.key}.json`),
         `${JSON.stringify(raw, null, 2)}\n`,
@@ -153,6 +206,12 @@ export class JiraSync {
     const wm = new Date(syncStart.getTime() - 5 * 60 * 1000);
     state.watermarks[profile.name] = jqlDate(wm);
     this.saveState(state);
+    this.emit({
+      profile: profile.name,
+      phase: 'done',
+      current: issues.length,
+      total: issues.length,
+    });
     return report;
   }
 
