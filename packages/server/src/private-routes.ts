@@ -65,5 +65,23 @@ export function privateRoutes(v: VaultService): { app: Hono; service: PrivateSer
 
   app.get('/search', (c) => c.json(service.search(c.req.query('q') ?? '')));
 
+  /** inline note secrets — same unlocked session as protected notes */
+  app.post('/encrypt', async (c) => {
+    const { text } = (await c.req.json()) as { text?: string };
+    if (typeof text !== 'string' || text === '') throw new HttpError(400, 'text required');
+    return c.json({ data: service.encryptText(text) });
+  });
+
+  app.post('/decrypt', async (c) => {
+    const { data } = (await c.req.json()) as { data?: string };
+    if (typeof data !== 'string' || !data.trim()) throw new HttpError(400, 'data required');
+    try {
+      return c.json({ text: service.decryptText(data) });
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(400, 'cannot decrypt — wrong keystore or corrupted block');
+    }
+  });
+
   return { app, service };
 }

@@ -172,6 +172,27 @@ export class PrivateService {
     this.v.indexer.updatePaths([`${this.v.config.folders.private}/${file}`]);
   }
 
+  /**
+   * Inline note secrets (fenced secret blocks). Same keystore/session as
+   * protected notes. Plaintext is padded before encryption so ciphertext
+   * length does not reveal value length for short values.
+   */
+  encryptText(text: string): string {
+    const key = this.requireUnlocked();
+    const payload = JSON.stringify({ v: text });
+    const padded = payload.padEnd(Math.max(64, Math.ceil(payload.length / 64) * 64), ' ');
+    return encryptNote(key, padded).toString('base64');
+  }
+
+  decryptText(data: string): string {
+    const key = this.requireUnlocked();
+    const clean = data.replace(/\s+/g, '');
+    const plain = decryptNote(key, Buffer.from(clean, 'base64')).trimEnd();
+    const parsed = JSON.parse(plain) as { v?: unknown };
+    if (typeof parsed.v !== 'string') throw new HttpError(400, 'not an inline secret payload');
+    return parsed.v;
+  }
+
   search(query: string): { file: string; title: string; snippet: string }[] {
     this.requireUnlocked();
     if (!this.mem) return [];

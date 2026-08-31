@@ -127,3 +127,45 @@ describe('protected notes API', () => {
     expect((await app.request('/api/private/note?file=..%2Fsecrets')).status).toBe(400);
   });
 });
+
+describe('inline note secrets', () => {
+  const post = (url: string, body: object) =>
+    app.request(url, { method: 'POST', body: JSON.stringify(body) });
+
+  it('locked session refuses; unlocked round-trips; ciphertext leaks nothing', async () => {
+    expect((await post('/api/private/encrypt', { text: 'Fixed Pay: 123400' })).status).toBe(401);
+    await post('/api/private/init', { passphrase: 'a fine passphrase' });
+    const enc = (await (
+      await post('/api/private/encrypt', { text: 'Fixed Pay: 123400' })
+    ).json()) as { data: string };
+    expect(enc.data).toMatch(/^[A-Za-z0-9+/=]+$/);
+    expect(Buffer.from(enc.data, 'base64').includes(Buffer.from('123400'))).toBe(false);
+    const dec = (await (await post('/api/private/decrypt', { data: enc.data })).json()) as {
+      text: string;
+    };
+    expect(dec.text).toBe('Fixed Pay: 123400');
+    await post('/api/private/lock', {});
+    expect((await post('/api/private/decrypt', { data: enc.data })).status).toBe(401);
+  });
+
+  it('padding hides short-value length differences', async () => {
+    await post('/api/private/init', { passphrase: 'a fine passphrase' });
+    const a = (await (await post('/api/private/encrypt', { text: '9' })).json()) as {
+      data: string;
+    };
+    const b = (await (
+      await post('/api/private/encrypt', { text: 'a much longer but still short secret' })
+    ).json()) as { data: string };
+    expect(a.data.length).toBe(b.data.length);
+    expect((await (await post('/api/private/decrypt', { data: a.data })).json()) as object).toEqual(
+      {
+        text: '9',
+      },
+    );
+  });
+
+  it('garbage input fails cleanly, not with a 500', async () => {
+    await post('/api/private/init', { passphrase: 'a fine passphrase' });
+    expect((await post('/api/private/decrypt', { data: 'bm90IGEgY29udGFpbmVy' })).status).toBe(400);
+  });
+});

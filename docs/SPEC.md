@@ -122,6 +122,11 @@ type `property` in addition to being a property.
   `@due(YYYY-MM-DD)` token.
 - Callouts: `> [!type] Title` (Obsidian syntax) are rendered but carry no
   semantics.
+- Inline secrets: a fenced block with info string `secret` holds a base64
+  CBV1 container (§9 key hierarchy, plaintext padded to 64-byte multiples)
+  encrypted under the protected-notes data key. Only ciphertext ever touches
+  disk, the index, or agents; the UI decrypts to memory on demand while the
+  private session is unlocked.
 
 ### 3.4 Indexer writes
 
