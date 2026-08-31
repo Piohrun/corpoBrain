@@ -330,9 +330,6 @@ button {
 .cm-line {
   padding: 0;
 }
-.cm-cursor {
-  border-left-color: var(--fg);
-}
 
 .cm-cb-h1 {
   font-size: 1.7em;
@@ -941,4 +938,20 @@ button {
 .cm-cb-tag:hover {
   filter: brightness(1.12);
   text-decoration: underline;
+}
+
+/* CodeMirror injects its theme with class-pair specificity (.x .cm-cursor),
+   so these need three levels to win. drawSelection() hides the native caret
+   and draws .cm-cursor itself; without this it is 1px black (invisible on
+   dark backgrounds). */
+.main .cm-editor .cm-cursor,
+.main .cm-editor .cm-dropCursor {
+  border-left: 2px solid var(--fg);
+  margin-left: -1px;
+}
+.main .cm-editor .cm-selectionBackground {
+  background: var(--bg-active);
+}
+.main .cm-editor.cm-focused .cm-selectionBackground {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
