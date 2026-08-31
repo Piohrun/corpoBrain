@@ -227,6 +227,7 @@ function calendarInput(
       away: away.merged,
       toDays: (e) => convertEffort(e, unit, 'days', cap) ?? e,
       unestimatedDays: UNESTIMATED_DAYS,
+      notBefore: Math.max(dayIndexOf(days, new Date().toISOString().slice(0, 10)), 0),
     },
     away,
   };

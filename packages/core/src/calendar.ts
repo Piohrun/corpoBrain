@@ -21,6 +21,8 @@ export interface CalendarInput {
   /** effort (capacity unit) → working days */
   toDays: (effort: number) => number;
   unestimatedDays: number;
+  /** auto-arrange never schedules before this day index (today) */
+  notBefore?: number;
 }
 
 export interface CalendarBlock {
@@ -251,7 +253,7 @@ export function arrangeCalendar(input: CalendarInput): ArrangeResult {
     const who = issue.effectiveAssignee ?? UNASSIGNED;
     const p = personOf(people, who, input.away);
     const need = wholeDays(issue, input);
-    let start = 0;
+    let start = input.notBefore ?? 0;
     for (const d of deps.get(key) ?? []) start = Math.max(start, (endOf.get(d) ?? -1) + 1);
     for (;;) {
       const cells = cellsFor(p, start, need);

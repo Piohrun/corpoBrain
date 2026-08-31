@@ -179,6 +179,11 @@ describe('arrangeCalendar', () => {
     expect(r.starts.get('B')).toBe('2026-09-03'); // A ends day 1; bob away day 2
   });
 
+  it('never schedules before the notBefore day (today)', () => {
+    const r = arrangeCalendar({ ...input([issue({ effectiveEffort: 2 })]), notBefore: 5 });
+    expect(r.starts.get('EXEC-1')).toBe('2026-09-07'); // day 5, not the grid start
+  });
+
   it('reports cycles instead of hanging', () => {
     const r = arrangeCalendar(
       input([issue({ key: 'A', dependsOn: ['B'] }), issue({ key: 'B', dependsOn: ['A'] })]),
