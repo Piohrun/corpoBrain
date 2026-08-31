@@ -4,11 +4,18 @@
  * and revealed when the cursor touches it.
  */
 import { syntaxTree } from '@codemirror/language';
-import { type Extension, Facet, RangeSetBuilder, StateEffect } from '@codemirror/state';
+import {
+  type EditorState,
+  type Extension,
+  Facet,
+  RangeSetBuilder,
+  StateEffect,
+  StateField,
+} from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
-  type EditorView,
+  EditorView,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
@@ -129,14 +136,6 @@ function buildDecorations(view: EditorView): DecorationSet {
   // Collect syntax info for the viewport.
   const headings = new Map<number, { level: number; markEnd: number }>();
   const codeLines = new Set<number>();
-  /** fenced secret blocks: from/to of the whole node + inner ciphertext */
-  const secretBlocks: {
-    from: number;
-    to: number;
-    firstLine: number;
-    lastLine: number;
-    cipher: string;
-  }[] = [];
   const quoteLines = new Set<number>();
   const emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[] = [];
 
@@ -157,21 +156,6 @@ function buildDecorations(view: EditorView): DecorationSet {
         } else if (name === 'FencedCode' || name === 'CodeBlock') {
           const first = doc.lineAt(node.from).number;
           const last = doc.lineAt(node.to).number;
-          if (doc.line(first).text.trimEnd() === '```secret') {
-            const inner: string[] = [];
-            for (let l = first + 1; l <= last; l++) {
-              const t = doc.line(l).text;
-              if (t.startsWith('```')) break;
-              inner.push(t.trim());
-            }
-            secretBlocks.push({
-              from: node.from,
-              to: node.to,
-              firstLine: first,
-              lastLine: last,
-              cipher: inner.join(''),
-            });
-          }
           for (let l = first; l <= last; l++) codeLines.add(l);
         } else if (name === 'Blockquote') {
           const first = doc.lineAt(node.from).number;
@@ -200,20 +184,6 @@ function buildDecorations(view: EditorView): DecorationSet {
     let pos = from;
     while (pos <= to) {
       const line = doc.lineAt(pos);
-      const secret = secretBlocks.find((b) => b.firstLine === line.number);
-      if (secret && (cursor < secret.from || cursor > secret.to)) {
-        builder.add(
-          secret.from,
-          secret.to,
-          Decoration.replace({
-            widget: new SecretWidget(secret.cipher, config.getSecret?.(secret.cipher) ?? null),
-          }),
-        );
-        const endLine = doc.line(secret.lastLine);
-        if (endLine.to + 1 > to) break;
-        pos = endLine.to + 1;
-        continue;
-      }
       const ctx: LineCtx = {
         cursorTouches: cursor >= line.from && cursor <= line.to,
         inCodeBlock: codeLines.has(line.number),
@@ -344,6 +314,70 @@ function collectInline(
   }
 }
 
+// ---------------------------------------------------------------- secrets
+// Block decorations may not come from a view plugin, so secret fences get
+// their own StateField. Regex-scanned (parser-independent) — a fence is
+// a line that is exactly ```secret, closed by the next ``` line.
+
+interface SecretRange {
+  from: number;
+  to: number;
+  cipher: string;
+}
+
+function findSecretBlocks(state: EditorState): SecretRange[] {
+  const out: SecretRange[] = [];
+  const doc = state.doc;
+  for (let n = 1; n <= doc.lines; n++) {
+    const line = doc.line(n);
+    if (line.text.trimEnd() !== '```secret') continue;
+    const inner: string[] = [];
+    let closed = -1;
+    for (let m = n + 1; m <= doc.lines; m++) {
+      const t = doc.line(m).text;
+      if (t.trimEnd().startsWith('```')) {
+        closed = m;
+        break;
+      }
+      inner.push(t.trim());
+    }
+    if (closed === -1) continue; // unterminated → leave raw
+    out.push({ from: line.from, to: doc.line(closed).to, cipher: inner.join('') });
+    n = closed;
+  }
+  return out;
+}
+
+function buildSecretDecorations(state: EditorState): DecorationSet {
+  const config = state.facet(livePreviewConfig);
+  const cursor = state.selection.main.head;
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const block of findSecretBlocks(state)) {
+    // cursor inside → show the raw fence so it can be edited or deleted
+    if (cursor >= block.from && cursor <= block.to) continue;
+    builder.add(
+      block.from,
+      block.to,
+      Decoration.replace({
+        widget: new SecretWidget(block.cipher, config.getSecret?.(block.cipher) ?? null),
+        block: true,
+      }),
+    );
+  }
+  return builder.finish();
+}
+
+const secretField = StateField.define<DecorationSet>({
+  create: buildSecretDecorations,
+  update(value, tr) {
+    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(linksUpdated))) {
+      return buildSecretDecorations(tr.state);
+    }
+    return value.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 const plugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -378,6 +412,7 @@ export function livePreview(config: LivePreviewConfig): Extension {
   return [
     livePreviewConfig.of(config),
     plugin,
+    secretField,
     // mousedown so the editor does not move the cursor first
     ViewPlugin.define(() => ({}), {
       eventHandlers: { mousedown: (e, view) => clickHandler(view, e) },
