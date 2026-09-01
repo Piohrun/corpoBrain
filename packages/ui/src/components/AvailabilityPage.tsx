@@ -31,25 +31,42 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   const [holidaysDirty, setHolidaysDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // read synchronously by load(): a refresh must not wipe unsaved table edits
+  const dirtyRef = useRef({ entries: false, holidays: false });
+  const markDirty = (which: 'entries' | 'holidays') => {
+    dirtyRef.current[which] = true;
+    if (which === 'entries') setDirty(true);
+    else setHolidaysDirty(true);
+  };
 
-  const load = useCallback(() => {
+  /**
+   * Re-read from the server. Dirty tables keep their draft unless `replace`
+   * says the server copy is now the truth (right after our own save).
+   */
+  const load = useCallback((replace: 'entries' | 'holidays' | 'all' | 'none' = 'none') => {
     availabilityApi
       .get()
       .then((d) => {
         setData(d);
-        setDraft(d.entries.map(withId));
-        setDirty(false);
-        setHolidays(d.holidays.map((h) => ({ ...h, rowId: `h${++rowSeq}` })));
-        setHolidaysDirty(false);
+        if (replace === 'entries' || replace === 'all' || !dirtyRef.current.entries) {
+          setDraft(d.entries.map(withId));
+          setDirty(false);
+          dirtyRef.current.entries = false;
+        }
+        if (replace === 'holidays' || replace === 'all' || !dirtyRef.current.holidays) {
+          setHolidays(d.holidays.map((h) => ({ ...h, rowId: `h${++rowSeq}` })));
+          setHolidaysDirty(false);
+          dirtyRef.current.holidays = false;
+        }
         setError(null);
       })
       .catch((e: Error) => setError(e.message));
   }, []);
-  useEffect(load, [load]);
+  useEffect(() => load('all'), [load]);
 
   const edit = (idx: number, patch: Partial<AvailabilityEntry>) => {
     setDraft((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-    setDirty(true);
+    markDirty('entries');
   };
 
   const persist = (rows: DraftEntry[]) => {
@@ -58,7 +75,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
       .save(rows.map(({ rowId: _rowId, ...e }) => e))
       .then(() => {
         setSaving(false);
-        load();
+        load('entries');
       })
       .catch((e: Error) => {
         setSaving(false);
@@ -77,20 +94,27 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   const saveHolidays = () => {
     availabilityApi
       .saveHolidays(holidays.map(({ rowId: _r, ...h }) => h))
-      .then(load)
+      .then(() => load('holidays'))
       .catch((e: Error) => setError(e.message));
   };
 
   const seed = () => {
+    if (
+      holidaysDirty &&
+      !window.confirm(
+        'Seeding reloads the holiday table and discards your unsaved edits. Continue?',
+      )
+    )
+      return;
     availabilityApi
       .seedHolidays()
-      .then(load)
+      .then(() => load('holidays'))
       .catch((e: Error) => setError(e.message));
   };
 
   const editHoliday = (idx: number, patch: Partial<HolidayEntry>) => {
     setHolidays((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-    setHolidaysDirty(true);
+    markDirty('holidays');
   };
 
   const archivable = useMemo(() => {
@@ -99,10 +123,15 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   }, [data]);
 
   const archive = () => {
+    if (
+      dirty &&
+      !window.confirm('Archiving reloads the table and discards your unsaved edits. Continue?')
+    )
+      return;
     availabilityApi
       .archive(ARCHIVE_MONTHS)
       .then((r) => {
-        load();
+        load('entries');
         if (r.files.length) setError(null);
       })
       .catch((e: Error) => setError(e.message));
@@ -231,7 +260,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                       title="Remove this entry"
                       onClick={() => {
                         setDraft((rows) => rows.filter((_, j) => j !== i));
-                        setDirty(true);
+                        markDirty('entries');
                       }}
                     >
                       ✕
@@ -262,7 +291,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                 note: '',
               }),
             ]);
-            setDirty(true);
+            markDirty('entries');
           }}
         >
           + entry
@@ -332,7 +361,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                       title="Remove this holiday"
                       onClick={() => {
                         setHolidays((rows) => rows.filter((_, j) => j !== i));
-                        setHolidaysDirty(true);
+                        markDirty('holidays');
                       }}
                     >
                       ✕
@@ -363,7 +392,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                   rowId: `h${++rowSeq}`,
                 },
               ]);
-              setHolidaysDirty(true);
+              markDirty('holidays');
             }}
           >
             + holiday
@@ -458,7 +487,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                                 path: r.person,
                                 overrides: { [r.sprint]: r.adjusted as number },
                               })
-                              .then(load)
+                              .then(() => load())
                               .catch((e: Error) => setError(e.message))
                           }
                         >
