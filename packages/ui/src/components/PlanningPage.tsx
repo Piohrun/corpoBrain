@@ -11,6 +11,7 @@ import {
 } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
 import { SprintHealth } from './SprintHealth.tsx';
 import { SyncProgressBar } from './SyncProgressBar.tsx';
 
@@ -20,21 +21,6 @@ interface Props {
 
 const UNASSIGNED = '(unassigned)';
 type GroupBy = 'region' | 'team' | 'region-team' | 'none';
-
-function lsGet(key: string, fallback: string): string {
-  try {
-    return localStorage.getItem(key) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-function lsSet(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    /* unavailable */
-  }
-}
 
 export function PlanningPage({ onOpenNote }: Props) {
   const [board, setBoard] = useState<BoardModel | null>(null);
@@ -350,14 +336,10 @@ function BandwidthGrid({
     () => lsGet('cb.plan.backlogCollapsed', 'true') === 'true',
   );
   useEffect(() => lsSet('cb.plan.backlogCollapsed', String(backlogCollapsed)), [backlogCollapsed]);
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
-    try {
-      return new Set(JSON.parse(lsGet('cb.plan.groups', '[]')) as string[]);
-    } catch {
-      return new Set();
-    }
-  });
-  useEffect(() => lsSet('cb.plan.groups', JSON.stringify([...collapsed])), [collapsed]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(lsJson<string[]>('cb.plan.groups', [])),
+  );
+  useEffect(() => lsSetJson('cb.plan.groups', [...collapsed]), [collapsed]);
 
   const rows = useMemo<Row[]>(() => {
     const known: Row[] = board.people

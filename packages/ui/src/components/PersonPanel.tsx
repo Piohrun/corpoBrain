@@ -2,16 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { type PersonOverview, personApi } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { lsGet, lsSet } from '../storage.ts';
 
 export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: string) => void }) {
   const [data, setData] = useState<PersonOverview | null>(null);
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem('cb.personPanel') !== 'closed';
-    } catch {
-      return true;
-    }
-  });
+  const [open, setOpen] = useState(() => lsGet('cb.personPanel') !== 'closed');
 
   // not every person note has an overview (hubs, brand-new notes): a failed
   // load simply hides the panel, but a stale response for a previous path
@@ -46,14 +41,8 @@ export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: str
   if (person.name === person.region || person.name === person.team) return null;
 
   const toggle = () => {
-    setOpen((v) => {
-      try {
-        localStorage.setItem('cb.personPanel', v ? 'closed' : 'open');
-      } catch {
-        /* storage unavailable */
-      }
-      return !v;
-    });
+    lsSet('cb.personPanel', open ? 'closed' : 'open');
+    setOpen(!open);
   };
 
   const capOf = (col: string) =>

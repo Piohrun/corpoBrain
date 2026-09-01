@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { type BoardPerson, type GitStatus, gitApi, planApi } from '../api.ts';
 import { nameColorHex } from '../colors.ts';
+import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
 
 type Theme = 'system' | 'light' | 'dark';
 const STATUS_COLORS: { key: string; label: string; fallback: string }[] = [
@@ -17,14 +18,6 @@ const ACCENTS = [
   { id: 'rose', label: 'rose', color: '#be3455' },
   { id: 'violet', label: 'violet', color: '#7c5cd6' },
 ];
-
-function lsGet(key: string): string {
-  try {
-    return localStorage.getItem(key) ?? '';
-  } catch {
-    return '';
-  }
-}
 
 export function SettingsPage() {
   const [theme, setTheme] = useState<Theme>(() => (lsGet('cb.theme') as Theme) || 'system');
@@ -47,13 +40,9 @@ export function SettingsPage() {
       .catch(() => {});
   }, []);
   useEffect(refreshHubs, [refreshHubs]);
-  const [statusColors, setStatusColors] = useState<Record<string, string>>(() => {
-    try {
-      return JSON.parse(localStorage.getItem('cb.colors') ?? '{}') as Record<string, string>;
-    } catch {
-      return {};
-    }
-  });
+  const [statusColors, setStatusColors] = useState<Record<string, string>>(() =>
+    lsJson<Record<string, string>>('cb.colors', {}),
+  );
 
   const applyStatusColor = (key: string, value: string | null) => {
     // side effects outside the updater: StrictMode runs updaters twice
@@ -61,11 +50,7 @@ export function SettingsPage() {
     if (value) next[key] = value;
     else delete next[key];
     setStatusColors(next);
-    try {
-      localStorage.setItem('cb.colors', JSON.stringify(next));
-    } catch {
-      /* storage unavailable */
-    }
+    lsSetJson('cb.colors', next);
     if (value) document.documentElement.style.setProperty(`--${key}`, value);
     else document.documentElement.style.removeProperty(`--${key}`);
   };
@@ -74,32 +59,16 @@ export function SettingsPage() {
 
   const applyTheme = (t: Theme) => {
     setTheme(t);
-    try {
-      if (t === 'system') {
-        localStorage.removeItem('cb.theme');
-        delete document.documentElement.dataset.theme;
-      } else {
-        localStorage.setItem('cb.theme', t);
-        document.documentElement.dataset.theme = t;
-      }
-    } catch {
-      /* storage unavailable */
-    }
+    lsSet('cb.theme', t === 'system' ? null : t);
+    if (t === 'system') delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = t;
   };
 
   const applyAccent = (a: string) => {
     setAccent(a);
-    try {
-      if (a) {
-        localStorage.setItem('cb.accent', a);
-        document.documentElement.dataset.accent = a;
-      } else {
-        localStorage.removeItem('cb.accent');
-        delete document.documentElement.dataset.accent;
-      }
-    } catch {
-      /* storage unavailable */
-    }
+    lsSet('cb.accent', a || null);
+    if (a) document.documentElement.dataset.accent = a;
+    else delete document.documentElement.dataset.accent;
   };
 
   const refreshGit = useCallback(() => {

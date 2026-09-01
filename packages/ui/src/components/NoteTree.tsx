@@ -1,6 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import { type TreeModel, type TreeNode, treeApi } from '../api.ts';
+import { lsJson, lsSetJson } from '../storage.ts';
 
 interface Props {
   tree: TreeModel;
@@ -26,26 +27,14 @@ function reallyLeft(e: React.DragEvent): boolean {
   return !related || !(e.currentTarget as HTMLElement).contains(related);
 }
 
-function loadCollapsed(): Set<string> {
-  try {
-    return new Set(JSON.parse(localStorage.getItem(LS_KEY) ?? '[]') as string[]);
-  } catch {
-    return new Set();
-  }
-}
+const loadCollapsed = (): Set<string> => new Set(lsJson<string[]>(LS_KEY, []));
 
 export function NoteTree({ tree, currentPath, onOpen, onChanged, onError }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [spot, setSpot] = useState<DropSpot | null>(null);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_KEY, JSON.stringify([...collapsed]));
-    } catch {
-      /* storage unavailable */
-    }
-  }, [collapsed]);
+  useEffect(() => lsSetJson(LS_KEY, [...collapsed]), [collapsed]);
 
   const toggle = useCallback((key: string) => {
     setCollapsed((prev) => {

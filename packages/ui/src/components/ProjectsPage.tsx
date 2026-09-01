@@ -9,17 +9,14 @@ import {
   projectApi,
 } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { lsGet, lsSet } from '../storage.ts';
 import { ProjectNotes } from './ProjectNotes.tsx';
 
 const ZOOMS = [14, 18, 22, 28, 36];
 const DEFAULT_DAY = 22; // px per workday — one tiny box per day
 function loadZoom(): number {
-  try {
-    const v = Number(localStorage.getItem('cb.proj.zoom'));
-    return ZOOMS.includes(v) ? v : DEFAULT_DAY;
-  } catch {
-    return DEFAULT_DAY;
-  }
+  const v = Number(lsGet('cb.proj.zoom'));
+  return ZOOMS.includes(v) ? v : DEFAULT_DAY;
 }
 const ROW = 34;
 const HEAD = 54;
@@ -38,22 +35,14 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
   const [error, setError] = useState<string | null>(null);
   const [day, setDay] = useState(loadZoom);
   const [horizon, setHorizon] = useState(() => {
-    try {
-      const v = Number(localStorage.getItem('cb.proj.months'));
-      return [3, 6, 12].includes(v) ? v : 6;
-    } catch {
-      return 6;
-    }
+    const v = Number(lsGet('cb.proj.months'));
+    return [3, 6, 12].includes(v) ? v : 6;
   });
   const zoom = (dir: 1 | -1) => {
     const next = ZOOMS[ZOOMS.indexOf(day) + dir];
     if (!next) return;
     setDay(next);
-    try {
-      localStorage.setItem('cb.proj.zoom', String(next));
-    } catch {
-      /* zoom just does not persist */
-    }
+    lsSet('cb.proj.zoom', String(next));
   };
 
   const loadList = useCallback(() => {
@@ -209,11 +198,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                   onChange={(e) => {
                     const v = Number(e.target.value);
                     setHorizon(v);
-                    try {
-                      localStorage.setItem('cb.proj.months', String(v));
-                    } catch {
-                      /* not persisted */
-                    }
+                    lsSet('cb.proj.months', String(v));
                   }}
                 >
                   <option value={3}>3 months</option>

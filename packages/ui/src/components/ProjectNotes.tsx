@@ -1,16 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { lsGet, lsSet } from '../storage.ts';
 import { WikiText } from './WikiText.tsx';
 
 const KEY = 'cb.proj.notes';
-function loadOpen(): boolean {
-  try {
-    return localStorage.getItem(KEY) !== 'closed';
-  } catch {
-    return true;
-  }
-}
+const loadOpen = (): boolean => lsGet(KEY) !== 'closed';
 
 /**
  * The project note's own text (goal, decisions, links), read-only, right
@@ -39,14 +34,8 @@ export function ProjectNotes({
   });
 
   const toggle = () => {
-    setOpen((o) => {
-      try {
-        localStorage.setItem(KEY, o ? 'closed' : 'open');
-      } catch {
-        /* not persisted */
-      }
-      return !o;
-    });
+    lsSet(KEY, open ? 'closed' : 'open');
+    setOpen(!open);
   };
 
   const blocks = body === null ? [] : toBlocks(body);
