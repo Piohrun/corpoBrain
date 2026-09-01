@@ -45,6 +45,8 @@ export function App() {
   >('notes');
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
+  /** true while a delete is in flight, so the editor drops its pending save */
+  const discardRef = useRef(false);
 
   const refreshLists = useCallback(() => {
     api
@@ -340,13 +342,18 @@ export function App() {
                       if (!current) return;
                       if (!window.confirm(`Delete "${current.meta?.title ?? current.path}"?`))
                         return;
+                      // the editor's debounced save must not resurrect the file
+                      discardRef.current = true;
                       api
                         .remove(current.path)
                         .then(() => {
                           setNote(null);
                           refreshLists();
                         })
-                        .catch(() => {});
+                        .catch((e: Error) => window.alert(`Delete failed: ${e.message}`))
+                        .finally(() => {
+                          discardRef.current = false;
+                        });
                     }}
                   >
                     🗑
@@ -373,6 +380,7 @@ export function App() {
                   }
                   onSaveState={setSaveState}
                   onSaved={onSaved}
+                  discardRef={discardRef}
                 />
                 {note.tags.length > 0 && (
                   <div className="tag-footer">

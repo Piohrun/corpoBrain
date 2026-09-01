@@ -19,22 +19,28 @@ export function useVaultEvents(onPaths: (paths: string[]) => void): void {
   }, []);
 }
 
+/**
+ * Debounce `fn`. Returns [call, flush, cancel]: flush runs a pending call
+ * now, cancel drops it. Pending work is flushed on unmount unless the
+ * caller cancelled it first (e.g. the note was just deleted).
+ */
 export function useDebouncedCallback<A extends unknown[]>(
   fn: (...args: A) => void,
   ms: number,
-): [(...args: A) => void, () => void] {
+): [(...args: A) => void, () => void, () => void] {
   const fnRef = useRef(fn);
   fnRef.current = fn;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pending = useRef<A | null>(null);
-  const flush = () => {
+  const cancel = () => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = null;
-    if (pending.current) {
-      const args = pending.current;
-      pending.current = null;
-      fnRef.current(...args);
-    }
+    pending.current = null;
+  };
+  const flush = () => {
+    const args = pending.current;
+    cancel();
+    if (args) fnRef.current(...args);
   };
   const call = (...args: A) => {
     pending.current = args;
@@ -43,7 +49,7 @@ export function useDebouncedCallback<A extends unknown[]>(
   };
   // biome-ignore lint/correctness/useExhaustiveDependencies: flush pending work on unmount only
   useEffect(() => flush, []);
-  return [call, flush];
+  return [call, flush, cancel];
 }
 
 /** Trigger a Jira sync and poll live progress until it settles. */

@@ -1,5 +1,6 @@
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { api, privateApi } from '../api.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
@@ -18,6 +19,12 @@ interface Props {
   onSnapshot: (path: string, content: string) => void;
   onSaveState: (state: 'saved' | 'saving' | 'error') => void;
   onSaved: () => void;
+  /**
+   * Set to true right before unmounting when the note is being deleted:
+   * a pending debounced save is dropped instead of flushed, so the file
+   * is not written back after the delete.
+   */
+  discardRef?: React.RefObject<boolean>;
 }
 
 export function Editor({
@@ -29,6 +36,7 @@ export function Editor({
   onSnapshot,
   onSaveState,
   onSaved,
+  discardRef,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   /** revealed inline secrets: cipher → plaintext (memory only, self-expiring) */
@@ -286,7 +294,7 @@ export function Editor({
   });
   latest.current = { path, onNavigate, onSnapshot, completions, resolveMap, onSaveState, onSaved };
 
-  const [save, flushSave] = useDebouncedCallback((p: string, text: string) => {
+  const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, text: string) => {
     latest.current.onSaveState('saving');
     api
       .save(p, text)
@@ -336,7 +344,8 @@ export function Editor({
       revealed.current.clear();
       for (const t of hideTimers.current.values()) clearTimeout(t);
       hideTimers.current.clear();
-      flushSave();
+      if (discardRef?.current) cancelSave();
+      else flushSave();
       view.destroy();
       viewRef.current = null;
     };
