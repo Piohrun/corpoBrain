@@ -2453,7 +2453,62 @@ tr.wb-conflict td {
   accent-color: var(--st-ready);
 }
 
-/* ---- projects: bulk add ---- */
+/* ---- projects: notes panel + bulk add ---- */
+.proj-notes {
+  margin: 6px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel);
+}
+.proj-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+.proj-notes-head .spacer {
+  flex: 1;
+}
+.proj-notes-body {
+  padding: 2px 14px 10px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.pn-h {
+  font-weight: 600;
+  margin: 8px 0 2px;
+}
+.pn-h1 {
+  font-size: 15px;
+}
+.pn-h2 {
+  font-size: 14px;
+}
+.pn-h3,
+.pn-h4,
+.pn-h5,
+.pn-h6 {
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+.pn-p {
+  margin: 4px 0;
+}
+.pn-li {
+  display: flex;
+  gap: 6px;
+  margin: 1px 0;
+}
+.pn-bullet {
+  color: var(--fg-muted);
+  flex: none;
+}
+.pn-done {
+  text-decoration: line-through;
+  color: var(--fg-muted);
+}
 .bulk-pop {
   width: 380px;
 }

@@ -9,6 +9,7 @@ import {
   projectApi,
 } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { ProjectNotes } from './ProjectNotes.tsx';
 
 const ZOOMS = [14, 18, 22, 28, 36];
 const DEFAULT_DAY = 22; // px per workday — one tiny box per day
@@ -269,6 +270,8 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                 ))}
               </div>
             )}
+
+            <ProjectNotes path={model.project.path} onOpenNote={onOpenNote} />
 
             <Calendar model={model} day={day} onOpenNote={onOpenNote} onPatch={patch} />
           </>
