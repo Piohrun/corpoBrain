@@ -11,8 +11,19 @@ const proxied: string[] = [];
 
 beforeAll(async () => {
   target = http.createServer((req, res) => {
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ path: req.url, auth: req.headers.authorization ?? null }));
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      res.setHeader('content-type', 'application/json');
+      res.end(
+        JSON.stringify({
+          path: req.url,
+          method: req.method,
+          auth: req.headers.authorization ?? null,
+          body: Buffer.concat(chunks).toString('utf8'),
+        }),
+      );
+    });
   });
   proxy = http.createServer((req, res) => {
     // absolute-form http proxying
@@ -59,6 +70,20 @@ describe('createProxyFetch', () => {
     expect(body.path).toBe('/rest/api/2/serverInfo?x=1');
     expect(body.auth).toBe('Bearer T');
     expect(proxied.some((l) => l.includes(`GET http://127.0.0.1:${targetPort}/rest`))).toBe(true);
+  });
+
+  it('forwards PUT/POST bodies (write-back goes through the proxy too)', async () => {
+    const pf = createProxyFetch(`http://127.0.0.1:${proxyPort}`);
+    const payload = JSON.stringify({ fields: { assignee: { name: 'jdoe' } } });
+    const res = await pf(`http://127.0.0.1:${targetPort}/rest/api/2/issue/EXEC-1`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    expect(res.ok).toBe(true);
+    const echo = (await res.json()) as { method: string; body: string };
+    expect(echo.method).toBe('PUT');
+    expect(echo.body).toBe(payload);
   });
 
   it('https targets attempt a CONNECT tunnel and surface proxy refusals', async () => {

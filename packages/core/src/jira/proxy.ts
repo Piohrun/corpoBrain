@@ -65,7 +65,21 @@ function toHeaderRecord(init?: RequestInit): Record<string, string> {
   return out;
 }
 
-function runRequest(req: http.ClientRequest, signal: AbortSignal | undefined): Promise<Response> {
+/** fetch() body → bytes. The adapter only ever sends JSON strings. */
+function bodyBytes(body: RequestInit['body']): Buffer | null {
+  if (body === undefined || body === null) return null;
+  if (typeof body === 'string') return Buffer.from(body, 'utf8');
+  if (body instanceof Uint8Array) return Buffer.from(body);
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (body instanceof URLSearchParams) return Buffer.from(body.toString(), 'utf8');
+  throw new TypeError('proxy fetch: unsupported body type (use a string or bytes)');
+}
+
+function runRequest(
+  req: http.ClientRequest,
+  signal: AbortSignal | undefined,
+  body: Buffer | null,
+): Promise<Response> {
   return new Promise((resolve, reject) => {
     const onAbort = () =>
       req.destroy(signal?.reason instanceof Error ? signal.reason : new Error('aborted'));
@@ -95,7 +109,8 @@ function runRequest(req: http.ClientRequest, signal: AbortSignal | undefined): P
       signal?.removeEventListener('abort', onAbort);
       reject(e);
     });
-    req.end();
+    if (body) req.setHeader('Content-Length', body.length);
+    req.end(body ?? undefined);
   });
 }
 
@@ -110,6 +125,7 @@ export function createProxyFetch(proxyUrl: string): FetchFn {
     const signal = init?.signal ?? undefined;
     const headers = toHeaderRecord(init);
     const method = init?.method ?? 'GET';
+    const body = bodyBytes(init?.body);
 
     if (url.protocol === 'http:') {
       // absolute-form via the proxy
@@ -120,7 +136,7 @@ export function createProxyFetch(proxyUrl: string): FetchFn {
         path: url.href,
         headers: { ...headers, Host: url.host, ...proxyAuthHeader(proxy) },
       });
-      return runRequest(req, signal ?? undefined);
+      return runRequest(req, signal ?? undefined, body);
     }
 
     const port = Number(url.port) || 443;
@@ -133,7 +149,7 @@ export function createProxyFetch(proxyUrl: string): FetchFn {
       headers: { ...headers, Host: url.host },
       createConnection: () => tls.connect({ socket, servername: url.hostname }),
     });
-    return runRequest(req, signal ?? undefined);
+    return runRequest(req, signal ?? undefined, body);
   };
   return proxyFetch as FetchFn;
 }
