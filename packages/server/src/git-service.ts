@@ -153,11 +153,35 @@ export class GitService {
   }
 }
 
-export function startAutoCommit(git: GitService, intervalMinutes: number): () => void {
+/**
+ * One auto-commit tick. `changeSeq` is the vault's write counter: when it has
+ * not moved since the last tick there is nothing to commit and git is not
+ * run at all — `git add -A` over a few thousand files every ten minutes is
+ * exactly the kind of idle CPU (and antivirus scan) a laptop on a call
+ * should not pay for. Returns whether git was invoked.
+ */
+export function autoCommitTick(
+  git: GitService,
+  state: { lastSeq: number | null },
+  changeSeq: () => number,
+): Promise<string | null> | null {
+  const seq = changeSeq();
+  if (state.lastSeq === seq) return null;
+  state.lastSeq = seq;
+  return git.commitAll(`vault: auto-commit ${new Date().toISOString()}`);
+}
+
+export function startAutoCommit(
+  git: GitService,
+  intervalMinutes: number,
+  changeSeq: () => number,
+): () => void {
   if (intervalMinutes <= 0) return () => {};
+  // first tick always looks: whatever was dirty before this process started
+  const state = { lastSeq: null as number | null };
   const timer = setInterval(
     () => {
-      void git.commitAll(`vault: auto-commit ${new Date().toISOString()}`);
+      void autoCommitTick(git, state, changeSeq);
     },
     intervalMinutes * 60 * 1000,
   );

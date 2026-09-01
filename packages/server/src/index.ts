@@ -18,7 +18,7 @@ if (vault.config.git.autoCommit) {
   const git = gitFor(vaultRoot);
   void git.ensureRepo().then((ok) => {
     if (ok) {
-      startAutoCommit(git, vault.config.git.intervalMinutes);
+      startAutoCommit(git, vault.config.git.intervalMinutes, () => vault.changeSeq);
       console.log(`git auto-commit every ${vault.config.git.intervalMinutes}m`);
     } else {
       console.log('git not available — vault history disabled');

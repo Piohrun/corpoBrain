@@ -45,6 +45,8 @@ export class VaultService {
    * external edit of that file.
    */
   private selfWrites = new Map<string, number>();
+  /** Bumped on every write we make and every external change the watcher sees. */
+  changeSeq = 0;
 
   constructor(
     readonly root: string,
@@ -98,6 +100,7 @@ export class VaultService {
     this.watcher = watchVault(this.root, (paths) => {
       const external = paths.filter((p) => !this.consumeSelfWrite(p));
       if (!external.length) return;
+      this.changeSeq++;
       const summary = this.indexer.updatePaths(external);
       if (summary.indexed.length || summary.removed.length) {
         for (const fn of this.listeners) fn([...summary.indexed, ...summary.removed]);
@@ -111,6 +114,7 @@ export class VaultService {
   }
 
   private markSelfWrite(p: string): void {
+    this.changeSeq++;
     const now = Date.now();
     for (const [k, at] of this.selfWrites)
       if (now - at > SELF_WRITE_TTL_MS) this.selfWrites.delete(k);

@@ -29,6 +29,27 @@ describe('GitService', () => {
     expect(log[1]?.message).toBe('vault: initial commit');
   });
 
+  it('auto-commit tick skips git entirely while the change counter is still', async () => {
+    const git = new GitService(root);
+    writeFileSync(join(root, 'a.md'), 'one\n');
+    expect(await git.ensureRepo()).toBe(true);
+    let seq = 0;
+    const state = { lastSeq: null as number | null };
+    const { autoCommitTick } = await import('../src/git-service.ts');
+    // first tick always looks (something may be dirty from before this process)
+    writeFileSync(join(root, 'a.md'), 'two\n');
+    expect(await autoCommitTick(git, state, () => seq)).toMatch(/^[0-9a-f]{7,}$/);
+    // nothing written since: git is not even asked
+    writeFileSync(join(root, 'a.md'), 'three\n'); // an edit the counter did not see
+    expect(autoCommitTick(git, state, () => seq)).toBeNull();
+    expect((await git.log())[0]?.message).toContain('auto-commit');
+    expect((await git.log()).length).toBe(2);
+    // the counter moves: the pending edit gets committed
+    seq++;
+    expect(await autoCommitTick(git, state, () => seq)).toMatch(/^[0-9a-f]{7,}$/);
+    expect((await git.log()).length).toBe(3);
+  });
+
   it('is harmless without a repo when git dir is a plain folder', async () => {
     const git = new GitService(root);
     expect(await git.isRepo()).toBe(false);
