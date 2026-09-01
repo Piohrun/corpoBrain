@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DEFAULT_CONFIG, type VaultConfig } from '../src/config.ts';
+import { DEFAULT_CONFIG, type JiraProfile, type VaultConfig } from '../src/config.ts';
 import { openDb } from '../src/db.ts';
 import { Indexer } from '../src/indexer.ts';
 import type { JiraSprint, RawIssue } from '../src/jira/adapter.ts';
@@ -149,7 +149,7 @@ describe('JiraSync', () => {
       ...config,
       jira: {
         ...config.jira,
-        profiles: [{ ...config.jira.profiles[0]!, name: 'other', boards: [9] }],
+        profiles: [{ ...(config.jira.profiles[0] as JiraProfile), name: 'other', boards: [9] }],
       },
     };
     const otherAdapter = new FakeAdapter();
