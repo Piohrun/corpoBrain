@@ -15,7 +15,6 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
   const [config, setConfig] = useState<JiraConfig | null>(null);
   const [issues, setIssues] = useState<JiraIssueRow[]>([]);
   const [sprints, setSprints] = useState<SprintRow[]>([]);
-  const [error, _setError] = useState<string | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -51,8 +50,8 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
           </span>
         )}
         <span className="spacer" />
-        {(error || syncError || syncStatus?.lastSyncError) && (
-          <span className="plan-error">{error ?? syncError ?? syncStatus?.lastSyncError}</span>
+        {(syncError || syncStatus?.lastSyncError) && (
+          <span className="plan-error">{syncError ?? syncStatus?.lastSyncError}</span>
         )}
         {!syncing && lastSyncSummary(syncStatus) && (
           <span className="muted small">{lastSyncSummary(syncStatus)}</span>
@@ -101,16 +100,44 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
 
 // --------------------------------------------------------------- settings
 
+/** a profile row with a stable client id and its boards as typed (not yet parsed) */
+type DraftProfile = JiraProfileCfg & { rowId: string; boardsText: string };
+let profileSeq = 0;
+const toDraftProfile = (p: JiraProfileCfg): DraftProfile => ({
+  ...p,
+  rowId: `p${++profileSeq}`,
+  boardsText: p.boards.join(','),
+});
+const parseBoards = (text: string): number[] =>
+  text
+    .split(',')
+    .map((x) => Number(x.trim()))
+    .filter((x) => Number.isInteger(x) && x > 0);
+
 function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => void }) {
   const [open, setOpen] = useState(!config.baseUrl);
   const [draft, setDraft] = useState<JiraConfig>(config);
+  const [profiles, setProfiles] = useState<DraftProfile[]>(() =>
+    config.profiles.map(toDraftProfile),
+  );
+  /** unsaved edits: a background refresh must not wipe them */
+  const [dirty, setDirty] = useState(false);
   const [token, setToken] = useState('');
   const [email, setEmail] = useState('');
   const [probe, setProbe] = useState<string | null>(null);
   const [probeOk, setProbeOk] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => setDraft(config), [config]);
+  useEffect(() => {
+    if (dirty) return;
+    setDraft(config);
+    setProfiles(config.profiles.map(toDraftProfile));
+  }, [config, dirty]);
+
+  const edit = (patch: Partial<JiraConfig>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+    setDirty(true);
+  };
 
   const save = () => {
     setSaving(true);
@@ -125,12 +152,16 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
         estimateField: draft.estimateField,
         estimateUnit: draft.estimateUnit,
         writeback: draft.writeback,
-        profiles: draft.profiles,
+        profiles: profiles.map(({ rowId: _id, boardsText, ...p }) => ({
+          ...p,
+          boards: parseBoards(boardsText),
+        })),
         ...(token ? { token } : {}),
         ...(email ? { email } : {}),
       })
       .then(() => {
         setToken('');
+        setDirty(false);
         onSaved();
       })
       .catch((e: Error) => {
@@ -154,11 +185,10 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
       });
   };
 
-  const setProfile = (i: number, patch: Partial<JiraProfileCfg>) =>
-    setDraft((d) => ({
-      ...d,
-      profiles: d.profiles.map((p, idx) => (idx === i ? { ...p, ...patch } : p)),
-    }));
+  const setProfile = (rowId: string, patch: Partial<DraftProfile>) => {
+    setProfiles((rows) => rows.map((p) => (p.rowId === rowId ? { ...p, ...patch } : p)));
+    setDirty(true);
+  };
 
   return (
     <section>
@@ -175,20 +205,20 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               id="j-url"
               placeholder="https://jira.yourcompany.com"
               value={draft.baseUrl}
-              onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
+              onChange={(e) => edit({ baseUrl: e.target.value })}
             />
             <label htmlFor="j-proxy">proxy (optional)</label>
             <input
               id="j-proxy"
               placeholder="http://proxy.yourco.com:8080 — leave empty for direct / env vars"
               value={draft.proxyUrl}
-              onChange={(e) => setDraft({ ...draft, proxyUrl: e.target.value })}
+              onChange={(e) => edit({ proxyUrl: e.target.value })}
             />
             <label htmlFor="j-auth">auth</label>
             <select
               id="j-auth"
               value={draft.auth}
-              onChange={(e) => setDraft({ ...draft, auth: e.target.value as JiraConfig['auth'] })}
+              onChange={(e) => edit({ auth: e.target.value as JiraConfig['auth'] })}
             >
               <option value="bearer">Bearer token (Data Center PAT)</option>
               <option value="basic">Basic: email + API token (Cloud)</option>
@@ -218,8 +248,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               placeholder="EXEC, OPS"
               value={draft.projectKeys.join(', ')}
               onChange={(e) =>
-                setDraft({
-                  ...draft,
+                edit({
                   projectKeys: e.target.value
                     .split(',')
                     .map((k) => k.trim())
@@ -232,15 +261,13 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               id="j-est"
               placeholder="customfield_10016"
               value={draft.estimateField}
-              onChange={(e) => setDraft({ ...draft, estimateField: e.target.value })}
+              onChange={(e) => edit({ estimateField: e.target.value })}
             />
             <label htmlFor="j-unit">estimate unit</label>
             <select
               id="j-unit"
               value={draft.estimateUnit}
-              onChange={(e) =>
-                setDraft({ ...draft, estimateUnit: e.target.value as JiraConfig['estimateUnit'] })
-              }
+              onChange={(e) => edit({ estimateUnit: e.target.value as JiraConfig['estimateUnit'] })}
             >
               <option value="points">story points</option>
               <option value="days">days</option>
@@ -251,9 +278,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
             <select
               id="j-writeback"
               value={draft.writeback}
-              onChange={(e) =>
-                setDraft({ ...draft, writeback: e.target.value as JiraConfig['writeback'] })
-              }
+              onChange={(e) => edit({ writeback: e.target.value as JiraConfig['writeback'] })}
             >
               <option value="off">off — never write to Jira (default)</option>
               <option value="dry-run">dry-run — simulate and journal only</option>
@@ -262,48 +287,48 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
           </div>
 
           <h3 className="plan-h2">Sync profiles</h3>
-          {draft.profiles.map((p, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional; names are editable and may repeat
-            <div key={`profile-${i}`} className="profile-row">
+          {profiles.map((p) => (
+            <div key={p.rowId} className="profile-row">
               <input
                 style={{ width: 90 }}
                 placeholder="name"
-                defaultValue={p.name}
-                onBlur={(e) => setProfile(i, { name: e.target.value })}
+                aria-label="profile name"
+                value={p.name}
+                onChange={(e) => setProfile(p.rowId, { name: e.target.value })}
               />
               <input
                 style={{ flex: 1, minWidth: 200 }}
                 placeholder="JQL, e.g. project = EXEC AND updated >= -90d"
-                defaultValue={p.jql}
-                onBlur={(e) => setProfile(i, { jql: e.target.value })}
+                aria-label="profile JQL"
+                value={p.jql}
+                onChange={(e) => setProfile(p.rowId, { jql: e.target.value })}
               />
               <input
                 style={{ width: 70 }}
                 placeholder="boards"
+                aria-label="agile board ids"
                 title="Agile board ids, comma separated"
-                defaultValue={p.boards.join(',')}
-                onBlur={(e) =>
-                  setProfile(i, {
-                    boards: e.target.value
-                      .split(',')
-                      .map((x) => Number(x.trim()))
-                      .filter((x) => Number.isInteger(x) && x > 0),
-                  })
-                }
+                value={p.boardsText}
+                onChange={(e) => setProfile(p.rowId, { boardsText: e.target.value })}
               />
               <input
                 style={{ width: 55 }}
                 type="number"
+                aria-label="sync interval in minutes"
                 title="Sync every N minutes (0 = manual only)"
-                defaultValue={p.intervalMinutes}
-                onBlur={(e) => setProfile(i, { intervalMinutes: Number(e.target.value) || 0 })}
+                value={p.intervalMinutes}
+                onChange={(e) =>
+                  setProfile(p.rowId, { intervalMinutes: Number(e.target.value) || 0 })
+                }
               />
               <button
                 type="button"
                 className="risk-chip clear"
-                onClick={() =>
-                  setDraft((d) => ({ ...d, profiles: d.profiles.filter((_, idx) => idx !== i) }))
-                }
+                title="Remove this profile"
+                onClick={() => {
+                  setProfiles((rows) => rows.filter((r) => r.rowId !== p.rowId));
+                  setDirty(true);
+                }}
               >
                 ✕
               </button>
@@ -333,29 +358,27 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
           <button
             type="button"
             className="risk-chip"
-            onClick={() =>
-              setDraft((d) => ({
-                ...d,
-                profiles: [
-                  ...d.profiles,
-                  {
-                    name: `profile-${d.profiles.length + 1}`,
-                    jql: '',
-                    folder: 'jira',
-                    intervalMinutes: 0,
-                    boards: [],
-                    futureSprints: 3,
-                  },
-                ],
-              }))
-            }
+            onClick={() => {
+              setProfiles((rows) => [
+                ...rows,
+                toDraftProfile({
+                  name: `profile-${rows.length + 1}`,
+                  jql: '',
+                  folder: 'jira',
+                  intervalMinutes: 0,
+                  boards: [],
+                  futureSprints: 3,
+                }),
+              ]);
+              setDirty(true);
+            }}
           >
             + add profile
           </button>
 
           <div style={{ marginTop: 12, display: 'flex', alignItems: 'center' }}>
             <button type="button" className="plan-btn" onClick={save} disabled={saving}>
-              {saving ? 'Saving…' : 'Save settings'}
+              {saving ? 'Saving…' : dirty ? 'Save settings *' : 'Save settings'}
             </button>
             <button
               type="button"
