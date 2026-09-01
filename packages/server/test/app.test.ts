@@ -297,3 +297,35 @@ describe('jira task items', () => {
     expect(after.filter((t) => t.kind === 'task').every((t) => t.done === 0)).toBe(true);
   });
 });
+
+describe('local-only guard', () => {
+  const body = JSON.stringify({ path: 'notes/csrf.md', title: 'x' });
+  it('accepts same-origin loopback requests', async () => {
+    const res = await app.request('http://127.0.0.1:4747/api/note', {
+      method: 'POST',
+      body,
+      headers: { origin: 'http://127.0.0.1:4747', 'sec-fetch-site': 'same-origin' },
+    });
+    expect(res.status).toBe(200);
+  });
+  it('rejects a cross-site POST from another origin (CSRF)', async () => {
+    const res = await app.request('http://127.0.0.1:4747/api/note', {
+      method: 'POST',
+      body,
+      headers: { origin: 'https://evil.example', 'sec-fetch-site': 'cross-site' },
+    });
+    expect(res.status).toBe(403);
+    expect((await app.request('/api/note?path=notes/csrf.md')).status).toBe(404);
+  });
+  it('rejects a non-loopback host (DNS rebinding)', async () => {
+    const res = await app.request('http://evil.example:4747/api/notes');
+    expect(res.status).toBe(403);
+  });
+  it('rejects an Origin that is not loopback even without Sec-Fetch-Site', async () => {
+    const res = await app.request('/api/git/commit', {
+      method: 'POST',
+      headers: { origin: 'http://attacker.test' },
+    });
+    expect(res.status).toBe(403);
+  });
+});

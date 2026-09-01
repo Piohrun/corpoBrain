@@ -12,8 +12,54 @@ import { projectRoutes } from './project-routes.ts';
 import { treeRoutes } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
+
+function isLoopbackHost(hostname: string): boolean {
+  return LOOPBACK.has(hostname.toLowerCase());
+}
+
+/**
+ * Local-only guard. The server binds to 127.0.0.1, but a browser will still
+ * happily send a cross-site POST there from any web page (Hono's `c.req.json()`
+ * does not care about Content-Type, so the request is a "simple" one and needs
+ * no CORS preflight). Reject anything that is not clearly our own page:
+ *  - the request URL's host must be a loopback name (defeats DNS rebinding);
+ *  - if the browser sent an Origin, it must be loopback too;
+ *  - if the browser flagged the fetch as cross-site, refuse it.
+ */
+function isTrustedRequest(c: { req: { url: string; header: (n: string) => string | undefined } }): {
+  ok: boolean;
+  reason?: string;
+} {
+  let host: string;
+  try {
+    host = new URL(c.req.url).hostname;
+  } catch {
+    return { ok: false, reason: 'bad url' };
+  }
+  if (!isLoopbackHost(host)) return { ok: false, reason: `host ${host} is not loopback` };
+  const origin = c.req.header('origin');
+  if (origin) {
+    try {
+      if (!isLoopbackHost(new URL(origin).hostname))
+        return { ok: false, reason: `origin ${origin} is not loopback` };
+    } catch {
+      return { ok: false, reason: `origin ${origin} is not a url` };
+    }
+  }
+  const site = c.req.header('sec-fetch-site');
+  if (site === 'cross-site') return { ok: false, reason: 'cross-site request' };
+  return { ok: true };
+}
+
 export function createApp(vault?: VaultService) {
   const app = new Hono();
+
+  app.use('*', async (c, next) => {
+    const trust = isTrustedRequest(c);
+    if (!trust.ok) return c.json({ error: `forbidden: ${trust.reason}` }, 403);
+    await next();
+  });
 
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status as 400);
