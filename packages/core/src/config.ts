@@ -145,14 +145,31 @@ function merge(
   return out;
 }
 
-export function loadConfig(vaultRoot: string): VaultConfig {
+/**
+ * Load `<vault>/.corpobrain/config.json` over the defaults. Always returns a
+ * fresh object: callers mutate their config in place, and DEFAULT_CONFIG must
+ * never leak between vaults in one process. A missing file is the normal
+ * first-run case; an unreadable one is reported, not silently ignored.
+ */
+export function loadConfig(
+  vaultRoot: string,
+  warn: (msg: string) => void = console.warn,
+): VaultConfig {
+  const file = join(vaultRoot, '.corpobrain', 'config.json');
+  const base = structuredClone(DEFAULT_CONFIG) as unknown as Record<string, unknown>;
+  let raw: string;
   try {
-    const raw = readFileSync(join(vaultRoot, '.corpobrain', 'config.json'), 'utf8');
-    return merge(
-      DEFAULT_CONFIG as unknown as Record<string, unknown>,
-      JSON.parse(raw) as Record<string, unknown>,
-    ) as unknown as VaultConfig;
+    raw = readFileSync(file, 'utf8');
   } catch {
-    return DEFAULT_CONFIG;
+    return base as unknown as VaultConfig;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+      throw new Error('config must be a JSON object');
+    return merge(base, parsed as Record<string, unknown>) as unknown as VaultConfig;
+  } catch (e) {
+    warn(`${file} is not valid — using defaults (${e instanceof Error ? e.message : String(e)})`);
+    return base as unknown as VaultConfig;
   }
 }

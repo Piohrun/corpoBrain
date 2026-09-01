@@ -1,5 +1,12 @@
 /** Holds the vault state for the server: config, db, indexer, watcher. */
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import {
   Indexer,
@@ -44,8 +51,11 @@ export class VaultService {
     this.indexer.loadSprints();
   }
 
-  /** Merge partial jira settings into config.json and the live config. */
-  updateJiraConfig(partial: Partial<VaultConfig['jira']>): void {
+  /** Merge a partial section (jira / capacity / health) into config.json and the live config. */
+  updateConfig<K extends 'jira' | 'capacity' | 'health'>(
+    section: K,
+    partial: Partial<VaultConfig[K]>,
+  ): void {
     const cfgPath = join(this.root, '.corpobrain', 'config.json');
     let onDisk: Record<string, unknown> = {};
     try {
@@ -53,39 +63,10 @@ export class VaultService {
     } catch {
       onDisk = { version: 1 };
     }
-    onDisk.jira = { ...(onDisk.jira as Record<string, unknown> | undefined), ...partial };
+    onDisk[section] = { ...(onDisk[section] as Record<string, unknown> | undefined), ...partial };
     mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
     writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
-    Object.assign(this.config.jira, partial);
-  }
-
-  /** Merge partial capacity settings into config.json and the live config. */
-  updateCapacityConfig(partial: Partial<VaultConfig['capacity']>): void {
-    const cfgPath = join(this.root, '.corpobrain', 'config.json');
-    let onDisk: Record<string, unknown> = {};
-    try {
-      onDisk = JSON.parse(readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
-    } catch {
-      onDisk = { version: 1 };
-    }
-    onDisk.capacity = { ...(onDisk.capacity as Record<string, unknown> | undefined), ...partial };
-    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
-    writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
-    Object.assign(this.config.capacity, partial);
-  }
-
-  updateHealthConfig(partial: Partial<VaultConfig['health']>): void {
-    const cfgPath = join(this.root, '.corpobrain', 'config.json');
-    let onDisk: Record<string, unknown> = {};
-    try {
-      onDisk = JSON.parse(readFileSync(cfgPath, 'utf8')) as Record<string, unknown>;
-    } catch {
-      onDisk = { version: 1 };
-    }
-    onDisk.health = { ...(onDisk.health as Record<string, unknown> | undefined), ...partial };
-    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
-    writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
-    Object.assign(this.config.health, partial);
+    Object.assign(this.config[section], partial);
   }
 
   /** Store Jira credentials in the gitignored secrets file (0600). */
@@ -132,12 +113,20 @@ export class VaultService {
 
   // ------------------------------------------------------------------ notes
 
+  /**
+   * Vault-relative, forward-slash path with no way out and no way into the
+   * tool's own files. Every dot-prefixed segment is refused (.corpobrain,
+   * .git, .trash, .keystore.json, editor swap files…) — the walker never
+   * indexes those either — and the private folder is compared
+   * case-insensitively because the work laptop's filesystem is.
+   */
   private assertSafe(relPath: string): string {
     const p = toPosix(relPath).replace(/^\/+/, '');
-    if (p.includes('..') || p.startsWith('.corpobrain') || p.startsWith('.git'))
-      throw new HttpError(400, 'invalid path');
-    if (p.startsWith(`${this.config.folders.private}/`))
+    const segments = p.split('/');
+    if (segments[0]?.toLowerCase() === this.config.folders.private.toLowerCase())
       throw new HttpError(403, 'protected notes are not accessible over the API');
+    if (!p || /^[a-zA-Z]:/.test(p) || segments.some((seg) => seg === '' || seg.startsWith('.')))
+      throw new HttpError(400, 'invalid path');
     return p;
   }
 
@@ -198,7 +187,7 @@ export class VaultService {
     const trashDir = join(this.root, '.trash');
     mkdirSync(trashDir, { recursive: true });
     const trashed = join(trashDir, `${Date.now()}-${p.replace(/\//g, '__')}`);
-    writeFileAtomic(trashed, readFileSync(abs, 'utf8'));
+    copyFileSync(abs, trashed);
     unlinkSync(abs);
     this.indexer.updatePaths([p]);
   }

@@ -65,6 +65,14 @@ describe('server API', () => {
   it('refuses paths outside the vault and private/', async () => {
     expect((await app.request('/api/note?path=../etc/passwd')).status).toBe(400);
     expect((await app.request('/api/note?path=private/p.md.enc')).status).toBe(403);
+    expect((await app.request('/api/note?path=Private/p.md.enc')).status).toBe(403);
+    expect((await app.request('/api/note?path=PRIVATE/.keystore.json')).status).toBe(403);
+    expect((await app.request('/api/note?path=.corpobrain/secrets.json')).status).toBe(400);
+    expect((await app.request('/api/note?path=.Corpobrain/secrets.json')).status).toBe(400);
+    expect((await app.request('/api/note?path=notes/.hidden.md')).status).toBe(400);
+    expect((await app.request('/api/note?path=notes//a.md')).status).toBe(400);
+    expect((await app.request('/api/note?path=C:/Windows/win.ini')).status).toBe(400);
+    expect((await app.request('/api/note?path=notes/a.md')).status).toBe(200);
     const w = await app.request('/api/note', {
       method: 'PUT',
       body: JSON.stringify({ path: 'private/x.md', content: 'no' }),

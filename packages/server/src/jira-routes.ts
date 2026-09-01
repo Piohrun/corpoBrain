@@ -106,7 +106,7 @@ export function jiraRoutes(v: VaultService): Hono {
           futureSprints: Number.isInteger(Number(p.futureSprints)) ? Number(p.futureSprints) : 3,
         }));
     }
-    if (Object.keys(partial).length) v.updateJiraConfig(partial);
+    if (Object.keys(partial).length) v.updateConfig('jira', partial);
     if (token !== undefined || email !== undefined) {
       v.saveJiraSecrets({
         ...(token !== undefined && token !== '' ? { token } : {}),

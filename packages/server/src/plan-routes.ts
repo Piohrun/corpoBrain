@@ -501,7 +501,7 @@ export function planRoutes(v: VaultService): Hono {
     }
     if (body.unit && ['days', 'points', 'hours'].includes(body.unit))
       partial.unit = body.unit as typeof v.config.capacity.unit;
-    if (Object.keys(partial).length) v.updateCapacityConfig(partial);
+    if (Object.keys(partial).length) v.updateConfig('capacity', partial);
     const h = (body as { health?: Record<string, unknown> }).health;
     if (h) {
       const hp: Partial<typeof v.config.health> = {};
@@ -512,7 +512,7 @@ export function planRoutes(v: VaultService): Hono {
           hp[k] = n;
         }
       }
-      if (Object.keys(hp).length) v.updateHealthConfig(hp);
+      if (Object.keys(hp).length) v.updateConfig('health', hp);
     }
     return c.json({ ok: true, capacity: v.config.capacity, health: v.config.health });
   });

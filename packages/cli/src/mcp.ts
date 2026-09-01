@@ -47,8 +47,10 @@ export function runMcpServer(vaultRoot: string): void {
   const writablePrefixes = [`${config.folders.notes}/`, `${config.folders.daily}/`];
 
   const denyPrivate = (rel: string): void => {
-    if (rel.startsWith(privatePrefix)) throw new McpError('not found'); // do not reveal existence
-    if (rel.includes('..') || rel.startsWith('/') || rel.startsWith('.'))
+    // case-insensitive: the vault may sit on a case-insensitive filesystem
+    if (rel.toLowerCase().startsWith(privatePrefix.toLowerCase())) throw new McpError('not found'); // do not reveal existence
+    const segments = rel.split('/');
+    if (!rel || /^[a-zA-Z]:/.test(rel) || segments.some((s) => s === '' || s.startsWith('.')))
       throw new McpError('invalid path');
   };
 
