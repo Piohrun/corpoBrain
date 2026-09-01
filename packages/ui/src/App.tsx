@@ -27,6 +27,13 @@ function hashPath(): string {
   return decodeURIComponent(window.location.hash.replace(/^#\//, ''));
 }
 
+/** Does the sidebar (note list, tags, tree) need refetching after this save? */
+function listsAffected(prev: NoteResponse, fresh: NoteResponse): boolean {
+  const meta = (n: NoteResponse) =>
+    JSON.stringify([n.meta?.title, n.meta?.type, n.meta?.frontmatter ?? null, n.tags]);
+  return meta(prev) !== meta(fresh);
+}
+
 export function App() {
   const [notes, setNotes] = useState<NoteListItem[]>([]);
   const [tree, setTree] = useState<TreeModel | null>(null);
@@ -145,21 +152,22 @@ export function App() {
   );
 
   // refresh backlinks/properties after a save settles
+  // Refresh backlinks/properties after a save settles. The sidebar lists
+  // (notes, tags, tree) only change when the note's title, type, tags or
+  // frontmatter did — a body edit leaves them alone, so skip the three
+  // list fetches and the 1500-row tree re-render in that case.
   const onSaved = useCallback(() => {
-    refreshLists();
     const current = noteRef.current;
-    if (current) {
-      api
-        .note(current.path)
-        .then((fresh) =>
-          setNote((prev) =>
-            prev && prev.path === fresh.path
-              ? { ...fresh, content: prev.content } // do not clobber the editor
-              : prev,
-          ),
-        )
-        .catch(() => {});
-    }
+    if (!current) return refreshLists();
+    api
+      .note(current.path)
+      .then((fresh) => {
+        const prev = noteRef.current;
+        if (!prev || prev.path !== fresh.path) return refreshLists();
+        if (listsAffected(prev, fresh)) refreshLists();
+        setNote({ ...fresh, content: prev.content }); // do not clobber the editor
+      })
+      .catch(() => refreshLists());
   }, [refreshLists]);
 
   // global shortcuts
