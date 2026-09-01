@@ -63,6 +63,8 @@ export function useJiraSync(onDone: () => void): {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** our own POST is still running: a status poll that says idle is stale */
+  const inFlight = useRef(false);
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
@@ -71,7 +73,10 @@ export function useJiraSync(onDone: () => void): {
       .jiraStatus()
       .then((st) => {
         setStatus(st);
-        if (!st.syncing && timer.current) {
+        // The interval only feeds the progress bar. Completion is decided
+        // here, but never while our POST is in flight — the first poll can
+        // land before the server has marked the sync as started.
+        if (!st.syncing && !inFlight.current && timer.current) {
           clearInterval(timer.current);
           timer.current = null;
           setSyncing(false);
@@ -92,9 +97,15 @@ export function useJiraSync(onDone: () => void): {
     (full = false) => {
       setSyncing(true);
       setError(null);
+      inFlight.current = true;
       if (!timer.current) timer.current = setInterval(poll, 700);
-      planApi.jiraSync(full).catch((e: Error) => setError(e.message));
-      poll();
+      planApi
+        .jiraSync(full)
+        .catch((e: Error) => setError(e.message))
+        .finally(() => {
+          inFlight.current = false;
+          poll(); // settles: stops the interval and fires onDone once idle
+        });
     },
     [poll],
   );
