@@ -157,7 +157,7 @@ describe('tokenCipher (surrogate-pair regression)', () => {
   it('extracts clean base64 — the lock char is two UTF-16 units', async () => {
     const { tokenCipher } = await import('../src/editor/tables.ts');
     const cipher = 'Q0JWMWFiY2RlZmdo';
-    const whole = '`🔒' + cipher + '`';
+    const whole = `\`🔒${cipher}\``;
     expect(tokenCipher(whole)).toBe(cipher);
     // the old slice(2,-1) approach would have produced a corrupted prefix:
     expect(whole.slice(2, -1)).not.toBe(cipher);

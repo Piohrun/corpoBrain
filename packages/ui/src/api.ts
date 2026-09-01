@@ -175,7 +175,6 @@ export interface BoardModel {
   columns: string[];
   people: BoardPerson[];
   issues: BoardIssue[];
-  loads: Record<string, Record<string, number>>;
 }
 
 export interface SyncProgress {
@@ -501,7 +500,7 @@ export const planApi = {
 export interface SavedView {
   path: string;
   title: string;
-  filter: { text?: string; flag?: string; sprint?: string; assignee?: string };
+  filter: { text?: string; flag?: string; sprint?: string };
 }
 
 export const viewApi = {
@@ -563,10 +562,6 @@ export const privateApi = {
       method: 'POST',
       body: JSON.stringify({ data }),
     }),
-  search: (q: string) =>
-    req<{ file: string; title: string; snippet: string }[]>(
-      `/api/private/search?q=${encodeURIComponent(q)}`,
-    ),
 };
 
 // ------------------------------------------------------------------- tree

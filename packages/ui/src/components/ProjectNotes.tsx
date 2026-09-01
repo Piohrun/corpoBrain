@@ -33,7 +33,6 @@ export function ProjectNotes({
       .then((n) => setBody(stripFrontmatter(n.content)))
       .catch(() => setBody(null));
   };
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reload when the project changes
   useEffect(load, [path]);
   useVaultEvents((paths) => {
     if (paths.includes(path)) load();

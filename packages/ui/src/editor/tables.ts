@@ -273,7 +273,7 @@ export async function encryptTableCells(
       const cell = cells[c];
       if (cell === undefined || cell.trim() === '' || isWholeToken(cell)) continue;
       const data = await encrypt(cell);
-      cells[c] = '`\u{1F512}' + data + '`';
+      cells[c] = `\`\u{1F512}${data}\``;
       encrypted++;
       changed = true;
     }
