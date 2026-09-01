@@ -375,6 +375,67 @@ function safeObj(json: string | null): Record<string, number> {
 }
 
 /** Merge a patch into an issue's plan.* frontmatter. Shared with the projects calendar. */
+const LEVELS = new Set(['low', 'medium', 'high']);
+/** Largest effort a single issue may carry, in the capacity unit (a year of days). */
+const MAX_EFFORT = 10_000;
+
+const isDay = (x: unknown): x is string =>
+  typeof x === 'string' &&
+  /^\d{4}-\d{2}-\d{2}$/.test(x) &&
+  new Date(`${x}T00:00:00Z`).toISOString().startsWith(x);
+
+/**
+ * Values reach frontmatter verbatim, so every key gets a type check here:
+ * a bad effort otherwise crashes the calendar for the whole vault, and a
+ * date the parser cannot read pins a block to the last day of the grid.
+ * Null always means "clear the field" and is accepted for every key.
+ */
+export function validatePlanValues(v: VaultService, patch: Record<string, unknown>): void {
+  const bad = (k: string, want: string): never => throwHttp(400, `plan.${k} must be ${want}`);
+  for (const [k, val] of Object.entries(patch)) {
+    if (val === null) continue;
+    switch (k) {
+      case 'sprint': {
+        const name = typeof val === 'string' ? val.trim() : '';
+        if (!name) bad(k, 'a sprint name or Backlog');
+        const known =
+          name === 'Backlog' ||
+          v.indexer.db.prepare('SELECT 1 FROM sprints WHERE name = ?').get(name) !== undefined;
+        if (!known) throwHttp(400, `plan.sprint: unknown sprint "${name}"`);
+        break;
+      }
+      case 'assignee':
+      case 'bucket':
+      case 'note':
+      case 'project':
+        if (typeof val !== 'string') bad(k, 'a string');
+        break;
+      case 'rank':
+        if (typeof val !== 'number' || !Number.isFinite(val)) bad(k, 'a finite number');
+        break;
+      case 'effort':
+        if (typeof val !== 'number' || !Number.isFinite(val) || val < 0 || val > MAX_EFFORT)
+          bad(k, `a number between 0 and ${MAX_EFFORT}`);
+        break;
+      case 'risk':
+      case 'confidence':
+        if (typeof val !== 'string' || !LEVELS.has(val)) bad(k, 'low, medium or high');
+        break;
+      case 'blocked_on':
+        if (!Array.isArray(val) || !val.every((x) => typeof x === 'string'))
+          bad(k, 'a list of issue keys');
+        break;
+      case 'start':
+        if (!isDay(val)) bad(k, 'a real YYYY-MM-DD date');
+        break;
+    }
+  }
+}
+
+function throwHttp(status: number, message: string): never {
+  throw new HttpError(status, message);
+}
+
 export function applyPlanPatch(
   v: VaultService,
   key: string,
@@ -388,6 +449,7 @@ export function applyPlanPatch(
     if (!(PLAN_KEYS as readonly string[]).includes(k))
       throw new HttpError(400, `unknown plan field: ${k}`);
   }
+  validatePlanValues(v, patch);
   const { content } = v.read(row.path);
   const fm = parseFrontmatter(content);
   const plan = {

@@ -102,10 +102,15 @@ function cellsFor(p: Person, start: number, workDays: number): number[] {
   return cells;
 }
 
+/** Longest block the grid will lay out: two working years. Anything larger is a typo. */
+const MAX_BLOCK_DAYS = 520;
+
 function wholeDays(issue: ProjectIssue, input: CalendarInput): number {
   const d =
     issue.effectiveEffort === null ? input.unestimatedDays : input.toDays(issue.effectiveEffort);
-  return Math.max(1, Math.ceil(d - 0.001));
+  // A hand-edited `effort: .inf` or a huge number must not hang cellsFor().
+  if (!Number.isFinite(d)) return Math.max(1, Math.ceil(input.unestimatedDays));
+  return Math.min(MAX_BLOCK_DAYS, Math.max(1, Math.ceil(d - 0.001)));
 }
 
 export function layoutCalendar(input: CalendarInput): CalendarLayout {

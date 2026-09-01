@@ -146,6 +146,35 @@ describe('plan writes', () => {
     ).toBe(404);
   });
 
+  it('rejects values that would corrupt the plan or crash the calendar', async () => {
+    const put = (body: Record<string, unknown>) =>
+      app.request('/api/plan/issue/EXEC-2', { method: 'PUT', body: JSON.stringify(body) });
+    for (const body of [
+      { effort: 1e12 },
+      { effort: 'lots' },
+      { effort: -1 },
+      { rank: { a: 1 } },
+      { start: 'yesterday' },
+      { start: '2026-09-31' },
+      { sprint: 'Sprint 99' },
+      { risk: 'scary' },
+      { blocked_on: 'EXEC-1' },
+      { note: 42 },
+    ]) {
+      const res = await put(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    const text = readFileSync(join(root, 'jira', 'EXEC-2.md'), 'utf8');
+    expect(text).not.toContain('lots');
+    expect(text).not.toContain('yesterday');
+    expect(
+      (await put({ effort: 3, start: '2026-09-07', risk: 'high', blocked_on: [] })).status,
+    ).toBe(200);
+    // the projects routes still answer after a large-but-legal effort
+    expect((await put({ effort: 9000 })).status).toBe(200);
+    expect((await app.request('/api/projects')).status).toBe(200);
+  });
+
   it('PUT /api/plan/person updates capacity and overrides', async () => {
     const res = await app.request('/api/plan/person', {
       method: 'PUT',
