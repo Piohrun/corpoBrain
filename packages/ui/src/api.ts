@@ -767,7 +767,8 @@ export interface PreviewRow extends StagedChange {
 export interface WriteApplyItem {
   key: string;
   field: 'sprint' | 'assignee';
-  to: string;
+  /** sprint name / Backlog, or assignee id; null clears the assignee (undo of an assignment) */
+  to: string | null;
   force?: boolean;
 }
 
@@ -778,7 +779,7 @@ export interface WriteApplyReport {
   results: {
     key: string;
     field: string;
-    to: string;
+    to: string | null;
     status: 'applied' | 'dry-run' | 'conflict' | 'error' | 'not-run';
     detail?: string;
   }[];

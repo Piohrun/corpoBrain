@@ -285,7 +285,7 @@ export function WritebackSection({
           </p>
           {report.results.map((r) => (
             <div key={`${r.key}:${r.field}`} className="muted small">
-              {r.key} {r.field} → {r.to}: <b>{r.status}</b>
+              {r.key} {r.field} → {r.to ?? 'unassigned'}: <b>{r.status}</b>
               {r.detail ? ` — ${r.detail}` : ''}
             </div>
           ))}
