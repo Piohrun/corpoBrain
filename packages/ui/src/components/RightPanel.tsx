@@ -29,16 +29,22 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
       setSprintOverrides(null);
       return;
     }
+    let cancelled = false; // a slow answer for the previous category must not land here
     fieldsApi
       .forCategory(category)
       .then((r) => {
+        if (cancelled) return;
         setFields(r.fields);
         setSprintOverrides(r.sprintOverrides);
       })
       .catch(() => {
+        if (cancelled) return;
         setFields([]);
         setSprintOverrides(null);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [category]);
 
   if (!note) return <div className="right" />;
