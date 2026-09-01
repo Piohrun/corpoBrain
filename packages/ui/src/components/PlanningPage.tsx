@@ -689,9 +689,10 @@ function BandwidthGrid({
                       {' → '}
                     </>
                   )}
-                  <EditableLoad
+                  <EditableNumber
+                    variant="load"
                     value={loadOverridden ? (row.loadOverrides[col] as number) : null}
-                    computed={computedPlanned}
+                    fallback={computedPlanned}
                     title={
                       loadOverridden
                         ? `Manual used-load override (Jira-derived would be ${computedPlanned}); empty restores`
@@ -906,70 +907,44 @@ function LoadLine({
   );
 }
 
-function EditableLoad({
-  value,
-  computed,
-  title,
-  onCommit,
-}: {
-  /** the override, or null when following the computed value */
-  value: number | null;
-  computed: number;
-  title: string;
-  onCommit: (v: number | null) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        className={`load-edit${value !== null ? ' load-overridden' : ''}`}
-        title={title}
-        onClick={() => setEditing(true)}
-      >
-        <b className="load-planned">{value ?? computed}</b>
-        {value !== null && <span className="load-pencil">✎</span>}
-      </button>
-    );
-  }
-  return (
-    <input
-      className="cap-input"
-      type="number"
-      step="0.5"
-      ref={(el) => {
-        el?.focus();
-        el?.select();
-      }}
-      defaultValue={value ?? computed}
-      onBlur={(e) => {
-        setEditing(false);
-        const v = e.target.value === '' ? null : Number(e.target.value);
-        if (v !== value) onCommit(v);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        if (e.key === 'Escape') setEditing(false);
-      }}
-    />
-  );
-}
-
+/**
+ * Click-to-edit number. `fallback` is what shows (and what the input starts
+ * from) while no explicit value is set; the load variant renders it bold with
+ * a pencil once overridden, the capacity variant as a muted placeholder.
+ */
 function EditableNumber({
   value,
+  fallback,
   placeholder,
   title,
   dimmed,
+  variant = 'cap',
   onCommit,
 }: {
   value: number | null;
+  /** shown and used as the starting input value when `value` is null */
+  fallback?: number;
   placeholder?: string;
   title?: string;
   dimmed?: boolean;
+  variant?: 'cap' | 'load';
   onCommit: (v: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   if (!editing) {
+    if (variant === 'load') {
+      return (
+        <button
+          type="button"
+          className={`load-edit${value !== null ? ' load-overridden' : ''}`}
+          title={title}
+          onClick={() => setEditing(true)}
+        >
+          <b className="load-planned">{value ?? fallback}</b>
+          {value !== null && <span className="load-pencil">✎</span>}
+        </button>
+      );
+    }
     return (
       <button
         type="button"
@@ -986,11 +961,12 @@ function EditableNumber({
       className="cap-input"
       type="number"
       step="0.5"
+      aria-label={title ?? 'value'}
       ref={(el) => {
         el?.focus();
         el?.select();
       }}
-      defaultValue={value ?? ''}
+      defaultValue={value ?? fallback ?? ''}
       placeholder={placeholder}
       onBlur={(e) => {
         setEditing(false);

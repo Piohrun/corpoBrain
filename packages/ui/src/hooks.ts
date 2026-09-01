@@ -1,22 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type JiraStatus, planApi } from './api.ts';
 
-/** Subscribe to server-sent vault change events. */
-export function useVaultEvents(onPaths: (paths: string[]) => void): void {
+type PathsListener = (paths: string[]) => void;
+
+/**
+ * One EventSource for the whole tab. Every page and panel subscribes here;
+ * opening a stream per subscriber ate the browser's per-host connection
+ * budget (six on HTTP/1.1) and queued ordinary API calls behind them.
+ */
+const listeners = new Set<PathsListener>();
+let stream: EventSource | null = null;
+
+function ensureStream(): void {
+  if (stream) return;
+  stream = new EventSource('/api/events'); // reconnects on its own after errors
+  stream.onmessage = (ev) => {
+    let paths: string[] | undefined;
+    try {
+      paths = (JSON.parse(ev.data as string) as { paths?: string[] }).paths;
+    } catch {
+      return;
+    }
+    if (!paths?.length) return;
+    for (const fn of [...listeners]) fn(paths);
+  };
+}
+
+function subscribe(fn: PathsListener): () => void {
+  listeners.add(fn);
+  ensureStream();
+  return () => {
+    listeners.delete(fn);
+    if (listeners.size === 0 && stream) {
+      stream.close();
+      stream = null;
+    }
+  };
+}
+
+/** Subscribe to server-sent vault change events (shared connection). */
+export function useVaultEvents(onPaths: PathsListener): void {
   const cb = useRef(onPaths);
   cb.current = onPaths;
-  useEffect(() => {
-    const es = new EventSource('/api/events');
-    es.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data as string) as { paths?: string[] };
-        if (data.paths?.length) cb.current(data.paths);
-      } catch {
-        /* ignore */
-      }
-    };
-    return () => es.close();
-  }, []);
+  useEffect(() => subscribe((paths) => cb.current(paths)), []);
 }
 
 /**

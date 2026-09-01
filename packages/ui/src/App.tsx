@@ -111,12 +111,9 @@ export function App() {
   const navigate = useCallback(
     (target: string) => {
       api
-        .resolve(target)
-        .then(async (r) => {
-          if (!r.exists) {
-            await api.create(r.path, target);
-            refreshLists();
-          }
+        .resolveOrCreate(target)
+        .then((r) => {
+          if (r.created) refreshLists();
           openPath(r.path);
         })
         .catch(() => {});
@@ -137,9 +134,8 @@ export function App() {
   const createNote = useCallback(
     (title: string) => {
       api
-        .resolve(title)
-        .then(async (r) => {
-          if (!r.exists) await api.create(r.path, title);
+        .resolveOrCreate(title)
+        .then((r) => {
           refreshLists();
           openPath(r.path);
         })

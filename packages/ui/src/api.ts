@@ -76,6 +76,14 @@ export const api = {
     req<{ ok: boolean }>(`/api/note?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   resolve: (target: string) =>
     req<{ path: string; exists: boolean }>(`/api/resolve?target=${encodeURIComponent(target)}`),
+  /** the path a link target opens; a missing note is created first */
+  resolveOrCreate: async (target: string): Promise<{ path: string; created: boolean }> => {
+    const r = await req<{ path: string; exists: boolean }>(
+      `/api/resolve?target=${encodeURIComponent(target)}`,
+    );
+    if (!r.exists) await api.create(r.path, target);
+    return { path: r.path, created: !r.exists };
+  },
   daily: (date?: string) =>
     req<{ path: string; created: boolean }>('/api/daily', {
       method: 'POST',

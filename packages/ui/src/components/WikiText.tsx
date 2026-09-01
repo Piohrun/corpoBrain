@@ -34,11 +34,8 @@ export function WikiText({ text, className, onOpen, onTag }: Props) {
           onClick={(e) => {
             e.stopPropagation();
             api
-              .resolve(bare)
-              .then(async (r) => {
-                if (!r.exists) await api.create(r.path, bare);
-                onOpen(r.path);
-              })
+              .resolveOrCreate(bare)
+              .then((r) => onOpen(r.path))
               .catch(() => {});
           }}
         >
