@@ -1,5 +1,10 @@
 /** The OOO / support-rota table and what it does to each sprint. */
-import { type AvailabilityEntry, adjustCapacity, type HolidayEntry } from '@corpobrain/core';
+import {
+  type AvailabilityEntry,
+  adjustCapacity,
+  type HolidayEntry,
+  isCalendarDay,
+} from '@corpobrain/core';
 import { Hono } from 'hono';
 import {
   archiveAvailability,
@@ -43,7 +48,7 @@ export interface AvailabilityResponse {
   holidayWarnings: string[];
 }
 
-const isDate = (s: unknown): s is string => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+const isDate = (s: unknown): s is string => typeof s === 'string' && isCalendarDay(s);
 
 export function availabilityRoutes(v: VaultService): Hono {
   const app = new Hono();
@@ -121,7 +126,7 @@ export function availabilityRoutes(v: VaultService): Hono {
         person,
         from: e.from,
         to,
-        kind: e.kind === 'support' ? 'support' : 'ooo',
+        kind: e.kind === 'support' || e.kind === 'holiday' ? e.kind : 'ooo',
         note: typeof e.note === 'string' ? e.note : '',
       });
     }

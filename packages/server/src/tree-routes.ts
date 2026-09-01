@@ -94,14 +94,16 @@ export function categoryFields(
   const seen = v.indexer.db
     .prepare(
       `SELECT p.key, COUNT(*) AS n FROM properties p JOIN notes n ON n.path = p.path
-       WHERE n.path LIKE ? AND n.protected = 0
+       WHERE n.path LIKE ? ESCAPE '\\' AND n.protected = 0
        GROUP BY p.key ORDER BY n DESC LIMIT 12`,
     )
-    .all(`${category}/%`) as { key: string }[];
+    .all(likePrefix(`${category}/`)) as { key: string }[];
   for (const row of seen) {
     const sample = v.indexer.db
-      .prepare('SELECT value_json FROM properties WHERE key = ? AND path LIKE ? LIMIT 1')
-      .get(row.key, `${category}/%`) as { value_json: string } | undefined;
+      .prepare(
+        "SELECT value_json FROM properties WHERE key = ? AND path LIKE ? ESCAPE '\\' LIMIT 1",
+      )
+      .get(row.key, likePrefix(`${category}/`)) as { value_json: string } | undefined;
     let kind: CategoryField['kind'] = 'text';
     try {
       kind = kindOf(JSON.parse(sample?.value_json ?? '""'));
@@ -458,60 +460,62 @@ export function treeRoutes(v: VaultService): Hono {
     if (body.type !== undefined) {
       workingPath = applyCategory(v, workingPath, body.type);
     }
-    const { content, path } = v.read(workingPath);
-    let text = content;
+    const { path } = v.read(workingPath);
+    v.patchNote(path, (content) => {
+      let text = content;
 
-    if (body.parent !== undefined) {
-      if (body.parent === null || body.parent === '') {
-        text = deleteFrontmatterKey(text, 'parent');
-      } else {
-        const target = v.resolve(body.parent);
-        if (!target.exists) throw new HttpError(404, `parent not found: ${body.parent}`);
-        if (target.path === path) throw new HttpError(400, 'a note cannot be its own parent');
-        if (isDescendant(v, target.path, path))
-          throw new HttpError(400, 'cannot move a note under its own descendant');
-        const parentTitle = (
-          v.indexer.db.prepare('SELECT title FROM notes WHERE path = ?').get(target.path) as
-            | { title: string }
-            | undefined
-        )?.title;
-        text = setFrontmatterKey(text, 'parent', `[[${parentTitle ?? target.path}]]`);
+      if (body.parent !== undefined) {
+        if (body.parent === null || body.parent === '') {
+          text = deleteFrontmatterKey(text, 'parent');
+        } else {
+          const target = v.resolve(body.parent);
+          if (!target.exists) throw new HttpError(404, `parent not found: ${body.parent}`);
+          if (target.path === path) throw new HttpError(400, 'a note cannot be its own parent');
+          if (isDescendant(v, target.path, path))
+            throw new HttpError(400, 'cannot move a note under its own descendant');
+          const parentTitle = (
+            v.indexer.db.prepare('SELECT title FROM notes WHERE path = ?').get(target.path) as
+              | { title: string }
+              | undefined
+          )?.title;
+          text = setFrontmatterKey(text, 'parent', `[[${parentTitle ?? target.path}]]`);
+        }
       }
-    }
 
-    if (body.tags !== undefined) {
-      const cleaned = [
-        ...new Set(
-          (body.tags ?? [])
-            .map((t) => String(t).trim().replace(/^#/, ''))
-            .filter((t) => /^[A-Za-z0-9_/-]+$/.test(t)),
-        ),
-      ];
-      text = cleaned.length
-        ? setFrontmatterKey(text, 'tags', cleaned)
-        : deleteFrontmatterKey(text, 'tags');
-    }
+      if (body.tags !== undefined) {
+        const cleaned = [
+          ...new Set(
+            (body.tags ?? [])
+              .map((t) => String(t).trim().replace(/^#/, ''))
+              .filter((t) => /^[A-Za-z0-9_/-]+$/.test(t)),
+          ),
+        ];
+        text = cleaned.length
+          ? setFrontmatterKey(text, 'tags', cleaned)
+          : deleteFrontmatterKey(text, 'tags');
+      }
 
-    if (body.set !== undefined) {
-      const inPeople = path.startsWith(`${v.config.folders.people}/`);
-      for (const [key, value] of Object.entries(body.set)) {
-        const reserved = RESERVED_PROP_KEYS.has(key) && !(inPeople && key === 'jira');
-        if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(key) || reserved)
-          throw new HttpError(400, `cannot set property: ${key}`);
-        if (!isPlainValue(value)) throw new HttpError(400, `unsupported value for ${key}`);
+      if (body.set !== undefined) {
+        const inPeople = path.startsWith(`${v.config.folders.people}/`);
+        for (const [key, value] of Object.entries(body.set)) {
+          const reserved = RESERVED_PROP_KEYS.has(key) && !(inPeople && key === 'jira');
+          if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(key) || reserved)
+            throw new HttpError(400, `cannot set property: ${key}`);
+          if (!isPlainValue(value)) throw new HttpError(400, `unsupported value for ${key}`);
+          text =
+            value === null ? deleteFrontmatterKey(text, key) : setFrontmatterKey(text, key, value);
+        }
+      }
+
+      if (body.order !== undefined) {
         text =
-          value === null ? deleteFrontmatterKey(text, key) : setFrontmatterKey(text, key, value);
+          body.order === null
+            ? deleteFrontmatterKey(text, 'order')
+            : setFrontmatterKey(text, 'order', body.order);
       }
-    }
 
-    if (body.order !== undefined) {
-      text =
-        body.order === null
-          ? deleteFrontmatterKey(text, 'order')
-          : setFrontmatterKey(text, 'order', body.order);
-    }
-
-    if (text !== content) v.write(path, text);
+      return text;
+    });
     if (body.set && ('region' in body.set || 'team' in body.set)) syncRegionParent(v, path);
     if (body.parent !== undefined) adoptRegionFromParent(v, path);
     const fm = parseFrontmatter(v.read(path).content).data;
@@ -553,8 +557,9 @@ export function treeRoutes(v: VaultService): Hono {
           | { title: string }
           | undefined
       )?.title;
-      const { content } = v.read(path);
-      v.write(path, setFrontmatterKey(content, 'parent', `[[${title ?? parent.path}]]`));
+      v.patchNote(path, (content) =>
+        setFrontmatterKey(content, 'parent', `[[${title ?? parent.path}]]`),
+      );
       adoptRegionFromParent(v, path);
     } else {
       const folder = body.folder ?? (path.includes('/') ? (path.split('/')[0] as string) : '');
@@ -577,13 +582,17 @@ export function treeRoutes(v: VaultService): Hono {
       const p = ordered[i] as string;
       const want = (i + 1) * 10;
       if (orderOf.get(p) === want) continue;
-      const { content } = v.read(p);
-      v.write(p, setFrontmatterKey(content, 'order', want));
+      v.patchNote(p, (content) => setFrontmatterKey(content, 'order', want));
     }
     return c.json({ ok: true, path, index: idx });
   });
 
   return app;
+}
+
+/** `prefix%` with LIKE metacharacters in the prefix escaped (pair with ESCAPE '\\'). */
+function likePrefix(prefix: string): string {
+  return `${prefix.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
 }
 
 /** Is `candidate` a descendant of `of` in the current tree? */

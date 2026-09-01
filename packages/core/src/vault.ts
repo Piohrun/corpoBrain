@@ -96,9 +96,13 @@ export function vaultFileInfo(root: string, config: VaultConfig, rel: string): V
 }
 
 /** Atomic write: temp file in the same directory, then rename. */
-export function writeFileAtomic(absPath: string, content: string): void {
+export function writeFileAtomic(
+  absPath: string,
+  content: string | Uint8Array,
+  opts: { mode?: number } = {},
+): void {
   mkdirSync(dirname(absPath), { recursive: true });
   const tmp = join(dirname(absPath), `.${Date.now()}.${process.pid}.tmp`);
-  writeFileSync(tmp, content, 'utf8');
+  writeFileSync(tmp, content, { ...(opts.mode !== undefined ? { mode: opts.mode } : {}) });
   renameSync(tmp, absPath);
 }

@@ -450,21 +450,22 @@ export function applyPlanPatch(
       throw new HttpError(400, `unknown plan field: ${k}`);
   }
   validatePlanValues(v, patch);
-  const { content } = v.read(row.path);
-  const fm = parseFrontmatter(content);
-  const plan = {
-    ...(typeof fm.data.plan === 'object' && fm.data.plan && !Array.isArray(fm.data.plan)
-      ? (fm.data.plan as Record<string, unknown>)
-      : {}),
-  };
-  for (const [k, val] of Object.entries(patch)) {
-    if (val === null) delete plan[k];
-    else plan[k] = val;
-  }
-  const updated = Object.keys(plan).length
-    ? setFrontmatterKey(content, 'plan', plan)
-    : deletePlan(content);
-  v.write(row.path, updated);
+  let plan: Record<string, unknown> = {};
+  v.patchNote(row.path, (content) => {
+    const fm = parseFrontmatter(content);
+    plan = {
+      ...(typeof fm.data.plan === 'object' && fm.data.plan && !Array.isArray(fm.data.plan)
+        ? (fm.data.plan as Record<string, unknown>)
+        : {}),
+    };
+    for (const [k, val] of Object.entries(patch)) {
+      if (val === null) delete plan[k];
+      else plan[k] = val;
+    }
+    return Object.keys(plan).length
+      ? setFrontmatterKey(content, 'plan', plan)
+      : deletePlan(content);
+  });
   return plan;
 }
 
@@ -509,6 +510,8 @@ export function planRoutes(v: VaultService): Hono {
         if (h[k] !== undefined) {
           const n = Number(h[k]);
           if (!(n > 0)) throw new HttpError(400, `health.${k} must be a positive number`);
+          if (k === 'underloadPct' && n > 1)
+            throw new HttpError(400, 'health.underloadPct is a fraction between 0 and 1');
           hp[k] = n;
         }
       }
@@ -579,39 +582,73 @@ export function planRoutes(v: VaultService): Hono {
       color?: string | null;
     };
     if (!body.path) throw new HttpError(400, 'path required');
-    const { content } = v.read(body.path);
-    let text = content;
-    if (body.capacity !== undefined) {
-      text =
-        body.capacity === null
-          ? deleteKey(text, 'capacity')
-          : setFrontmatterKey(text, 'capacity', body.capacity);
+    // only person notes carry capacity: the people folder, or type: person
+    const note = v.indexer.db.prepare('SELECT type FROM notes WHERE path = ?').get(body.path) as
+      | { type: string }
+      | undefined;
+    if (!note || note.type !== 'person')
+      throw new HttpError(400, `${body.path} is not a person note`);
+    const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
+    const numberMap = (x: unknown, what: string): Record<string, number> => {
+      if (!x || typeof x !== 'object' || Array.isArray(x))
+        throw new HttpError(400, `${what} must be an object of sprint → number`);
+      for (const [k, val] of Object.entries(x as Record<string, unknown>)) {
+        if (!finite(val) || val < 0)
+          throw new HttpError(400, `${what}["${k}"] must be a non-negative number`);
+      }
+      return x as Record<string, number>;
+    };
+    if (
+      body.capacity !== undefined &&
+      body.capacity !== null &&
+      !(finite(body.capacity) && body.capacity >= 0)
+    )
+      throw new HttpError(400, 'capacity must be a non-negative number or null');
+    const overrides =
+      body.overrides === undefined ? undefined : numberMap(body.overrides, 'overrides');
+    const loadOverrides =
+      body.loadOverrides === undefined ? undefined : numberMap(body.loadOverrides, 'loadOverrides');
+    if (body.active !== undefined && typeof body.active !== 'boolean')
+      throw new HttpError(400, 'active must be true or false');
+    for (const k of ['region', 'team'] as const) {
+      if (body[k] !== undefined && body[k] !== null && typeof body[k] !== 'string')
+        throw new HttpError(400, `${k} must be a string or null`);
     }
-    if (body.overrides !== undefined) {
-      text = Object.keys(body.overrides).length
-        ? setFrontmatterKey(text, 'capacity_overrides', body.overrides)
-        : deleteKey(text, 'capacity_overrides');
-    }
-    if (body.color !== undefined) {
-      if (body.color && !/^#[0-9a-fA-F]{6}$/.test(body.color))
-        throw new HttpError(400, 'color must be a #rrggbb hex value');
-      text = body.color ? setFrontmatterKey(text, 'color', body.color) : deleteKey(text, 'color');
-    }
-    if (body.loadOverrides !== undefined) {
-      text = Object.keys(body.loadOverrides).length
-        ? setFrontmatterKey(text, 'load_overrides', body.loadOverrides)
-        : deleteKey(text, 'load_overrides');
-    }
-    if (body.active !== undefined) text = setFrontmatterKey(text, 'active', body.active);
-    if (body.region !== undefined) {
-      text = body.region
-        ? setFrontmatterKey(text, 'region', body.region)
-        : deleteKey(text, 'region');
-    }
-    if (body.team !== undefined) {
-      text = body.team ? setFrontmatterKey(text, 'team', body.team) : deleteKey(text, 'team');
-    }
-    v.write(body.path, text);
+    if (body.color !== undefined && body.color && !/^#[0-9a-fA-F]{6}$/.test(body.color))
+      throw new HttpError(400, 'color must be a #rrggbb hex value');
+
+    v.patchNote(body.path, (content) => {
+      let text = content;
+      if (body.capacity !== undefined) {
+        text =
+          body.capacity === null
+            ? deleteKey(text, 'capacity')
+            : setFrontmatterKey(text, 'capacity', body.capacity);
+      }
+      if (overrides !== undefined) {
+        text = Object.keys(overrides).length
+          ? setFrontmatterKey(text, 'capacity_overrides', overrides)
+          : deleteKey(text, 'capacity_overrides');
+      }
+      if (body.color !== undefined) {
+        text = body.color ? setFrontmatterKey(text, 'color', body.color) : deleteKey(text, 'color');
+      }
+      if (loadOverrides !== undefined) {
+        text = Object.keys(loadOverrides).length
+          ? setFrontmatterKey(text, 'load_overrides', loadOverrides)
+          : deleteKey(text, 'load_overrides');
+      }
+      if (body.active !== undefined) text = setFrontmatterKey(text, 'active', body.active);
+      if (body.region !== undefined) {
+        text = body.region
+          ? setFrontmatterKey(text, 'region', body.region)
+          : deleteKey(text, 'region');
+      }
+      if (body.team !== undefined) {
+        text = body.team ? setFrontmatterKey(text, 'team', body.team) : deleteKey(text, 'team');
+      }
+      return text;
+    });
     if (body.region !== undefined || body.team !== undefined) syncRegionParent(v, body.path);
     return c.json({ ok: true });
   });

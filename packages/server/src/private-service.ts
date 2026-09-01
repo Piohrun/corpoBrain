@@ -3,7 +3,7 @@
  * plaintext live in memory only; an in-memory FTS index exists while
  * unlocked and is destroyed on lock. Locked notes expose nothing.
  */
-import { readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
@@ -18,6 +18,7 @@ import {
   parseFrontmatter,
   saveKeystore,
   unlockKeystore,
+  writeFileAtomic,
 } from '@corpobrain/core';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -152,8 +153,9 @@ export class PrivateService {
     const key = this.requireUnlocked();
     const name = file ?? opaqueName();
     assertOpaque(name);
-    // atomic-ish: encrypted blob is small; write directly with restrictive mode
-    writeFileSync(join(this.dir(), name), encryptNote(key, content), { mode: 0o600 });
+    // atomic (temp + rename): a crash mid-write must not leave a half blob —
+    // private/ is git-ignored, so there is no history to recover from
+    writeFileAtomic(join(this.dir(), name), encryptNote(key, content), { mode: 0o600 });
     if (this.mem) {
       this.mem.prepare('DELETE FROM fts WHERE file = ?').run(name);
       this.mem

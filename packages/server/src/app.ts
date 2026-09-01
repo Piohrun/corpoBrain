@@ -63,6 +63,8 @@ export function createApp(vault?: VaultService) {
 
   app.onError((err, c) => {
     if (err instanceof HttpError) return c.json({ error: err.message }, err.status as 400);
+    if (err instanceof SyntaxError)
+      return c.json({ error: `invalid JSON body: ${err.message}` }, 400);
     console.error(err);
     return c.json({ error: 'internal error' }, 500);
   });

@@ -4,6 +4,7 @@ import {
   absencesBySprint,
   adjustCapacity,
   civilDay,
+  normalizeDate,
   parseAvailability,
   personCell,
   renderAvailabilityTable,
@@ -219,5 +220,18 @@ describe('sprint days from Jira timestamps', () => {
       '2026-09-10',
       '2026-09-11',
     ]);
+  });
+});
+
+describe('normalizeDate', () => {
+  it('accepts ISO and day-first spreadsheet forms, never the locale-dependent Date parser', () => {
+    expect(normalizeDate('2026-09-01')).toBe('2026-09-01');
+    expect(normalizeDate('1.9.2026')).toBe('2026-09-01');
+    expect(normalizeDate('01/09/2026')).toBe('2026-09-01');
+    expect(normalizeDate('01-09-2026')).toBe('2026-09-01'); // not January 9th
+    expect(normalizeDate('1 Sep 2026')).toBeNull();
+    expect(normalizeDate('2026/09/01')).toBeNull();
+    expect(normalizeDate('2026-09-31')).toBeNull(); // does not roll into October
+    expect(normalizeDate('31.02.2026')).toBeNull();
   });
 });

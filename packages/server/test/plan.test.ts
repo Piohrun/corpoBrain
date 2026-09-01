@@ -514,3 +514,47 @@ describe('tree order carries into planning', () => {
     ]);
   });
 });
+
+describe('write guards', () => {
+  it('PUT /api/plan/person only touches person notes and checks value types', async () => {
+    const put = (body: unknown) =>
+      app.request('/api/plan/person', { method: 'PUT', body: JSON.stringify(body) });
+    mkdirSync(join(root, 'projects'), { recursive: true });
+    writeFileSync(join(root, 'projects', 'falcon.md'), '---\ntype: project\n---\n# Falcon\n');
+    vault.indexer.update();
+    expect((await put({ path: 'projects/falcon.md', capacity: 3 })).status).toBe(400);
+    expect(readFileSync(join(root, 'projects', 'falcon.md'), 'utf8')).not.toContain('capacity');
+    for (const body of [
+      { capacity: 'abc' },
+      { capacity: -1 },
+      { overrides: [1, 2] },
+      { overrides: { 'Sprint 37': 'x' } },
+      { active: 'yes' },
+      { region: 5 },
+    ]) {
+      const res = await put({ path: 'people/anna.md', ...body });
+      expect(res.status, JSON.stringify(body)).toBe(400);
+    }
+    expect((await put({ path: 'people/anna.md', capacity: 6 })).status).toBe(200);
+  });
+
+  it('refuses to patch a note whose frontmatter does not parse', async () => {
+    writeFileSync(
+      join(root, 'people', 'broken.md'),
+      '---\ntype: person\ntitle: [oops\n---\n# Broken\n',
+    );
+    vault.indexer.update();
+    const res = await app.request('/api/plan/person', {
+      method: 'PUT',
+      body: JSON.stringify({ path: 'people/broken.md', capacity: 5 }),
+    });
+    expect(res.status).toBe(409);
+    expect(readFileSync(join(root, 'people', 'broken.md'), 'utf8')).not.toContain('capacity');
+  });
+
+  it('malformed JSON is a 400, not a 500', async () => {
+    const res = await app.request('/api/plan/person', { method: 'PUT', body: '{not json' });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain('invalid JSON');
+  });
+});

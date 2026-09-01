@@ -56,19 +56,33 @@ export function personCell(raw: string): string {
   return (link?.[1] ?? raw).replace(/\*\*/g, '').trim();
 }
 
+/** A real calendar day as YYYY-MM-DD (2026-09-31 is not one). */
+export function isCalendarDay(s: string): boolean {
+  return DATE_RE.test(s) && new Date(`${s}T00:00:00Z`).toISOString().startsWith(s);
+}
+
+/**
+ * ISO, or the day-first forms a spreadsheet paste produces (1.9.2026,
+ * 01/09/2026, 1-9-2026). Nothing else: `new Date('1 Sep 2026')` would parse in
+ * the server's timezone and land on the day before, and '01-09-2026' as
+ * January 9th. Impossible dates are rejected rather than rolled over.
+ */
 export function normalizeDate(raw: string): string | null {
   const s = raw.trim();
-  if (DATE_RE.test(s)) return s;
-  // tolerate what a spreadsheet paste produces
-  const dmy = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/.exec(s);
+  if (DATE_RE.test(s)) return isCalendarDay(s) ? s : null;
+  const dmy = /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$/.exec(s);
   if (dmy) {
     const [, d, m, y] = dmy as unknown as [string, string, string, string];
-    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    const iso = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    return isCalendarDay(iso) ? iso : null;
   }
-  const parsed = new Date(s);
-  return Number.isFinite(parsed.getTime()) && /\d{4}/.test(s)
-    ? parsed.toISOString().slice(0, 10)
-    : null;
+  return null;
+}
+
+/** Today (or `d`) as YYYY-MM-DD in the machine's local timezone — what a daily note means by "today". */
+export function localDay(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
 /** Read the availability table out of a note. Malformed rows are reported, not thrown. */

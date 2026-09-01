@@ -3,7 +3,9 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -12,7 +14,9 @@ import {
   Indexer,
   JIRA_KEY_RE,
   loadConfig,
+  localDay,
   openDb,
+  parseFrontmatter,
   toPosix,
   type UpdateSummary,
   type VaultConfig,
@@ -161,6 +165,30 @@ export class VaultService {
     return this.indexer.updatePaths([p]);
   }
 
+  /**
+   * Property-level edit of a note's frontmatter (SPEC §4). A note whose
+   * frontmatter does not parse is never written to by the tool — patching it
+   * would silently destroy whatever the user was in the middle of — so the
+   * caller gets a 409 and the user fixes it in the editor first. Writes only
+   * when `mutate` changed something.
+   */
+  patchNote(
+    relPath: string,
+    mutate: (content: string) => string,
+  ): { path: string; changed: boolean } {
+    const { path, content } = this.read(relPath);
+    const fm = parseFrontmatter(content);
+    if (fm.error)
+      throw new HttpError(
+        409,
+        `${path}: frontmatter cannot be parsed (${fm.error}) — fix it in the editor first`,
+      );
+    const next = mutate(content);
+    if (next === content) return { path, changed: false };
+    this.write(path, next);
+    return { path, changed: true };
+  }
+
   /** Move/rename a note within the vault. Links by title keep resolving. */
   move(fromRel: string, toRel: string): void {
     const from = this.assertSafe(fromRel);
@@ -190,6 +218,7 @@ export class VaultService {
     copyFileSync(abs, trashed);
     unlinkSync(abs);
     this.indexer.updatePaths([p]);
+    pruneTrash(trashDir);
   }
 
   /**
@@ -228,7 +257,7 @@ export class VaultService {
   }
 
   dailyPath(date?: string): string {
-    const d = date ?? new Date().toISOString().slice(0, 10);
+    const d = date ?? localDay();
     return `${this.config.folders.daily}/${d}.md`;
   }
 
@@ -244,7 +273,7 @@ export class VaultService {
   }
 
   private templateFor(title: string, type?: string): string {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDay();
     if (type) {
       const tpl = join(this.root, this.config.folders.templates, `${type}.md`);
       if (existsSync(tpl)) {
@@ -256,6 +285,22 @@ export class VaultService {
       return `---\ntype: ${type}\ntitle: ${JSON.stringify(title)}\ncreated: ${today}\n---\n\n# ${title}\n\n`;
     }
     return `---\ntitle: ${JSON.stringify(title)}\ncreated: ${today}\n---\n\n# ${title}\n\n`;
+  }
+}
+
+/** .trash is a safety net, not an archive (git has the history): drop entries older than 30 days. */
+const TRASH_KEEP_MS = 30 * 86_400_000;
+function pruneTrash(trashDir: string): void {
+  try {
+    const cutoff = Date.now() - TRASH_KEEP_MS;
+    for (const f of readdirSync(trashDir)) {
+      const stamp = Number(/^(\d+)-/.exec(f)?.[1]);
+      const abs = join(trashDir, f);
+      const old = Number.isFinite(stamp) ? stamp < cutoff : statSync(abs).mtimeMs < cutoff;
+      if (old) unlinkSync(abs);
+    }
+  } catch {
+    /* best effort */
   }
 }
 

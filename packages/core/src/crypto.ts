@@ -15,8 +15,9 @@ import {
   scryptSync,
   timingSafeEqual,
 } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeFileAtomic } from './vault.ts';
 
 const MAGIC = Buffer.from('CBV1');
 const VERSION = 1;
@@ -178,9 +179,14 @@ export function loadKeystore(vaultRoot: string, privateFolder: string): Keystore
 }
 
 export function saveKeystore(vaultRoot: string, privateFolder: string, keystore: Keystore): void {
-  writeFileSync(keystorePath(vaultRoot, privateFolder), `${JSON.stringify(keystore, null, 2)}\n`, {
-    mode: 0o600,
-  });
+  // atomic: losing the keystore loses every protected note
+  writeFileAtomic(
+    keystorePath(vaultRoot, privateFolder),
+    `${JSON.stringify(keystore, null, 2)}\n`,
+    {
+      mode: 0o600,
+    },
+  );
 }
 
 /** Opaque filename for a new protected note. */

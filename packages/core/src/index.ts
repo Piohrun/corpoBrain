@@ -12,6 +12,8 @@ export {
   civilDay,
   dayStart,
   endExclusive,
+  isCalendarDay,
+  localDay,
   parseAvailability,
   personCell,
   renderAvailabilityTable,
@@ -93,23 +95,8 @@ export type { AdapterLike, SyncProgress, SyncReport } from './jira/sync.ts';
 export { JiraSync, jqlDate } from './jira/sync.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';
 export { convertEffort, issueRiskFlags } from './planning.ts';
-export type {
-  ForecastInput,
-  ForecastResult,
-  ProjectDef,
-  ProjectIssue,
-  ProjectRollup,
-  ScheduledBlock,
-  SprintWindow,
-} from './projects.ts';
-export {
-  addWorkingDays,
-  forecastProject,
-  layoutPlan,
-  projectOf,
-  rollupProject,
-  workingDaysBetween,
-} from './projects.ts';
+export type { ProjectDef, ProjectIssue, ProjectRollup } from './projects.ts';
+export { addWorkingDays, projectOf, rollupProject, workingDaysBetween } from './projects.ts';
 export type { HeadingRef, LinkKind, LinkRef, ScanOptions, ScanResult, TaskRef } from './scan.ts';
 export { maskInlineCode, scanMarkdown } from './scan.ts';
 export { generateUlid } from './ulid.ts';

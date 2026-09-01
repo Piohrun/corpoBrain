@@ -7,6 +7,7 @@ import {
   type EffortUnit,
   endExclusive,
   layoutCalendar,
+  localDay,
   normalizeCountry,
   type ProjectDef,
   type ProjectIssue,
@@ -20,7 +21,7 @@ import {
   weekdaysIn,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
-import { readHolidays } from './availability.ts';
+import { readHolidays, resolvePerson } from './availability.ts';
 import { applyPlanPatch, type BoardIssue, type BoardModel, buildBoard } from './plan-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -263,17 +264,8 @@ function awayByAssignee(
     entries = [];
   }
   const daySet = new Map(days.map((d, i) => [d, i]));
-  const norm = (x: string) => x.trim().toLowerCase();
-  const basename = (p: string) => (p.split('/').pop() ?? p).replace(/\.md$/i, '');
   for (const e of entries) {
-    const n = norm(e.person);
-    const person = board.people.find(
-      (p) =>
-        norm(p.name) === n ||
-        norm(p.path) === n ||
-        norm(basename(p.path)) === n ||
-        p.jiraIds.some((id) => norm(id) === n),
-    );
+    const person = resolvePerson(e.person, board.people);
     if (!person) continue;
     const rowKeys = person.jiraIds.length ? person.jiraIds : [`person:${person.path}`];
     const to = new Date(`${e.to}T00:00:00Z`);
@@ -333,7 +325,7 @@ function calendarInput(
       away: away.merged,
       toDays: (e) => convertEffort(e, unit, 'days', cap) ?? e,
       unestimatedDays: UNESTIMATED_DAYS,
-      notBefore: Math.max(dayIndexOf(days, new Date().toISOString().slice(0, 10)), 0),
+      notBefore: Math.max(dayIndexOf(days, localDay()), 0),
     },
     away,
   };
@@ -427,16 +419,13 @@ export function projectRoutes(v: VaultService): Hono {
       });
     }
 
-    const todayIdx = dayIndexOf(input.days, new Date().toISOString().slice(0, 10));
+    const todayIdx = dayIndexOf(input.days, localDay());
     const today = todayIdx >= 0 && todayIdx < input.days.length ? todayIdx : null;
 
     // ---- rows: roster first, then anyone with a block, unassigned last ------
     const roster = def.people
-      .map((raw) => {
-        const n = raw.trim().toLowerCase();
-        return board.people.find((p) => p.name.toLowerCase() === n || p.path.toLowerCase() === n);
-      })
-      .filter((p): p is NonNullable<typeof p> => p !== undefined);
+      .map((raw) => resolvePerson(raw, board.people))
+      .filter((p): p is NonNullable<typeof p> => p !== null);
     const rows: CalendarModel['rows'] = [];
     const seen = new Set<string>();
     const addRow = (assignee: string, inRoster: boolean) => {
@@ -605,25 +594,27 @@ export function projectRoutes(v: VaultService): Hono {
       }
       return out;
     };
-    let { content } = v.read(body.path);
     const rules: Record<RuleKind, string[]> = {
       epics: def.epics,
       labels: def.labels,
       keys: def.keys,
     };
-    for (const kind of RULE_KINDS) {
-      const add = cleaned(kind, body.add?.[kind]);
-      const remove = new Set(cleaned(kind, body.remove?.[kind]));
-      const next = [
-        ...rules[kind].filter((x) => !remove.has(x)),
-        ...add.filter((x) => !rules[kind].includes(x)),
-      ];
-      if (next.length === rules[kind].length && next.every((x, i) => x === rules[kind][i]))
-        continue;
-      rules[kind] = next;
-      content = setFrontmatterKey(content, kind, next);
-    }
-    v.write(body.path, content);
+    v.patchNote(body.path, (content) => {
+      let text = content;
+      for (const kind of RULE_KINDS) {
+        const add = cleaned(kind, body.add?.[kind]);
+        const remove = new Set(cleaned(kind, body.remove?.[kind]));
+        const next = [
+          ...rules[kind].filter((x) => !remove.has(x)),
+          ...add.filter((x) => !rules[kind].includes(x)),
+        ];
+        if (next.length === rules[kind].length && next.every((x, i) => x === rules[kind][i]))
+          continue;
+        rules[kind] = next;
+        text = setFrontmatterKey(text, kind, next);
+      }
+      return text;
+    });
     return c.json({ ok: true, rules });
   });
 
@@ -639,15 +630,11 @@ export function projectRoutes(v: VaultService): Hono {
     const people: string[] = [];
     for (const raw of body.people) {
       if (typeof raw !== 'string') throw new HttpError(400, 'people must be strings');
-      const n = raw.trim().toLowerCase();
-      const person = board.people.find(
-        (p) => p.path.toLowerCase() === n || p.name.toLowerCase() === n,
-      );
+      const person = resolvePerson(raw, board.people);
       if (!person) throw new HttpError(400, `"${raw}" does not match a person note`);
       if (!people.includes(person.name)) people.push(person.name);
     }
-    const { content } = v.read(body.path);
-    v.write(body.path, setFrontmatterKey(content, 'people', people));
+    v.patchNote(body.path, (content) => setFrontmatterKey(content, 'people', people));
     return c.json({ ok: true, people });
   });
 

@@ -87,7 +87,11 @@ export function resolveAvailability(
   return {
     entries,
     warnings,
-    byPerson: absencesBySprint(resolved, sprints, v.config.availability.supportFactor),
+    byPerson: absencesBySprint(
+      resolved,
+      sprints,
+      Math.min(1, Math.max(0, v.config.availability.supportFactor)),
+    ),
   };
 }
 
@@ -162,6 +166,16 @@ export function saveAvailability(v: VaultService, entries: AvailabilityEntry[]):
   return file;
 }
 
+/** The same calendar day `months` back, clamped to that month's length (31 May − 3 → 28/29 Feb, not 3 Mar). */
+export function monthsAgo(from: Date, months: number): string {
+  const y = from.getFullYear();
+  const m = from.getMonth() - months;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const d = new Date(y, m, Math.min(from.getDate(), lastDay));
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /**
  * Move entries that ended more than `months` ago into per-year archive notes
  * (`availability-2025.md` beside the main note), keeping the working table
@@ -173,9 +187,7 @@ export function archiveAvailability(
 ): { archived: number; files: string[] } {
   const existing = readAvailability(v);
   if (existing.content === null) return { archived: 0, files: [] };
-  const cutoffDate = new Date();
-  cutoffDate.setUTCMonth(cutoffDate.getUTCMonth() - months);
-  const cutoff = cutoffDate.toISOString().slice(0, 10);
+  const cutoff = monthsAgo(new Date(), months);
   const old = existing.entries.filter((e) => e.to < cutoff);
   if (!old.length) return { archived: 0, files: [] };
   const keep = existing.entries.filter((e) => e.to >= cutoff);
