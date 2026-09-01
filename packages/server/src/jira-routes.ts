@@ -307,7 +307,14 @@ export async function runSync(
     lastReports = reports;
     lastSyncError = null;
     v.indexer.loadSprints();
-    v.indexer.update();
+    // Re-index what the sync wrote, not the whole vault: a full walk stats
+    // every file, which on a laptop with antivirus is the expensive part.
+    const touched = reports.flatMap((r) => [
+      ...r.created.map((k) => `${profileFolder(v, r.profile)}/${k}.md`),
+      ...r.updated.map((k) => `${profileFolder(v, r.profile)}/${k}.md`),
+      ...r.peopleCreated,
+    ]);
+    if (touched.length) v.indexer.updatePaths(touched);
     v.notifyJiraChanged(reports);
     return reports;
   } catch (e) {
@@ -317,6 +324,10 @@ export async function runSync(
     liveProgress = null;
     syncInFlight = false;
   }
+}
+
+function profileFolder(v: VaultService, name: string): string {
+  return v.config.jira.profiles.find((p) => p.name === name)?.folder ?? v.config.folders.jira;
 }
 
 /** Background scheduler honouring each profile's intervalMinutes. */
