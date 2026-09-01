@@ -8,34 +8,60 @@ export function PrivatePage() {
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  /** text that was being edited when the session auto-locked; restored after unlock */
+  const stash = useRef<{ file: string; content: string } | null>(null);
 
   const refresh = useCallback(() => {
     privateApi
       .status()
       .then((s) => {
         setStatus(s);
-        if (s.unlocked)
+        if (s.unlocked) {
           privateApi
             .list()
             .then(setNotes)
             .catch(() => {});
-        else {
+          const kept = stash.current;
+          if (kept) {
+            stash.current = null;
+            setCurrent(kept);
+            setDirty(true);
+          }
+        } else {
+          // keep whatever is in the textarea so an auto-lock does not eat it
+          if (textRef.current && current && !stash.current) {
+            stash.current = { file: current.file, content: textRef.current.value };
+          }
           setNotes([]);
           setCurrent(null);
         }
       })
       .catch(() => {});
-  }, []);
+  }, [current]);
   useEffect(refresh, [refresh]);
+
+  // the server locks itself after idle time; notice before the next click fails
+  useEffect(() => {
+    if (!status?.unlocked) return;
+    const t = setInterval(refresh, 30_000);
+    return () => clearInterval(t);
+  }, [status?.unlocked, refresh]);
+
+  /** a 401 means the session locked underneath us: back to the unlock form, draft kept */
+  const onFailure = useCallback(
+    (e: Error) => {
+      setError(e.message);
+      if (/locked/i.test(e.message)) refresh();
+    },
+    [refresh],
+  );
 
   const act = useCallback(
     (fn: () => Promise<unknown>) => {
       setError(null);
-      fn()
-        .then(refresh)
-        .catch((e: Error) => setError(e.message));
+      fn().then(refresh).catch(onFailure);
     },
-    [refresh],
+    [refresh, onFailure],
   );
 
   const save = useCallback(() => {
@@ -47,8 +73,8 @@ export function PrivatePage() {
         setDirty(false);
         refresh();
       })
-      .catch((e: Error) => setError(e.message));
-  }, [current, refresh]);
+      .catch(onFailure);
+  }, [current, refresh, onFailure]);
 
   if (!status)
     return (
@@ -75,7 +101,10 @@ export function PrivatePage() {
                 ? 'Encrypted with your passphrase. Locked notes are invisible to search and agents.'
                 : 'Set a passphrase (min 8 chars) to create your encrypted space. There is no recovery if you forget it.'}
             </p>
-            <input name="pass" type="password" placeholder="Passphrase" />
+            {stash.current && (
+              <p className="muted small">Your unsaved text is kept and comes back after unlock.</p>
+            )}
+            <input name="pass" type="password" placeholder="Passphrase" aria-label="Passphrase" />
             <button type="submit" className="plan-btn">
               {status.initialized ? 'Unlock' : 'Create'}
             </button>
@@ -143,6 +172,7 @@ export function PrivatePage() {
               <textarea
                 ref={textRef}
                 key={current.file}
+                aria-label="Protected note text"
                 defaultValue={current.content}
                 onChange={() => setDirty(true)}
                 spellCheck={false}
