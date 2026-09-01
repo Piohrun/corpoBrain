@@ -15,6 +15,8 @@ interface Props {
   onTreeChanged: (moved?: { from: string; to: string }) => void;
 }
 
+const ERROR_TTL = 6000;
+
 export function Sidebar({
   tree,
   tags,
@@ -30,6 +32,12 @@ export function Sidebar({
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [tagged, setTagged] = useState<{ path: string; title: string }[]>([]);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!treeError) return;
+    const t = setTimeout(() => setTreeError(null), ERROR_TTL);
+    return () => clearTimeout(t);
+  }, [treeError]);
 
   useEffect(() => {
     if (!tagFilter) {
@@ -132,12 +140,14 @@ export function Sidebar({
           </>
         ) : (
           <>
+            {treeError && <div className="plan-error tree-error">{treeError}</div>}
             {tree && (
               <NoteTree
                 tree={tree}
                 currentPath={currentPath}
                 onOpen={onOpen}
                 onChanged={onTreeChanged}
+                onError={setTreeError}
               />
             )}
             {tags.length > 0 && (

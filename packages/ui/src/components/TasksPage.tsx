@@ -38,6 +38,7 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
   const [newText, setNewText] = useState('');
   const [newDue, setNewDue] = useState('');
   const [newKind, setNewKind] = useState<Kind>('task');
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     api
@@ -61,9 +62,10 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
       .then(() => {
         setNewText('');
         setNewDue('');
+        setError(null);
         refresh();
       })
-      .catch(() => {});
+      .catch((e: Error) => setError(e.message));
   }, [newText, newDue, newKind, refresh]);
 
   useEffect(refresh, [refresh]);
@@ -71,12 +73,17 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
 
   const toggle = useCallback(
     (t: TaskItem) => {
-      fetch('/api/task/toggle', {
-        method: 'POST',
-        body: JSON.stringify({ path: t.path, line: t.line }),
-      })
-        .then(refresh)
-        .catch(() => {});
+      api
+        .toggleTask(t.path, t.line)
+        .then(() => {
+          setError(null);
+          refresh();
+        })
+        .catch((e: Error) => {
+          // 409: the note moved under us — refetch so the box reflects the file
+          setError(e.message);
+          refresh();
+        });
     },
     [refresh],
   );
@@ -112,6 +119,7 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
                   <input
                     type="checkbox"
                     className={kind === 'jira' ? 'jira-box' : ''}
+                    aria-label={`done: ${t.text}`}
                     checked={t.done === 1}
                     onChange={() => toggle(t)}
                   />
@@ -198,6 +206,7 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
           + Add
         </button>
         <span className="spacer" />
+        {error && <span className="plan-error">{error}</span>}
         <label className="muted small">
           <input
             type="checkbox"

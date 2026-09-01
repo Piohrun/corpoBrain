@@ -86,8 +86,19 @@ export const api = {
   tags: () => req<TagCount[]>('/api/tags'),
   tag: (tag: string) =>
     req<{ path: string; title: string }[]>(`/api/tag?tag=${encodeURIComponent(tag)}`),
-  tasks: (done?: boolean) =>
-    req<TaskItem[]>(`/api/tasks${done === undefined ? '' : `?done=${done}`}`),
+  tasks: () => req<TaskItem[]>('/api/tasks'),
+  /** flip a `- [ ]` line; 409 when the note changed under the task list */
+  toggleTask: (path: string, line: number) =>
+    req<{ ok: boolean }>('/api/task/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ path, line }),
+    }),
+  /** create a note of a given type from its template (POST /api/note with type) */
+  createTyped: (path: string, title: string, type: string) =>
+    req<{ path: string }>('/api/note', {
+      method: 'POST',
+      body: JSON.stringify({ path, title, type }),
+    }),
 };
 
 // ---------------------------------------------------------------- planning
@@ -574,6 +585,9 @@ export interface TreeModel {
 
 export const treeApi = {
   get: () => req<TreeModel>('/api/tree'),
+  /** move/nest/reorder a note in the tree; returns its (possibly new) path */
+  place: (body: { path: string; parent?: string | null; folder?: string | null; index?: number }) =>
+    req<{ path: string }>('/api/tree/place', { method: 'POST', body: JSON.stringify(body) }),
   meta: (body: {
     path: string;
     type?: string | null;
@@ -593,6 +607,44 @@ export interface CategoryField {
   kind: 'text' | 'number' | 'boolean' | 'list';
   source: 'builtin' | 'template' | 'seen';
 }
+
+export interface TypeCount {
+  type: string;
+  count: number;
+}
+
+export interface ObjectRow {
+  path: string;
+  title: string;
+  mtime: number;
+  frontmatter: Record<string, unknown>;
+}
+
+export const objectsApi = {
+  types: () => req<TypeCount[]>('/api/objects/types'),
+  list: (type: string) => req<ObjectRow[]>(`/api/objects/list?type=${encodeURIComponent(type)}`),
+};
+
+export interface PersonMention {
+  srcPath: string;
+  srcTitle: string;
+  mtime: number;
+  line: number;
+  snippet: string;
+}
+
+export interface PersonOverview {
+  person: BoardPerson;
+  unit: string;
+  columns: string[];
+  issues: BoardIssue[];
+  mentions: PersonMention[];
+  tasks: { path: string; line: number; text: string; due: string | null; title: string }[];
+}
+
+export const personApi = {
+  overview: (path: string) => req<PersonOverview>(`/api/person?path=${encodeURIComponent(path)}`),
+};
 
 export const fieldsApi = {
   forCategory: (category: string) =>

@@ -1,27 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { BoardIssue, BoardPerson } from '../api.ts';
+import { type PersonOverview, personApi } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { useVaultEvents } from '../hooks.ts';
 
-interface Mention {
-  srcPath: string;
-  srcTitle: string;
-  mtime: number;
-  line: number;
-  snippet: string;
-}
-
-interface Overview {
-  person: BoardPerson;
-  unit: string;
-  columns: string[];
-  issues: BoardIssue[];
-  mentions: Mention[];
-  tasks: { path: string; line: number; text: string; due: string | null; title: string }[];
-}
-
 export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: string) => void }) {
-  const [data, setData] = useState<Overview | null>(null);
+  const [data, setData] = useState<PersonOverview | null>(null);
   const [open, setOpen] = useState(() => {
     try {
       return localStorage.getItem('cb.personPanel') !== 'closed';
@@ -30,13 +13,31 @@ export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: str
     }
   });
 
+  // not every person note has an overview (hubs, brand-new notes): a failed
+  // load simply hides the panel, but a stale response for a previous path
+  // must never be shown for this one
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      personApi
+        .overview(path)
+        .then((d) => {
+          if (!cancelled) setData(d);
+        })
+        .catch(() => {
+          if (!cancelled) setData(null);
+        });
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
   const refresh = useCallback(() => {
-    fetch(`/api/person?path=${encodeURIComponent(path)}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setData(d as Overview | null))
+    personApi
+      .overview(path)
+      .then(setData)
       .catch(() => setData(null));
   }, [path]);
-  useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
 
   if (!data) return null;

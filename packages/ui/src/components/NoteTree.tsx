@@ -1,12 +1,13 @@
 import type React from 'react';
 import { useCallback, useEffect, useState } from 'react';
-import type { TreeModel, TreeNode } from '../api.ts';
+import { type TreeModel, type TreeNode, treeApi } from '../api.ts';
 
 interface Props {
   tree: TreeModel;
   currentPath: string | null;
   onOpen: (path: string) => void;
   onChanged: (moved?: { from: string; to: string }) => void;
+  onError?: (message: string) => void;
 }
 
 const LS_KEY = 'corpobrain.collapsed';
@@ -33,7 +34,7 @@ function loadCollapsed(): Set<string> {
   }
 }
 
-export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
+export function NoteTree({ tree, currentPath, onOpen, onChanged, onError }: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(loadCollapsed);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [spot, setSpot] = useState<DropSpot | null>(null);
@@ -57,15 +58,14 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged }: Props) {
 
   const placeNote = useCallback(
     (body: { path: string; parent?: string | null; folder?: string | null; index?: number }) => {
-      fetch('/api/tree/place', { method: 'POST', body: JSON.stringify(body) })
-        .then(async (r) => {
-          if (!r.ok) return;
-          const json = (await r.json()) as { path: string };
-          onChanged(json.path !== body.path ? { from: body.path, to: json.path } : undefined);
-        })
-        .catch(() => {});
+      treeApi
+        .place(body)
+        .then((json) =>
+          onChanged(json.path !== body.path ? { from: body.path, to: json.path } : undefined),
+        )
+        .catch((e: Error) => onError?.(e.message));
     },
-    [onChanged],
+    [onChanged, onError],
   );
 
   const posFromEvent = (e: React.DragEvent, canNest: boolean): DropPos => {

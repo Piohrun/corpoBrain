@@ -1,23 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api, type ObjectRow, objectsApi, type TypeCount } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
-
-interface TypeCount {
-  type: string;
-  count: number;
-}
-
-interface ObjectRow {
-  path: string;
-  title: string;
-  mtime: number;
-  frontmatter: Record<string, unknown>;
-}
-
-async function fetchJson<T>(url: string): Promise<T> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${r.status}`);
-  return (await r.json()) as T;
-}
 
 const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
 
@@ -26,24 +9,51 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
   const [selected, setSelected] = useState<string | null>(null);
   const [rows, setRows] = useState<ObjectRow[]>([]);
   const [groupBy, setGroupBy] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
-    fetchJson<TypeCount[]>('/api/objects/types')
+    objectsApi
+      .types()
       .then((t) => {
         setTypes(t);
         setSelected((s) => s ?? t.find((x) => x.type !== 'note')?.type ?? t[0]?.type ?? null);
+        setError(null);
       })
-      .catch(() => {});
+      .catch((e: Error) => setError(e.message));
   }, []);
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
 
   useEffect(() => {
     if (!selected) return;
-    fetchJson<ObjectRow[]>(`/api/objects/list?type=${encodeURIComponent(selected)}`)
-      .then(setRows)
-      .catch(() => setRows([]));
+    let cancelled = false; // a slower earlier list must not overwrite this one
+    objectsApi
+      .list(selected)
+      .then((r) => {
+        if (!cancelled) setRows(r);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        setRows([]);
+        setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [selected]);
+
+  const create = (type: string, title: string, then: () => void) => {
+    const folder =
+      type === 'person' ? 'people' : type === 'note' || type === 'daily' ? 'notes' : type;
+    const safe = title.replace(/[\\:*?"<>|/]/g, '-');
+    api
+      .createTyped(`${folder}/${safe}.md`, title, type)
+      .then(() => {
+        setError(null);
+        then();
+      })
+      .catch((e: Error) => setError(e.message));
+  };
 
   const columns = useMemo(() => {
     const keys = new Map<string, number>();
@@ -97,7 +107,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
               .replace(/[^a-z0-9-]+/g, '-');
             const title = window.prompt(`Title of the first ${t} note:`);
             if (!title?.trim()) return;
-            createTyped(t, title.trim(), () => {
+            create(t, title.trim(), () => {
               setSelected(t);
               refresh();
             });
@@ -112,14 +122,20 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
             onClick={() => {
               const title = window.prompt(`Title of the new ${selected} note:`);
               if (!title?.trim()) return;
-              createTyped(selected, title.trim(), refresh);
+              create(selected, title.trim(), refresh);
             }}
           >
             + new {selected}
           </button>
         )}
         <span className="spacer" />
-        <select className="cell-input" value={groupBy} onChange={(e) => setGroupBy(e.target.value)}>
+        {error && <span className="plan-error">{error}</span>}
+        <select
+          className="cell-input"
+          aria-label="group by"
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value)}
+        >
           <option value="">no grouping</option>
           {columns.map((c) => (
             <option key={c}>{c}</option>
@@ -168,18 +184,6 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
       </div>
     </div>
   );
-}
-
-function createTyped(type: string, title: string, done: () => void): void {
-  const folder =
-    type === 'person' ? 'people' : type === 'note' || type === 'daily' ? 'notes' : type;
-  const safe = title.replace(/[\\:*?"<>|/]/g, '-');
-  fetch('/api/note', {
-    method: 'POST',
-    body: JSON.stringify({ path: `${folder}/${safe}.md`, title, type }),
-  })
-    .then(done)
-    .catch(() => {});
 }
 
 function formatValue(v: unknown): string {
