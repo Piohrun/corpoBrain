@@ -89,13 +89,14 @@ export function PrivatePage() {
         <div className="empty-state">
           <form
             className="unlock-box"
+            aria-labelledby="private-title"
             onSubmit={(e) => {
               e.preventDefault();
               const input = (e.currentTarget.elements.namedItem('pass') as HTMLInputElement).value;
               act(() => (status.initialized ? privateApi.unlock(input) : privateApi.init(input)));
             }}
           >
-            <h2>🔒 Protected notes</h2>
+            <h2 id="private-title">🔒 Protected notes</h2>
             <p className="muted">
               {status.initialized
                 ? 'Encrypted with your passphrase. Locked notes are invisible to search and agents.'

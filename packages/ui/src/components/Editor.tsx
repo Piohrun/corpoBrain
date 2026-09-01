@@ -408,6 +408,9 @@ export function Editor({
         >
           <form
             className="unlock-box"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unlock-title"
             onSubmit={(e) => {
               e.preventDefault();
               const input = (e.currentTarget.elements.namedItem('pass') as HTMLInputElement).value;
@@ -415,10 +418,11 @@ export function Editor({
               setPassRequest(null);
             }}
           >
-            <h2>🔒 Unlock secrets</h2>
+            <h2 id="unlock-title">🔒 Unlock secrets</h2>
             <input
               name="pass"
               type="password"
+              aria-label="Passphrase"
               placeholder="Passphrase"
               ref={(el) => el?.focus()}
               onKeyDown={(e) => {

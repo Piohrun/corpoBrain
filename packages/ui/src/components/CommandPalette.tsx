@@ -79,10 +79,16 @@ export function CommandPalette({ open, notes, commands, onOpen, onClose, onCreat
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="palette">
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Open or create a note">
         <input
           ref={inputRef}
           value={query}
+          role="combobox"
+          aria-label="Open note or run a command"
+          aria-expanded="true"
+          aria-controls="palette-list"
+          aria-autocomplete="list"
+          aria-activedescendant={items[selected] ? `palette-item-${selected}` : undefined}
           placeholder="Open note… (start with > for commands)"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -102,11 +108,14 @@ export function CommandPalette({ open, notes, commands, onOpen, onClose, onCreat
             }
           }}
         />
-        <div className="palette-list">
+        <div className="palette-list" id="palette-list" role="listbox">
           {items.map((item, i) => (
             <button
               type="button"
               key={item.key}
+              id={`palette-item-${i}`}
+              role="option"
+              aria-selected={i === selected}
               className={`palette-item${i === selected ? ' selected' : ''}`}
               onMouseEnter={() => setSelected(i)}
               onClick={() => {

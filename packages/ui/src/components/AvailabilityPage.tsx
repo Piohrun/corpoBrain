@@ -214,6 +214,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <input
                       className="cell-input"
                       list="avail-people"
+                      aria-label="person"
                       value={e.person}
                       onChange={(ev) => edit(i, { person: ev.target.value })}
                     />
@@ -222,6 +223,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <input
                       className="cell-input"
                       type="date"
+                      aria-label="from"
                       value={e.from}
                       onChange={(ev) => edit(i, { from: ev.target.value })}
                     />
@@ -230,6 +232,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <input
                       className="cell-input"
                       type="date"
+                      aria-label="to"
                       value={e.to}
                       onChange={(ev) => edit(i, { to: ev.target.value })}
                     />
@@ -237,6 +240,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                   <td>
                     <select
                       className="cell-input"
+                      aria-label="type"
                       value={e.kind}
                       onChange={(ev) =>
                         edit(i, { kind: ev.target.value as AvailabilityEntry['kind'] })
@@ -249,6 +253,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                   <td>
                     <input
                       className="cell-input wide"
+                      aria-label="note"
                       value={e.note}
                       onChange={(ev) => edit(i, { note: ev.target.value })}
                     />
@@ -327,6 +332,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <input
                       className="cell-input"
                       list="hol-countries"
+                      aria-label="country"
                       value={h.country}
                       onChange={(ev) => editHoliday(i, { country: ev.target.value })}
                     />
@@ -335,6 +341,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <input
                       className="cell-input"
                       type="date"
+                      aria-label="from"
                       value={h.from}
                       onChange={(ev) => editHoliday(i, { from: ev.target.value })}
                     />
@@ -343,6 +350,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <input
                       className="cell-input"
                       type="date"
+                      aria-label="to"
                       value={h.to}
                       onChange={(ev) => editHoliday(i, { to: ev.target.value })}
                     />
@@ -350,6 +358,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                   <td>
                     <input
                       className="cell-input wide"
+                      aria-label="holiday name"
                       value={h.name}
                       onChange={(ev) => editHoliday(i, { name: ev.target.value })}
                     />

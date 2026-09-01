@@ -2122,11 +2122,10 @@ tr.wb-conflict td {
 }
 .cal-resize {
   position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 7px;
+  width: 8px;
   cursor: ew-resize;
+  border-radius: 0 4px 4px 0;
+  z-index: 3;
 }
 .cal-resize:hover {
   background: color-mix(in srgb, var(--accent) 35%, transparent);

@@ -582,6 +582,11 @@ function Calendar({
                     height: ROW - 8,
                   }}
                   onPointerDown={(e) => startDrag(e, b, 'move')}
+                  onClick={(e) => {
+                    // keyboard activation (Enter/Space) has detail 0; pointer
+                    // clicks are handled by the drag logic on pointerup
+                    if (e.detail === 0) onOpenNote(b.path);
+                  }}
                   title={`${b.key} — ${b.summary ?? ''}\n${b.workDays}d${b.estimated ? '' : ' (no estimate)'}${
                     b.awayDays
                       ? `, stretched over ${b.awayDays} away day${b.awayDays === 1 ? '' : 's'}`
@@ -593,12 +598,26 @@ function Calendar({
                   {b.clamped && <span className="cal-clamp">◂</span>}
                   <span className="tl-key">{b.key}</span>
                   {b.span * DAY > DAY * 4 && <span className="tl-sum">{b.summary}</span>}
-                  <span
-                    className="cal-resize"
-                    onPointerDown={(e) => startDrag(e, b, 'resize')}
-                    title="Drag to change the planned effort"
-                  />
                 </button>
+              );
+            })}
+            {/* resize grips sit beside their block, not inside it: a button
+                must not contain another interactive element */}
+            {model.blocks.map((b) => {
+              const ri = rowIndex.get(b.assignee) ?? model.rows.length - 1;
+              return (
+                <span
+                  key={`grip:${b.key}`}
+                  className="cal-resize"
+                  role="presentation"
+                  style={{
+                    left: (b.start + b.span) * DAY - 8,
+                    top: ri * ROW + 4,
+                    height: ROW - 8,
+                  }}
+                  onPointerDown={(e) => startDrag(e, b, 'resize')}
+                  title="Drag to change the planned effort"
+                />
               );
             })}
             {drag?.moved && (
@@ -683,7 +702,10 @@ function Calendar({
                     true,
                   )
                 }
-                title={`${b.key} — ${b.summary ?? ''}\n${b.days}d · drag onto the grid to schedule`}
+                onClick={(e) => {
+                  if (e.detail === 0) onOpenNote(b.path); // keyboard: open the issue
+                }}
+                title={`${b.key} — ${b.summary ?? ''}\n${b.days}d · drag onto the grid to schedule · Enter opens`}
               >
                 <span className="tl-key">{b.key}</span>
                 <span className="tl-sum">{b.summary}</span>

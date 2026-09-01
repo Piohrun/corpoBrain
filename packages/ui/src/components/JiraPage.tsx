@@ -469,14 +469,25 @@ function SprintsSection({
       <div className="sprint-create">
         <input
           placeholder="New local sprint name…"
+          aria-label="New local sprint name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') create();
           }}
         />
-        <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-        <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+        <input
+          type="date"
+          aria-label="sprint start"
+          value={start}
+          onChange={(e) => setStart(e.target.value)}
+        />
+        <input
+          type="date"
+          aria-label="sprint end"
+          value={end}
+          onChange={(e) => setEnd(e.target.value)}
+        />
         <button type="button" className="plan-btn" onClick={create}>
           + Create local sprint
         </button>
@@ -577,6 +588,7 @@ function IssuesSection({
         <input
           className="plan-filter"
           placeholder="Filter…"
+          aria-label="Filter issues"
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
