@@ -6,6 +6,7 @@ import {
   type WriteApplyReport,
   writebackApi,
 } from '../api.ts';
+import { useVaultEvents } from '../hooks.ts';
 
 export function WritebackSection({
   config,
@@ -34,6 +35,8 @@ export function WritebackSection({
       .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
+  // plan edits elsewhere (planning grid, calendar) change what is staged
+  useVaultEvents(refresh);
 
   const mode = config.writeback;
   const modeLabel =

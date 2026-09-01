@@ -49,9 +49,14 @@ export function Sidebar({
     }
     let cancelled = false;
     const t = setTimeout(() => {
-      api.search(query).then((h) => {
-        if (!cancelled) setHits(h);
-      });
+      api
+        .search(query)
+        .then((h) => {
+          if (!cancelled) setHits(h);
+        })
+        .catch(() => {
+          if (!cancelled) setHits([]);
+        });
     }, 150);
     return () => {
       cancelled = true;
@@ -75,6 +80,7 @@ export function Sidebar({
       <div className="sidebar-search">
         <input
           placeholder="Search…"
+          aria-label="Search notes"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
