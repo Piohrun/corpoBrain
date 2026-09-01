@@ -74,6 +74,27 @@ export function walkVault(root: string, config: VaultConfig): VaultFile[] {
   return out;
 }
 
+/**
+ * Stat one vault-relative path with the same ignore rules as walkVault():
+ * null when it is not an indexable file (wrong extension, ignored folder,
+ * missing, or a directory).
+ */
+export function vaultFileInfo(root: string, config: VaultConfig, rel: string): VaultFile | null {
+  const isNote = rel.endsWith('.md');
+  const isProtected = rel.endsWith('.md.enc');
+  if (!isNote && !isProtected) return null;
+  const segments = rel.split('/');
+  if (segments.some((seg) => seg.startsWith('.') || ALWAYS_IGNORED.has(seg))) return null;
+  if (config.ignore.some((g) => matchesGlob(rel, g))) return null;
+  try {
+    const st = statSync(join(root, rel));
+    if (!st.isFile()) return null;
+    return { path: rel, mtimeMs: st.mtimeMs, size: st.size, protected: isProtected };
+  } catch {
+    return null;
+  }
+}
+
 /** Atomic write: temp file in the same directory, then rename. */
 export function writeFileAtomic(absPath: string, content: string): void {
   mkdirSync(dirname(absPath), { recursive: true });

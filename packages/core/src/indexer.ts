@@ -7,7 +7,7 @@ import type { VaultConfig } from './config.ts';
 import { parseFrontmatter, setFrontmatterKey } from './frontmatter.ts';
 import { scanMarkdown } from './scan.ts';
 import { generateUlid } from './ulid.ts';
-import { type VaultFile, walkVault, writeFileAtomic } from './vault.ts';
+import { type VaultFile, vaultFileInfo, walkVault, writeFileAtomic } from './vault.ts';
 
 export const JIRA_KEY_RE = /^[A-Z][A-Z0-9_]+-\d+$/;
 export const JIRA_MARKER = '<!-- jira:end -->';
@@ -68,6 +68,7 @@ export class Indexer {
     return this.applyChanges(
       files,
       stale.map((r) => r.path),
+      { full: true },
     );
   }
 
@@ -88,7 +89,9 @@ export class Indexer {
       if (row && row.mtime === Math.trunc(f.mtimeMs) && row.size === f.size) unchanged++;
       else changed.push(f);
     }
-    const summary = this.applyChanges(changed, [...byPath.keys()]);
+    // A fresh index (nothing unchanged) resolves everything in one pass; an
+    // incremental catch-up only touches what moved.
+    const summary = this.applyChanges(changed, [...byPath.keys()], { full: unchanged === 0 });
     summary.unchanged = unchanged;
     return summary;
   }
@@ -97,8 +100,8 @@ export class Indexer {
   updatePaths(paths: string[]): UpdateSummary {
     const files: VaultFile[] = [];
     const removed: string[] = [];
-    for (const p of paths) {
-      const found = walkVault(this.root, this.config).find((f) => f.path === p);
+    for (const p of new Set(paths)) {
+      const found = vaultFileInfo(this.root, this.config, p);
       if (found) files.push(found);
       else removed.push(p);
     }
@@ -141,7 +144,11 @@ export class Indexer {
     return sprints.length;
   }
 
-  private applyChanges(files: VaultFile[], removed: string[]): UpdateSummary {
+  private applyChanges(
+    files: VaultFile[],
+    removed: string[],
+    opts: { full?: boolean } = {},
+  ): UpdateSummary {
     const summary: UpdateSummary = {
       indexed: [],
       removed,
@@ -150,12 +157,19 @@ export class Indexer {
     };
     this.db.exec('BEGIN');
     try {
+      const touched = [...removed, ...files.map((f) => f.path)];
+      // Names these notes answered to before the change (old aliases, paths)…
+      const keys = new Set(this.resolutionKeys(touched));
       for (const p of removed) this.deleteRows(p);
       for (const f of files) {
         summary.idsAssigned += this.indexFile(f) ? 1 : 0;
         summary.indexed.push(f.path);
       }
-      if (files.length || removed.length) this.resolveAll();
+      // …and after it. Any link aimed at one of those names may now resolve
+      // differently; links inside the changed files are re-read wholesale.
+      for (const k of this.resolutionKeys(files.map((f) => f.path))) keys.add(k);
+      if (opts.full) this.resolveAll();
+      else if (touched.length) this.resolveLinks(touched, keys);
       this.db.exec('COMMIT');
     } catch (e) {
       this.db.exec('ROLLBACK');
@@ -432,18 +446,41 @@ export class Indexer {
 
   // ---------------------------------------------------------------- resolve
 
-  /** Recompute dst_path for every link row (SPEC §5.2). */
-  resolveAll(): void {
+  /**
+   * Every lower-cased name a set of notes can be linked by: the extension-less
+   * path, its basename, and every alias row (title included). Read from the
+   * index, so call it before rows are deleted to get the pre-change names.
+   */
+  private resolutionKeys(paths: string[]): string[] {
+    const keys: string[] = [];
+    for (const p of paths) {
+      const noExt = p.replace(/\.md$/, '').toLowerCase();
+      keys.push(noExt, basename(noExt));
+    }
+    for (const chunk of chunks(paths, 400)) {
+      const rows = this.db
+        .prepare(`SELECT alias FROM aliases WHERE path IN (${marks(chunk.length)})`)
+        .all(...chunk) as { alias: string }[];
+      for (const r of rows) keys.push(r.alias);
+    }
+    return keys;
+  }
+
+  /** Link resolution rules (SPEC §5.2) over the current notes + aliases tables. */
+  private buildResolver(): (
+    src: string,
+    target: string,
+  ) => { dst: string | null; ambiguous: 0 | 1 } {
     const notes = this.db.prepare('SELECT path, protected FROM notes').all() as {
       path: string;
       protected: number;
     }[];
-    const pathSet = new Set<string>();
     const byBase = new Map<string, string[]>();
+    const pathByLower = new Map<string, string>();
     for (const n of notes) {
       if (n.protected) continue;
       const noExt = n.path.replace(/\.md$/, '');
-      pathSet.add(noExt.toLowerCase());
+      pathByLower.set(noExt.toLowerCase(), n.path);
       const base = basename(noExt).toLowerCase();
       const arr = byBase.get(base) ?? [];
       arr.push(n.path);
@@ -458,43 +495,74 @@ export class Indexer {
       set.add(a.path);
       byAlias.set(a.alias, set);
     }
-    const pathByLower = new Map<string, string>();
-    for (const n of notes)
-      if (!n.protected) pathByLower.set(n.path.replace(/\.md$/, '').toLowerCase(), n.path);
+    const jiraFolder = this.config.folders.jira;
+    return (src, target) => {
+      if (target === '') return { dst: src, ambiguous: 0 }; // within-note fragment link
+      if (JIRA_KEY_RE.test(target)) return { dst: `${jiraFolder}/${target}.md`, ambiguous: 0 };
+      const lower = target.toLowerCase().replace(/\.md$/, '');
+      const exact = pathByLower.get(lower);
+      if (exact) return { dst: exact, ambiguous: 0 };
+      const viaAlias = byAlias.get(lower);
+      if (viaAlias?.size === 1) return { dst: [...viaAlias][0] as string, ambiguous: 0 };
+      if (viaAlias && viaAlias.size > 1) return { dst: null, ambiguous: 1 };
+      const viaBase = byBase.get(lower);
+      if (viaBase?.length === 1) return { dst: viaBase[0] as string, ambiguous: 0 };
+      if (viaBase && viaBase.length > 1) return { dst: null, ambiguous: 1 };
+      return { dst: null, ambiguous: 0 };
+    };
+  }
 
-    const links = this.db.prepare('SELECT rowid, src_path, dst_target, kind FROM links').all() as {
+  /** Recompute dst_path for every link row (SPEC §5.2). */
+  resolveAll(): void {
+    const resolve = this.buildResolver();
+    const links = this.db.prepare('SELECT rowid, src_path, dst_target FROM links').all() as {
       rowid: number;
       src_path: string;
       dst_target: string;
-      kind: string;
     }[];
     const upd = this.db.prepare('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
-
     for (const l of links) {
-      const target = l.dst_target;
-      let dst: string | null = null;
-      let ambiguous = 0;
-      if (target === '') {
-        dst = l.src_path; // within-note fragment link
-      } else if (JIRA_KEY_RE.test(target)) {
-        dst = `${this.config.folders.jira}/${target}.md`;
-      } else {
-        const lower = target.toLowerCase().replace(/\.md$/, '');
-        const exact = pathByLower.get(lower);
-        if (exact) {
-          dst = exact;
-        } else {
-          const viaAlias = byAlias.get(lower);
-          if (viaAlias?.size === 1) dst = [...viaAlias][0] as string;
-          else if (viaAlias && viaAlias.size > 1) ambiguous = 1;
-          else {
-            const viaBase = byBase.get(lower);
-            if (viaBase?.length === 1) dst = viaBase[0] as string;
-            else if (viaBase && viaBase.length > 1) ambiguous = 1;
-          }
-        }
-      }
-      upd.run(dst, ambiguous, l.rowid);
+      const r = resolve(l.src_path, l.dst_target);
+      upd.run(r.dst, r.ambiguous, l.rowid);
+    }
+  }
+
+  /**
+   * Incremental resolution: only links written by `srcPaths` and links whose
+   * target is one of `targetKeys` (lower-cased names that just appeared or
+   * disappeared) can have changed. Rows are updated only when the answer
+   * differs, so a save in a large vault costs a handful of statements
+   * instead of one per link in the vault.
+   */
+  private resolveLinks(srcPaths: string[], targetKeys: Set<string>): void {
+    type Row = {
+      rowid: number;
+      src_path: string;
+      dst_target: string;
+      dst_path: string | null;
+      ambiguous: number;
+    };
+    const rows = new Map<number, Row>();
+    const collect = (sql: string, params: string[]) => {
+      for (const r of this.db.prepare(sql).all(...params) as Row[]) rows.set(r.rowid, r);
+    };
+    const cols = 'rowid, src_path, dst_target, dst_path, ambiguous';
+    for (const chunk of chunks(srcPaths, 400)) {
+      collect(`SELECT ${cols} FROM links WHERE src_path IN (${marks(chunk.length)})`, chunk);
+    }
+    const keys = [...targetKeys].flatMap((k) => [k, `${k}.md`]);
+    for (const chunk of chunks(keys, 400)) {
+      collect(
+        `SELECT ${cols} FROM links WHERE lower(dst_target) IN (${marks(chunk.length)})`,
+        chunk,
+      );
+    }
+    if (!rows.size) return;
+    const resolve = this.buildResolver();
+    const upd = this.db.prepare('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
+    for (const l of rows.values()) {
+      const r = resolve(l.src_path, l.dst_target);
+      if (r.dst !== l.dst_path || r.ambiguous !== l.ambiguous) upd.run(r.dst, r.ambiguous, l.rowid);
     }
   }
 
@@ -533,6 +601,16 @@ export class Indexer {
       )
       .all() as unknown as { srcPath: string; target: string; line: number; ambiguous: number }[];
   }
+}
+
+function marks(n: number): string {
+  return Array.from({ length: n }, () => '?').join(',');
+}
+
+function chunks<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
 }
 
 function unwrapWikilink(v: string | null): string | null {
