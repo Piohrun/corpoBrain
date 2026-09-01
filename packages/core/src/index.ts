@@ -71,6 +71,7 @@ export {
 export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
 export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
 export type {
+  ChangeHistory,
   FetchFn,
   JiraAuth,
   JiraDeploymentInfo,
@@ -83,10 +84,16 @@ export { createJiraAdapter, loadJiraAuth } from './jira/credentials.ts';
 export type { ChangeEvent, ChangeKind, IssueSnapshot } from './jira/digest.ts';
 export { DigestStore, diffIssue, formatEvent, snapshotOf } from './jira/digest.ts';
 export { createProxyFetch, resolveProxyUrl } from './jira/proxy.ts';
-export type { MergeOutcome, NormalizedIssue } from './jira/render.ts';
+export type {
+  MergeOutcome,
+  NormalizedIssue,
+  Transition,
+  TransitionField,
+} from './jira/render.ts';
 export {
   mergeIssueFile,
   neutralize,
+  normalizeHistory,
   normalizeIssue,
   RENDER_VERSION,
   renderIssueFile,

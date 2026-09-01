@@ -31,7 +31,7 @@ links:
 jira:
   synced: 2026-08-30T07:00:00.000Z
   profile: team
-  render: 1
+  render: 2
 ---
 
 # EXEC-42 — Reduce tick-to-trade latency

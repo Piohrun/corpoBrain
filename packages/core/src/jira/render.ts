@@ -7,9 +7,12 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { VaultConfig } from '../config.ts';
 import { parseFrontmatter } from '../frontmatter.ts';
 import { JIRA_MARKER } from '../indexer.ts';
+import type { ChangeHistory, RawIssue } from './adapter.ts';
 import { jiraTextToMarkdown } from './convert.ts';
 
-export const RENDER_VERSION = 1;
+export const RENDER_VERSION = 2;
+/** the generated History section is a summary; the full changelog lives in the cache and the index */
+const MAX_HISTORY_LINES = 40;
 
 /** Normalised issue: adapter output → renderer input. */
 export interface NormalizedIssue {
@@ -36,10 +39,68 @@ export interface NormalizedIssue {
   url: string;
   links: { type: string; dir: 'inward' | 'outward'; key: string }[];
   comments: { author: string; created: string; body: unknown }[];
+  /** field changes from the Jira changelog, oldest first */
+  history: Transition[];
+}
+
+export type TransitionField = 'status' | 'assignee' | 'sprint' | 'estimate' | 'resolution';
+
+export interface Transition {
+  at: string;
+  /** display name of who made the change */
+  author: string | null;
+  field: TransitionField;
+  from: string | null;
+  to: string | null;
+}
+
+const blankToNull = (v: string | null | undefined): string | null => (v ? v : null);
+
+const TRACKED: Record<string, TransitionField> = {
+  status: 'status',
+  assignee: 'assignee',
+  sprint: 'sprint',
+  resolution: 'resolution',
+};
+
+/**
+ * The changelog entries the planner cares about, oldest first. Estimate
+ * changes are recognised by field id (config) or by name (Story Points,
+ * Original Estimate…); everything else (description edits, labels) is noise
+ * for flow purposes and dropped.
+ */
+export function normalizeHistory(
+  histories: ChangeHistory[] | undefined,
+  estimateField?: string,
+): Transition[] {
+  const out: Transition[] = [];
+  for (const h of histories ?? []) {
+    const author = h.author?.displayName ?? h.author?.name ?? h.author?.accountId ?? null;
+    for (const item of h.items ?? []) {
+      const name = item.field.toLowerCase();
+      let field = TRACKED[name];
+      if (!field) {
+        const isEstimate =
+          (estimateField && item.fieldId === estimateField) ||
+          /story ?points?|estimate|points/i.test(item.field);
+        if (isEstimate) field = 'estimate';
+      }
+      if (!field) continue;
+      out.push({
+        at: h.created,
+        author,
+        field,
+        from: blankToNull(item.fromString ?? item.from),
+        to: blankToNull(item.toString ?? item.to),
+      });
+    }
+  }
+  out.sort((a, b) => a.at.localeCompare(b.at));
+  return out;
 }
 
 export function normalizeIssue(
-  raw: { key: string; fields: Record<string, unknown> },
+  raw: { key: string; fields: Record<string, unknown>; changelog?: RawIssue['changelog'] },
   opts: { baseUrl: string; estimateField?: string; epicLinkField?: string },
 ): NormalizedIssue {
   const f = raw.fields;
@@ -78,6 +139,7 @@ export function normalizeIssue(
   }));
   return {
     key: raw.key,
+    history: normalizeHistory(raw.changelog?.histories, opts.estimateField),
     summary: (f.summary as string) ?? '',
     description: f.description,
     status: status?.name ?? null,
@@ -235,6 +297,20 @@ export function renderIssueFile(
             `**${c.author}** · ${c.created.slice(0, 10)}\n\n${neutralize(jiraTextToMarkdown(c.body))}`,
         )
         .join('\n\n---\n\n'),
+    );
+  }
+
+  const shown = issue.history.filter((t) => t.field !== 'resolution');
+  if (shown.length) {
+    const recent = shown.slice(-MAX_HISTORY_LINES);
+    body.push(
+      `## History${shown.length > recent.length ? ` (last ${recent.length} of ${shown.length})` : ''}`,
+      recent
+        .map(
+          (t) =>
+            `- ${t.at.slice(0, 16).replace('T', ' ')} ${t.field}: ${neutralize(t.from ?? '—')} → ${neutralize(t.to ?? '—')}${t.author ? ` (${neutralize(t.author)})` : ''}`,
+        )
+        .join('\n'),
     );
   }
 

@@ -12,9 +12,27 @@ export interface JiraAuth {
   email?: string;
 }
 
+/** One changelog entry: who changed which fields, when. Shape shared by DC and Cloud. */
+export interface ChangeHistory {
+  id?: string;
+  created: string;
+  author?: { name?: string; accountId?: string; displayName?: string };
+  items: {
+    field: string;
+    fieldId?: string;
+    from?: string | null;
+    fromString?: string | null;
+    to?: string | null;
+    toString?: string | null;
+  }[];
+}
+
 export interface RawIssue {
   key: string;
+  id?: string;
   fields: Record<string, unknown>;
+  /** full field history (search returns it with expand=changelog; completed per issue when truncated) */
+  changelog?: { histories: ChangeHistory[]; total?: number };
 }
 
 export interface JiraSprint {
@@ -209,21 +227,28 @@ export class JiraAdapter {
     return this.deployment as 'datacenter' | 'cloud';
   }
 
-  /** Run a JQL search, fully paginated; onPage reports (fetched, total|0). */
+  /**
+   * Run a JQL search, fully paginated; onPage reports (fetched, total|0).
+   * The changelog rides along (expand=changelog) so every sync also brings
+   * the real transition history; an issue whose changelog was truncated by
+   * the server (Cloud caps it at 100 entries) is completed per issue.
+   */
   async search(
     jql: string,
     extraFields: string[] = [],
     onPage?: (fetched: number, total: number) => void,
+    opts: { changelog?: boolean } = { changelog: true },
   ): Promise<RawIssue[]> {
     const deployment = await this.ensureDeployment();
     const fields = [...new Set([...DEFAULT_FIELDS, ...extraFields])].join(',');
+    const expand = opts.changelog ? { expand: 'changelog' } : {};
     const out: RawIssue[] = [];
     if (deployment === 'datacenter') {
       let startAt = 0;
       for (;;) {
         const page = await this.get<{ issues: RawIssue[]; total: number; startAt: number }>(
           'rest/api/2/search',
-          { jql, fields, startAt: String(startAt), maxResults: '100' },
+          { jql, fields, startAt: String(startAt), maxResults: '100', ...expand },
         );
         out.push(...page.issues);
         startAt += page.issues.length;
@@ -235,7 +260,13 @@ export class JiraAdapter {
       for (;;) {
         const page = await this.get<{ issues: RawIssue[]; nextPageToken?: string }>(
           'rest/api/3/search/jql',
-          { jql, fields, maxResults: '100', ...(token ? { nextPageToken: token } : {}) },
+          {
+            jql,
+            fields,
+            maxResults: '100',
+            ...expand,
+            ...(token ? { nextPageToken: token } : {}),
+          },
         );
         out.push(...page.issues);
         onPage?.(out.length, 0); // Cloud pagination reports no total
@@ -243,7 +274,39 @@ export class JiraAdapter {
         if (!token || page.issues.length === 0) break;
       }
     }
+    if (opts.changelog) {
+      for (const issue of out) {
+        const cl = issue.changelog;
+        if (cl && cl.total !== undefined && cl.total > cl.histories.length) {
+          issue.changelog = { histories: await this.issueChangelog(issue.key), total: cl.total };
+        }
+      }
+    }
     return out;
+  }
+
+  /** The complete changelog of one issue (DC: expand on the issue; Cloud: the paged sub-resource). */
+  async issueChangelog(key: string): Promise<ChangeHistory[]> {
+    const deployment = await this.ensureDeployment();
+    if (deployment === 'datacenter') {
+      const data = await this.get<{ changelog?: { histories: ChangeHistory[] } }>(
+        `rest/api/2/issue/${encodeURIComponent(key)}`,
+        { fields: 'key', expand: 'changelog' },
+      );
+      return data.changelog?.histories ?? [];
+    }
+    const all: ChangeHistory[] = [];
+    let startAt = 0;
+    for (;;) {
+      const page = await this.get<{ values: ChangeHistory[]; isLast: boolean }>(
+        `rest/api/3/issue/${encodeURIComponent(key)}/changelog`,
+        { startAt: String(startAt), maxResults: '100' },
+      );
+      all.push(...page.values);
+      if (page.isLast || page.values.length === 0) break;
+      startAt += page.values.length;
+    }
+    return all;
   }
 
   /** Sprints for a board: active + future + last N closed. */

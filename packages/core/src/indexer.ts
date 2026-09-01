@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { VaultConfig } from './config.ts';
 import { parseFrontmatter, setFrontmatterKey } from './frontmatter.ts';
+import { normalizeHistory } from './jira/render.ts';
 import { scanMarkdown } from './scan.ts';
 import { generateUlid } from './ulid.ts';
 import { type VaultFile, vaultFileInfo, walkVault, writeFileAtomic } from './vault.ts';
@@ -198,6 +199,9 @@ export class Indexer {
         .prepare(`DELETE FROM ${t} WHERE ${t === 'links' ? 'src_path' : 'path'} = ?`)
         .run(path);
     this.db.prepare('DELETE FROM notes_fts WHERE path = ?').run(path);
+    this.db
+      .prepare('DELETE FROM transitions WHERE key IN (SELECT key FROM jira WHERE path = ?)')
+      .run(path);
     this.db.prepare('DELETE FROM jira WHERE path = ?').run(path);
     this.db.prepare('DELETE FROM plan WHERE key NOT IN (SELECT key FROM jira)').run();
     this.db.prepare('DELETE FROM people WHERE path = ?').run(path);
@@ -378,6 +382,7 @@ export class Indexer {
         str(jiraMeta.synced),
         str(jiraMeta.profile),
       );
+    this.indexTransitions(key);
     const plan = (fm.plan ?? {}) as Record<string, unknown>;
     this.db
       .prepare(
@@ -402,6 +407,28 @@ export class Indexer {
         str(plan.project),
         str(plan.start),
       );
+  }
+
+  /**
+   * The issue's changelog comes from the raw JSON the sync cached, not from
+   * the note (the note carries a summary). Like sprints.json, the cache is
+   * part of what the index is rebuilt from.
+   */
+  private indexTransitions(key: string): void {
+    this.db.prepare('DELETE FROM transitions WHERE key = ?').run(key);
+    const file = join(this.root, '.corpobrain', 'jira-cache', 'issues', `${key}.json`);
+    let raw: { changelog?: { histories?: never[] } };
+    try {
+      raw = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      return;
+    }
+    const ins = this.db.prepare(
+      'INSERT INTO transitions(key, at, author, field, from_value, to_value) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    for (const t of normalizeHistory(raw.changelog?.histories, this.config.jira.estimateField)) {
+      ins.run(key, t.at, t.author, t.field, t.from, t.to);
+    }
   }
 
   private indexLocalSprint(path: string, title: string, fm: Record<string, unknown>): void {
