@@ -185,9 +185,10 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
                       ? (fm.capacity_overrides as Record<string, number>)
                       : {};
                   return (
-                    <label key={sprint} className="field-row">
+                    <label key={`${note.path}:${sprint}`} className="field-row">
                       <span className="field-key">{sprint}</span>
                       <input
+                        key={`${note.path}:${sprint}:${overrides[sprint] ?? ''}`}
                         id={idx === 0 ? 'cb-ov-0' : undefined}
                         type="number"
                         step="0.5"
