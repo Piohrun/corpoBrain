@@ -16,6 +16,7 @@ import {
   projectOf,
   rollupProject,
   setFrontmatterKey,
+  sprintStart,
   weekdaysIn,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
@@ -157,7 +158,7 @@ function buildAxis(
   let from: Date;
   let to: Date;
   if (dated.length) {
-    from = new Date(
+    from = sprintStart(
       dated.reduce((m, s) => (s.start && s.start < m ? s.start : m), dated[0]?.start as string),
     );
     const lastEnd = dated.reduce(
@@ -199,11 +200,11 @@ export function projectedSprints(
   const last = dated[dated.length - 1];
   if (!last) return [];
   const DAY_MS = 86_400_000;
-  const lastStart = new Date(last.start).getTime();
+  const lastStart = sprintStart(last.start).getTime();
   let cycleDays = 14;
   const prev = dated[dated.length - 2];
   if (prev) {
-    const gap = Math.round((lastStart - new Date(prev.start).getTime()) / DAY_MS);
+    const gap = Math.round((lastStart - sprintStart(prev.start).getTime()) / DAY_MS);
     if (gap >= 5 && gap <= 60) cycleDays = gap;
   } else {
     const span = Math.round((endExclusive(last.end).getTime() - lastStart) / DAY_MS);

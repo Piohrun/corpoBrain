@@ -19,7 +19,7 @@ export interface HealthIssue {
   blockedBy: string[];
 }
 
-import type { Absence } from './availability.ts';
+import { type Absence, endExclusive, sprintStart } from './availability.ts';
 
 export interface HealthPerson {
   path: string;
@@ -136,13 +136,17 @@ export function sprintHealth(
   const problems: HealthProblem[] = [];
 
   // ---- sprint clock -------------------------------------------------------
-  const start = sprint.start ? new Date(sprint.start).getTime() : Number.NaN;
-  const end = sprint.end ? new Date(sprint.end).getTime() : Number.NaN;
+  // Sprint days are civil days: the sprint runs from the start of its first
+  // day to the end (exclusive midnight) of its last, whatever time Jira wrote.
+  const start = sprint.start ? sprintStart(sprint.start).getTime() : Number.NaN;
+  const end = sprint.end ? endExclusive(sprint.end).getTime() : Number.NaN;
   const hasDates = Number.isFinite(start) && Number.isFinite(end) && end > start;
   const elapsedPct = hasDates
     ? Math.max(0, Math.min(100, Math.round(((now.getTime() - start) / (end - start)) * 100)))
     : null;
-  const daysLeft = Number.isFinite(end) ? Math.ceil((end - now.getTime()) / 86_400_000) : null;
+  const daysLeft = Number.isFinite(end)
+    ? Math.ceil((end - now.getTime()) / 86_400_000) || 0 // `|| 0` folds -0
+    : null;
 
   const issueProblem = (
     i: HealthIssue,

@@ -3,10 +3,13 @@ import {
   type AvailabilityEntry,
   absencesBySprint,
   adjustCapacity,
+  civilDay,
   parseAvailability,
   personCell,
   renderAvailabilityTable,
   replaceAvailabilityTable,
+  sprintDays,
+  sprintStart,
   weekdaysIn,
 } from '../src/availability.ts';
 
@@ -186,5 +189,35 @@ describe('adjustCapacity', () => {
 describe('weekdaysIn', () => {
   it('is exclusive of the end and skips weekends', () => {
     expect(weekdaysIn(new Date('2026-08-31'), new Date('2026-09-07'))).toHaveLength(5);
+  });
+});
+
+describe('sprint days from Jira timestamps', () => {
+  it('keeps the last day when Jira writes a time of day with an offset', () => {
+    // a real DC board: sprint starts 09:00 and ends 17:00 local (+02:00)
+    const timed = [
+      {
+        name: 'Sprint 37',
+        start: '2026-08-31T09:00:00.000+02:00',
+        end: '2026-09-11T17:00:00.000+02:00',
+      },
+    ];
+    expect(sprintDays(timed[0]?.start as string, timed[0]?.end as string)).toHaveLength(10);
+    const a = absencesBySprint([entry({ from: '2026-09-11', to: '2026-09-11' })], timed);
+    expect(a.get('Anna')?.get('Sprint 37')).toMatchObject({ ooo: 1, total: 10, available: 9 });
+  });
+
+  it('does not shift a local-midnight start into the previous day', () => {
+    // Warsaw midnight is 22:00Z the day before; the civil day is what counts
+    expect(sprintStart('2026-09-01T00:00:00+02:00').toISOString()).toBe('2026-09-01T00:00:00.000Z');
+    expect(civilDay('2026-09-11')).toBe('2026-09-11');
+    expect(civilDay('garbage')).toBeNull();
+    expect(sprintDays('2026-09-07', '2026-09-11')).toEqual([
+      '2026-09-07',
+      '2026-09-08',
+      '2026-09-09',
+      '2026-09-10',
+      '2026-09-11',
+    ]);
   });
 });

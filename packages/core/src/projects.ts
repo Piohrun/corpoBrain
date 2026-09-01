@@ -1,4 +1,4 @@
-import { endExclusive } from './availability.ts';
+import { endExclusive, sprintStart } from './availability.ts';
 
 /**
  * Projects: a slice of Jira issues that belong to one initiative, plus the
@@ -233,10 +233,9 @@ function bandsOf(sprints: SprintWindow[]): Band[] {
   const bands: Band[] = [];
   let cursor = 0;
   for (const s of sprints) {
-    const start = s.start ? new Date(s.start) : null;
-    const end = s.end ? new Date(s.end) : null;
-    const length =
-      start && end && end > start ? workingDaysBetween(start, endExclusive(s.end as string)) : 10;
+    const start = s.start ? sprintStart(s.start) : null;
+    const end = s.end ? endExclusive(s.end) : null;
+    const length = start && end && end > start ? workingDaysBetween(start, end) : 10;
     bands.push({ name: s.name, from: cursor, length, start });
     cursor += length;
   }

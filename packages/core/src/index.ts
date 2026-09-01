@@ -9,11 +9,15 @@ export type { Absence, AbsenceKind, AvailabilityEntry, SprintSpan } from './avai
 export {
   absencesBySprint,
   adjustCapacity,
+  civilDay,
+  dayStart,
   endExclusive,
   parseAvailability,
   personCell,
   renderAvailabilityTable,
   replaceAvailabilityTable,
+  sprintDays,
+  sprintStart,
   weekdaysIn,
 } from './availability.ts';
 export type { ArrangeResult, CalendarBlock, CalendarInput, CalendarLayout } from './calendar.ts';

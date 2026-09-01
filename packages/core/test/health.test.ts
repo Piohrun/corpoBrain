@@ -113,7 +113,8 @@ describe('sprintHealth', () => {
     const found = late.problems.map((p) => p.kind);
     expect(found).toContain('at-risk');
     expect(found).not.toContain('not-started');
-    expect(late.daysLeft).toBe(1);
+    // the end day is a full sprint day: the rest of the 3rd plus the whole 4th
+    expect(late.daysLeft).toBe(2);
   });
 
   it('skips date-based checks for sprints without dates', () => {

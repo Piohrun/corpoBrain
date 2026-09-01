@@ -182,21 +182,40 @@ const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
 const isWeekend = (d: Date): boolean => d.getUTCDay() === 0 || d.getUTCDay() === 6;
 
 /**
- * The instant a sprint stops counting. Jira sends a real timestamp (the last
- * day is included because it ends late in the day); a date with no time means
- * the end of that day, so it is pushed to the next midnight.
+ * The civil day Jira wrote for a sprint boundary. The first ten characters
+ * carry the date in the board's own zone; converting through `new Date()`
+ * would shift it by the offset and, for an end like `…T17:00+02:00`, drop the
+ * last day of the sprint. Null when the string does not start with a date.
+ */
+export function civilDay(iso: string): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(iso.trim());
+  return m ? (m[1] as string) : null;
+}
+
+/** UTC midnight of a YYYY-MM-DD day (Invalid Date for anything else). */
+export function dayStart(day: string): Date {
+  return new Date(`${day}T00:00:00Z`);
+}
+
+/** UTC midnight of the sprint's first day. */
+export function sprintStart(iso: string): Date {
+  return dayStart(civilDay(iso) ?? iso);
+}
+
+/**
+ * The instant a sprint stops counting: midnight after its last civil day. A
+ * timed Jira end (`…T17:00`) and a date-only local sprint (`2026-09-11`) both
+ * include that whole day.
  */
 export function endExclusive(iso: string): Date {
-  const d = new Date(iso);
-  if (
-    d.getUTCHours() === 0 &&
-    d.getUTCMinutes() === 0 &&
-    d.getUTCSeconds() === 0 &&
-    d.getUTCMilliseconds() === 0
-  ) {
-    d.setUTCDate(d.getUTCDate() + 1);
-  }
+  const d = sprintStart(iso);
+  d.setUTCDate(d.getUTCDate() + 1);
   return d;
+}
+
+/** Weekdays a sprint covers, first and last day included. */
+export function sprintDays(start: string, end: string): string[] {
+  return weekdaysIn(sprintStart(start), endExclusive(end));
 }
 
 /** Weekdays in [from, to) as YYYY-MM-DD. */
@@ -241,19 +260,19 @@ export function absencesBySprint(
 ): Map<string, Map<string, Absence>> {
   // person → sprint → day → kind, so a day claimed twice is only counted once
   const claimed = new Map<string, Map<string, Map<string, AbsenceKind>>>();
-  const sprintDays = new Map<string, Set<string>>();
+  const daysOf = new Map<string, Set<string>>();
 
   for (const s of sprints) {
     if (!s.start || !s.end) continue;
-    const days = weekdaysIn(new Date(s.start), endExclusive(s.end));
-    if (days.length) sprintDays.set(s.name, new Set(days));
+    const days = sprintDays(s.start, s.end);
+    if (days.length) daysOf.set(s.name, new Set(days));
   }
 
   for (const e of entries) {
     const to = new Date(`${e.to}T00:00:00Z`);
     to.setUTCDate(to.getUTCDate() + 1); // entry dates are inclusive
     const away = weekdaysIn(new Date(`${e.from}T00:00:00Z`), to);
-    for (const [sprint, days] of sprintDays) {
+    for (const [sprint, days] of daysOf) {
       const hits = away.filter((d) => days.has(d));
       if (!hits.length) continue;
       const perPerson = claimed.get(e.person) ?? new Map<string, Map<string, AbsenceKind>>();
@@ -272,7 +291,7 @@ export function absencesBySprint(
   for (const [person, perPerson] of claimed) {
     const perSprint = new Map<string, Absence>();
     for (const [sprint, days] of perPerson) {
-      const total = sprintDays.get(sprint)?.size ?? 0;
+      const total = daysOf.get(sprint)?.size ?? 0;
       const kinds = [...days.values()];
       const ooo = kinds.filter((k) => k === 'ooo').length;
       const holiday = kinds.filter((k) => k === 'holiday').length;
