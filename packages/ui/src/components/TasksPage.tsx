@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type TaskItem } from '../api.ts';
+import { localISODate } from '../dates.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { WikiText } from './WikiText.tsx';
 
@@ -12,7 +13,7 @@ function groupTasks(items: TaskItem[]): [string, TaskItem[]][] {
   const upcoming: TaskItem[] = [];
   const someday: TaskItem[] = [];
   const done: TaskItem[] = [];
-  const now = new Date().toISOString().slice(0, 10);
+  const now = localISODate();
   for (const t of items) {
     if (t.done) done.push(t);
     else if (!t.due) someday.push(t);

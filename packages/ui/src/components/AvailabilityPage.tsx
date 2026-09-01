@@ -6,8 +6,7 @@ import {
   type HolidayEntry,
   planApi,
 } from '../api.ts';
-
-const todayISO = (): string => new Date().toISOString().slice(0, 10);
+import { localISODate, monthsAgo } from '../dates.ts';
 
 /** rows keep a stable client id so editing and deleting do not shuffle inputs */
 type DraftEntry = AvailabilityEntry & { rowId: string };
@@ -15,11 +14,7 @@ let rowSeq = 0;
 const withId = (e: AvailabilityEntry): DraftEntry => ({ ...e, rowId: `r${++rowSeq}` });
 
 const ARCHIVE_MONTHS = 3;
-const archiveCutoff = (): string => {
-  const d = new Date();
-  d.setUTCMonth(d.getUTCMonth() - ARCHIVE_MONTHS);
-  return d.toISOString().slice(0, 10);
-};
+const archiveCutoff = (): string => monthsAgo(ARCHIVE_MONTHS);
 
 /**
  * Who is out, when — the team's out-of-office and support rota. The month
@@ -261,8 +256,8 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
               ...rows,
               withId({
                 person: people[0]?.name ?? '',
-                from: todayISO(),
-                to: todayISO(),
+                from: localISODate(),
+                to: localISODate(),
                 kind: 'ooo',
                 note: '',
               }),
@@ -360,7 +355,13 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
             onClick={() => {
               setHolidays((rows) => [
                 ...rows,
-                { country: '', from: todayISO(), to: todayISO(), name: '', rowId: `h${++rowSeq}` },
+                {
+                  country: '',
+                  from: localISODate(),
+                  to: localISODate(),
+                  name: '',
+                  rowId: `h${++rowSeq}`,
+                },
               ]);
               setHolidaysDirty(true);
             }}
@@ -606,7 +607,7 @@ function MonthGrid({
       const d = new Date(Date.UTC(y, m + delta, 1));
       return { y: d.getUTCFullYear(), m: d.getUTCMonth() };
     });
-  const today = todayISO();
+  const today = localISODate();
   // the same order as everywhere else: the notes-tree position, then name
   const people = [...data.people].sort(
     (a, b) =>
