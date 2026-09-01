@@ -64,11 +64,22 @@ export function taskRoutes(v: VaultService): Hono {
     const idx = body.line - 1;
     const line = lines[idx];
     if (line === undefined) throw new HttpError(409, 'line out of range — note changed?');
-    const m = /^(\s*[-*+] \[)( |x|X)(\] )/.exec(line);
-    if (!m) throw new HttpError(409, 'not a task line — note changed?');
-    lines[idx] = line.replace(/^(\s*[-*+] \[)( |x|X)(\] )/, `$1${m[2] === ' ' ? 'x' : ' '}$3`);
+    // `- [ ]`, `- j[ ]` (jira to create), and the `- [j]` shorthand
+    const m = /^(\s*[-*+] [jJ]?\[)( |x|X)(\] )/.exec(line);
+    if (m) {
+      lines[idx] = line.replace(
+        /^(\s*[-*+] [jJ]?\[)( |x|X)(\] )/,
+        `$1${m[2] === ' ' ? 'x' : ' '}$3`,
+      );
+      v.write(body.path, lines.join(''));
+      return c.json({ ok: true, done: m[2] === ' ' });
+    }
+    const alt = /^(\s*[-*+] )\[[jJ]\](\s)/.exec(line);
+    if (!alt) throw new HttpError(409, 'not a task line — note changed?');
+    // ticking the shorthand normalises it to the canonical jira form
+    lines[idx] = line.replace(/^(\s*[-*+] )\[[jJ]\](\s)/, '$1j[x]$2');
     v.write(body.path, lines.join(''));
-    return c.json({ ok: true, done: m[2] === ' ' });
+    return c.json({ ok: true, done: true });
   });
 
   return app;

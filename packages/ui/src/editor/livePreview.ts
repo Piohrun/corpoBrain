@@ -45,27 +45,34 @@ export const livePreviewConfig = Facet.define<LivePreviewConfig, LivePreviewConf
 const WIKILINK = /(!?)\[\[([^[\]|#]*)(#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
 const TAG = /(^|[\s(,;])#([A-Za-z0-9_/-]*[A-Za-z_/-][A-Za-z0-9_/-]*)/g;
 export const INLINE_SECRET = /`\u{1F512}([A-Za-z0-9+/=]{8,})`/gu;
-const CHECKBOX = /^(\s*[-*+] )\[( |x|X)\] /;
+const CHECKBOX = /^(\s*[-*+] )([jJ]?)\[( |x|X)\] /;
 
 class CheckboxWidget extends WidgetType {
   constructor(
     readonly checked: boolean,
     readonly pos: number,
+    readonly jira = false,
   ) {
     super();
   }
   override eq(other: CheckboxWidget) {
-    return other.checked === this.checked && other.pos === this.pos;
+    return other.checked === this.checked && other.pos === this.pos && other.jira === this.jira;
   }
   toDOM(view: EditorView) {
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.checked = this.checked;
-    box.className = 'cm-cb-checkbox';
+    box.className = `cm-cb-checkbox${this.jira ? ' jira' : ''}`;
+    if (this.jira) box.title = 'Jira to create or prioritise';
     box.onmousedown = (e) => {
       e.preventDefault();
+      const marker = this.jira ? 'j' : '';
       view.dispatch({
-        changes: { from: this.pos, to: this.pos + 3, insert: this.checked ? '[ ]' : '[x]' },
+        changes: {
+          from: this.pos,
+          to: this.pos + (this.jira ? 4 : 3),
+          insert: `${marker}${this.checked ? '[ ]' : '[x]'}`,
+        },
       });
     };
     return box;
@@ -293,18 +300,20 @@ export function collectInline(
   const cb = CHECKBOX.exec(text);
   if (cb) {
     const prefix = (cb[1] as string).length;
+    const jira = (cb[2] as string).length > 0; // `- j[ ]`: a jira to create
     const boxFrom = lineFrom + prefix;
+    const boxTo = boxFrom + (jira ? 4 : 3); // covers "j[ ]" or "[ ]"
     if (!ctx.cursorTouches) {
       out.push({
         from: boxFrom,
-        to: boxFrom + 3,
+        to: boxTo,
         deco: Decoration.replace({
-          widget: new CheckboxWidget(cb[2] !== ' ', boxFrom),
+          widget: new CheckboxWidget(cb[3] !== ' ', boxFrom, jira),
         }),
       });
-      if (cb[2] !== ' ') {
+      if (cb[3] !== ' ') {
         out.push({
-          from: boxFrom + 4,
+          from: boxTo + 1,
           to: lineTo,
           deco: Decoration.mark({ class: 'cm-cb-task-done' }),
         });

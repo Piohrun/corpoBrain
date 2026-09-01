@@ -22,6 +22,8 @@ export interface TaskRef {
   line: number;
   text: string;
   done: boolean;
+  /** 'jira' for `- j[ ]` items: a Jira to create or prioritise, not a to-do */
+  kind: 'task' | 'jira';
   blockId: string | null;
   due: string | null; // YYYY-MM-DD
 }
@@ -57,7 +59,9 @@ const FENCE = /^(\s*)(`{3,}|~{3,})/;
 const WIKILINK = /(!?)\[\[([^[\]|#]*)(?:#([^[\]|]*))?(?:\|([^[\]]*))?\]\]/g;
 const MD_LINK = /\[[^\]]*\]\(([^()\s]+?\.md)(?:#[^()\s]*)?\)/g;
 const TAG = /(^|[\s(,;])#([A-Za-z0-9_/-]*[A-Za-z_/-][A-Za-z0-9_/-]*)/g;
-const TASK = /^\s*[-*+] \[( |x|X)\] (.*)$/;
+const TASK = /^\s*[-*+] ([jJ]?)\[( |x|X)\] (.*)$/;
+/** `- [j] …` is accepted as a shorthand for an open jira item */
+const TASK_J_ALT = /^\s*[-*+] \[([jJ])\] (.*)$/;
 const BLOCK_ID = /\s\^([A-Za-z0-9-]+)\s*$/;
 const HEADING = /^(#{1,6}) (.*)$/;
 const DUE = /📅\s*(\d{4}-\d{2}-\d{2})|@due\((\d{4}-\d{2}-\d{2})\)/;
@@ -190,13 +194,15 @@ export function scanMarkdown(text: string, opts: ScanOptions = {}): ScanResult {
     }
 
     const task = TASK.exec(line);
-    if (task) {
-      const rawText = task[2] as string;
+    const altJira = task ? null : TASK_J_ALT.exec(line);
+    if (task || altJira) {
+      const rawText = (task ? task[3] : altJira?.[2]) as string;
       const due = DUE.exec(rawText);
       result.tasks.push({
         line: lineNo,
         text: rawText.replace(BLOCK_ID, '').replace(DUE, '').replace(/\s+/g, ' ').trim(),
-        done: task[1] !== ' ',
+        done: task ? task[2] !== ' ' : false,
+        kind: task ? (task[1] ? 'jira' : 'task') : 'jira',
         blockId: blockId ? (blockId[1] as string) : null,
         due: due ? ((due[1] ?? due[2]) as string) : null,
       });

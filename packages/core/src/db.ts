@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SCHEMA_VERSION = '0.2.0/9';
+export const SCHEMA_VERSION = '0.2.0/10';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -36,7 +36,8 @@ CREATE INDEX IF NOT EXISTS properties_path ON properties(path);
 CREATE INDEX IF NOT EXISTS properties_key ON properties(key);
 CREATE TABLE IF NOT EXISTS tasks(
   path TEXT NOT NULL, line INTEGER NOT NULL, block_id TEXT,
-  text TEXT NOT NULL, done INTEGER NOT NULL, due TEXT
+  text TEXT NOT NULL, done INTEGER NOT NULL, due TEXT,
+  kind TEXT NOT NULL DEFAULT 'task'
 );
 CREATE INDEX IF NOT EXISTS tasks_path ON tasks(path);
 CREATE TABLE IF NOT EXISTS headings(path TEXT NOT NULL, level INTEGER NOT NULL, text TEXT NOT NULL, line INTEGER NOT NULL);

@@ -3,9 +3,40 @@ import { api, type TaskItem } from '../api.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { WikiText } from './WikiText.tsx';
 
+type Kind = 'task' | 'jira';
+
+/** Group a column's items the same way, so both sides read alike. */
+function groupTasks(items: TaskItem[]): [string, TaskItem[]][] {
+  const overdue: TaskItem[] = [];
+  const today: TaskItem[] = [];
+  const upcoming: TaskItem[] = [];
+  const someday: TaskItem[] = [];
+  const done: TaskItem[] = [];
+  const now = new Date().toISOString().slice(0, 10);
+  for (const t of items) {
+    if (t.done) done.push(t);
+    else if (!t.due) someday.push(t);
+    else if (t.due < now) overdue.push(t);
+    else if (t.due === now) today.push(t);
+    else upcoming.push(t);
+  }
+  return (
+    [
+      ['Overdue', overdue],
+      ['Today', today],
+      ['Upcoming', upcoming],
+      ['No date', someday],
+      ['Done', done],
+    ] as [string, TaskItem[]][]
+  ).filter(([, list]) => list.length > 0);
+}
+
 export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
+  const [newText, setNewText] = useState('');
+  const [newDue, setNewDue] = useState('');
+  const [newKind, setNewKind] = useState<Kind>('task');
 
   const refresh = useCallback(() => {
     api
@@ -14,13 +45,11 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
       .catch(() => {});
   }, []);
 
-  const [newText, setNewText] = useState('');
-  const [newDue, setNewDue] = useState('');
-
   const addTask = useCallback(() => {
     const text = newText.trim();
     if (!text) return;
-    const line = `- [ ] ${text}${newDue ? ` 📅 ${newDue}` : ''}`;
+    const box = newKind === 'jira' ? 'j[ ]' : '[ ]';
+    const line = `- ${box} ${text}${newDue ? ` 📅 ${newDue}` : ''}`;
     api
       .daily()
       .then((d) => api.note(d.path))
@@ -34,7 +63,7 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
         refresh();
       })
       .catch(() => {});
-  }, [newText, newDue, refresh]);
+  }, [newText, newDue, newKind, refresh]);
 
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
@@ -51,38 +80,106 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
     [refresh],
   );
 
-  const groups = useMemo(() => {
+  const columns = useMemo(() => {
     const visible = tasks.filter((t) => showDone || !t.done);
-    const overdue: TaskItem[] = [];
-    const today: TaskItem[] = [];
-    const upcoming: TaskItem[] = [];
-    const someday: TaskItem[] = [];
-    const done: TaskItem[] = [];
-    const now = new Date().toISOString().slice(0, 10);
-    for (const t of visible) {
-      if (t.done) done.push(t);
-      else if (!t.due) someday.push(t);
-      else if (t.due < now) overdue.push(t);
-      else if (t.due === now) today.push(t);
-      else upcoming.push(t);
-    }
-    return [
-      ['Overdue', overdue],
-      ['Today', today],
-      ['Upcoming', upcoming],
-      ['No date', someday],
-      ['Done', done],
-    ].filter(([, items]) => (items as TaskItem[]).length > 0) as [string, TaskItem[]][];
+    return {
+      task: groupTasks(visible.filter((t) => t.kind !== 'jira')),
+      jira: groupTasks(visible.filter((t) => t.kind === 'jira')),
+    };
   }, [tasks, showDone]);
+
+  const openCount = (kind: Kind) =>
+    tasks.filter((t) => !t.done && (kind === 'jira' ? t.kind === 'jira' : t.kind !== 'jira'))
+      .length;
+
+  const column = (kind: Kind, title: string, hint: string) => {
+    const groups = columns[kind];
+    return (
+      <section className={`task-col${kind === 'jira' ? ' jira' : ''}`}>
+        <h2 className="plan-h2 task-col-head">
+          {title}
+          <span className="health-badge">{openCount(kind)}</span>
+        </h2>
+        {groups.length === 0 ? (
+          <p className="health-empty">{hint}</p>
+        ) : (
+          groups.map(([label, items]) => (
+            <div key={label}>
+              <h3 className={`task-group${label === 'Overdue' ? ' overdue' : ''}`}>{label}</h3>
+              {items.map((t) => (
+                <div key={`${t.path}:${t.line}`} className="task-row">
+                  <input
+                    type="checkbox"
+                    className={kind === 'jira' ? 'jira-box' : ''}
+                    checked={t.done === 1}
+                    onChange={() => toggle(t)}
+                  />
+                  <WikiText
+                    text={t.text}
+                    className={t.done ? 'muted done-task' : ''}
+                    onOpen={onOpenNote}
+                  />
+                  {t.due && (
+                    <button
+                      type="button"
+                      className="due-chip clickable"
+                      title={`Open daily note ${t.due}`}
+                      onClick={() => {
+                        api
+                          .daily(t.due as string)
+                          .then((r) => onOpenNote(r.path))
+                          .catch(() => {});
+                      }}
+                    >
+                      {t.due}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="key-link small"
+                    onClick={() => onOpenNote(t.path)}
+                  >
+                    {t.title}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ))
+        )}
+      </section>
+    );
+  };
 
   return (
     <div className="planning">
       <div className="planning-header">
         <span className="title">Tasks</span>
-        <span className="muted">{tasks.filter((t) => !t.done).length} open</span>
+        <span className="muted">
+          {openCount('task')} open · {openCount('jira')} jiras
+        </span>
+        <div className="digest-ranges" title="What the quick-add box creates">
+          <button
+            type="button"
+            className={`tab${newKind === 'task' ? ' active' : ''}`}
+            onClick={() => setNewKind('task')}
+          >
+            task
+          </button>
+          <button
+            type="button"
+            className={`tab${newKind === 'jira' ? ' active' : ''}`}
+            onClick={() => setNewKind('jira')}
+          >
+            jira
+          </button>
+        </div>
         <input
           className="plan-filter"
-          placeholder="Quick task → today's daily note…"
+          placeholder={
+            newKind === 'jira'
+              ? 'Jira to create → today’s daily note…'
+              : 'Quick task → today’s daily note…'
+          }
           value={newText}
           onChange={(e) => setNewText(e.target.value)}
           onKeyDown={(e) => {
@@ -110,42 +207,14 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
         </label>
       </div>
       <div className="planning-scroll">
-        {groups.map(([label, items]) => (
-          <section key={label}>
-            <h2 className={`plan-h2${label === 'Overdue' ? ' overdue' : ''}`}>{label}</h2>
-            {items.map((t) => (
-              <div key={`${t.path}:${t.line}`} className="task-row">
-                <input type="checkbox" checked={t.done === 1} onChange={() => toggle(t)} />
-                <WikiText
-                  text={t.text}
-                  className={t.done ? 'muted done-task' : ''}
-                  onOpen={onOpenNote}
-                />
-                {t.due && (
-                  <button
-                    type="button"
-                    className="due-chip clickable"
-                    title={`Open daily note ${t.due}`}
-                    onClick={() => {
-                      api
-                        .daily(t.due as string)
-                        .then((r) => onOpenNote(r.path))
-                        .catch(() => {});
-                    }}
-                  >
-                    {t.due}
-                  </button>
-                )}
-                <button type="button" className="key-link small" onClick={() => onOpenNote(t.path)}>
-                  {t.title}
-                </button>
-              </div>
-            ))}
-          </section>
-        ))}
-        {groups.length === 0 && (
-          <div className="empty-state">No tasks. Write some `- [ ]` items.</div>
-        )}
+        <div className="task-cols">
+          {column('task', 'Tasks', 'Nothing open. Write `- [ ] something` in any note.')}
+          {column(
+            'jira',
+            'Jiras to create or prioritise',
+            'Nothing queued. Write `- j[ ] something` in any note.',
+          )}
+        </div>
       </div>
     </div>
   );

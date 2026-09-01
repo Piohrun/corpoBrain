@@ -139,7 +139,7 @@ export function createApp(vault?: VaultService) {
     const done = c.req.query('done');
     const rows = v.indexer.db
       .prepare(
-        `SELECT t.path, t.line, t.text, t.done, t.due, n.title
+        `SELECT t.path, t.line, t.text, t.done, t.due, t.kind, n.title
          FROM tasks t JOIN notes n ON n.path = t.path
          ${done === undefined ? '' : 'WHERE t.done = ?'}
          ORDER BY t.due IS NULL, t.due, t.path, t.line`,

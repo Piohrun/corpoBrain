@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -241,5 +241,59 @@ describe('link resolution flags', () => {
     expect(byTarget.Beta).toBe(true);
     expect(byTarget['No Such Note']).toBe(false);
     expect(byTarget['EXEC-404']).toBe(false); // key resolves to a path, but no mirror file exists
+  });
+});
+
+describe('jira task items', () => {
+  it('lists both kinds and toggles each syntax in place', async () => {
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'notes/todo.md',
+        content: '# Todo\n\n- [ ] a normal task\n- j[ ] create a jira\n- [j] shorthand jira\n',
+      }),
+    });
+    const all = (await (await app.request('/api/tasks')).json()) as {
+      path: string;
+      text: string;
+      kind: string;
+      line: number;
+      done: number;
+    }[];
+    const list = all.filter((t) => t.path === 'notes/todo.md');
+    expect(list.map((t) => [t.text, t.kind])).toEqual([
+      ['a normal task', 'task'],
+      ['create a jira', 'jira'],
+      ['shorthand jira', 'jira'],
+    ]);
+    // the fixture's plain task is untouched by the new syntax
+    expect(all.find((t) => t.text === 'todo')?.kind).toBe('task');
+
+    // tick the j[ ] item: state flips, kind marker survives
+    const jira = list.find((t) => t.text === 'create a jira');
+    const res = await app.request('/api/task/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/todo.md', line: jira?.line }),
+    });
+    expect(res.status).toBe(200);
+    let text = readFileSync(join(root, 'notes', 'todo.md'), 'utf8');
+    expect(text).toContain('- j[x] create a jira');
+
+    // the shorthand normalises to the canonical form when ticked
+    const short = list.find((t) => t.text === 'shorthand jira');
+    await app.request('/api/task/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/todo.md', line: short?.line }),
+    });
+    text = readFileSync(join(root, 'notes', 'todo.md'), 'utf8');
+    expect(text).toContain('- j[x] shorthand jira');
+
+    const after = (await (await app.request('/api/tasks')).json()) as {
+      text: string;
+      kind: string;
+      done: number;
+    }[];
+    expect(after.filter((t) => t.kind === 'jira' && t.done === 1)).toHaveLength(2);
+    expect(after.filter((t) => t.kind === 'task').every((t) => t.done === 0)).toBe(true);
   });
 });

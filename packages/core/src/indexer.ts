@@ -279,10 +279,10 @@ export class Indexer {
     for (const t of tagSet) if (t) insTag.run(f.path, t);
 
     const insTask = this.db.prepare(
-      'INSERT INTO tasks(path, line, block_id, text, done, due) VALUES (?, ?, ?, ?, ?, ?)',
+      'INSERT INTO tasks(path, line, block_id, text, done, due, kind) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
     for (const t of scan.tasks)
-      insTask.run(f.path, t.line, t.blockId, t.text, t.done ? 1 : 0, t.due);
+      insTask.run(f.path, t.line, t.blockId, t.text, t.done ? 1 : 0, t.due, t.kind);
 
     const insHeading = this.db.prepare(
       'INSERT INTO headings(path, level, text, line) VALUES (?, ?, ?, ?)',

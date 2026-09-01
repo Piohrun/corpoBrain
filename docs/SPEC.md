@@ -120,6 +120,11 @@ type `property` in addition to being a property.
 - Tasks: GFM `- [ ]` / `- [x]`. The indexer records each task with its text,
   state, containing note, block ID (if any), and any `📅 YYYY-MM-DD` or
   `@due(YYYY-MM-DD)` token.
+- Jira items: `- j[ ]` / `- j[x]` marks a task as a Jira to create or
+  prioritise rather than a personal to-do. The marker is a prefix so the kind
+  and the checkbox state stay independent; the Tasks page shows the two kinds
+  in separate columns. `- [j] …` is accepted as a shorthand for an open jira
+  item and is normalised to `- j[x]` when ticked.
 - Callouts: `> [!type] Title` (Obsidian syntax) are rendered but carry no
   semantics.
 - Inline secrets: a fenced block with info string `secret` holds a base64

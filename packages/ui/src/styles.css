@@ -2394,13 +2394,13 @@ tr.wb-conflict td {
 .cal-foot-cell.over i {
   background: color-mix(in srgb, var(--danger) 26%, transparent);
 }
-.cal-foot-cell.over b {
-  color: var(--danger);
-}
 .cal-foot-cell b {
   position: relative;
   font-weight: 600;
   color: var(--fg-muted);
+}
+.cal-foot-cell.over b {
+  color: var(--danger);
 }
 .cal-foot-cell.projected {
   opacity: 0.65;
@@ -2408,4 +2408,47 @@ tr.wb-conflict td {
 }
 .coming-date {
   min-width: 110px;
+}
+
+/* tasks: two columns — to-dos, and jiras to create or prioritise */
+.task-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .task-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.task-col {
+  min-width: 0;
+}
+.task-col.jira {
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
+}
+.task-col-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
+}
+.task-group {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  margin: 14px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.task-group.overdue {
+  color: var(--danger);
+}
+.jira-box {
+  accent-color: var(--st-ready);
+}
+.cm-cb-checkbox.jira {
+  accent-color: var(--st-ready);
 }

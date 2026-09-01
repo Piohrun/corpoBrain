@@ -67,3 +67,30 @@ describe('scanMarkdown specifics', () => {
     expect(r.links[0]?.line).toBe(5);
   });
 });
+
+describe('jira task items', () => {
+  it('marks `- j[ ]` lines as jira, independent of the checkbox state', () => {
+    const r = scanMarkdown('- [ ] plain\n- j[ ] create a jira\n- j[x] created it\n- J[X] loud\n');
+    expect(r.tasks.map((t) => [t.text, t.kind, t.done])).toEqual([
+      ['plain', 'task', false],
+      ['create a jira', 'jira', false],
+      ['created it', 'jira', true],
+      ['loud', 'jira', true],
+    ]);
+  });
+
+  it('accepts the `- [j]` shorthand as an open jira item', () => {
+    const r = scanMarkdown('- [j] prioritise EXEC-1\n');
+    expect(r.tasks[0]).toMatchObject({ text: 'prioritise EXEC-1', kind: 'jira', done: false });
+  });
+
+  it('keeps due dates, block ids and wikilinks working on jira items', () => {
+    const r = scanMarkdown('- j[ ] split [[EXEC-9]] 📅 2026-09-30 ^abc\n');
+    expect(r.tasks[0]).toMatchObject({ kind: 'jira', due: '2026-09-30', blockId: 'abc' });
+    expect(r.tasks[0]?.text).toBe('split [[EXEC-9]]');
+  });
+
+  it('does not treat other bracket letters as tasks', () => {
+    expect(scanMarkdown('- k[ ] nope\n- [k] also nope\n').tasks).toEqual([]);
+  });
+});

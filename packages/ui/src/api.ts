@@ -52,6 +52,8 @@ export interface TaskItem {
   done: number;
   due: string | null;
   title: string;
+  /** 'jira' items come from `- j[ ]` lines: a Jira to create or prioritise */
+  kind: 'task' | 'jira';
 }
 
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
