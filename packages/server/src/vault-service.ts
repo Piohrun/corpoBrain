@@ -38,8 +38,13 @@ export class VaultService {
   readonly indexer: Indexer;
   private watcher: VaultWatcher | null = null;
   private listeners = new Set<(paths: string[]) => void>();
-  /** Paths we just wrote ourselves; watcher events for them are ignored once. */
-  private selfWrites = new Set<string>();
+  /**
+   * Paths we just wrote ourselves, with the time of the write; the watcher
+   * event for each is ignored once. A marker the watcher never reports (event
+   * coalesced, watcher hiccup) expires rather than swallowing the user's next
+   * external edit of that file.
+   */
+  private selfWrites = new Map<string, number>();
 
   constructor(
     readonly root: string,
@@ -91,7 +96,7 @@ export class VaultService {
   startWatching(): void {
     if (this.watcher) return;
     this.watcher = watchVault(this.root, (paths) => {
-      const external = paths.filter((p) => !this.selfWrites.delete(p));
+      const external = paths.filter((p) => !this.consumeSelfWrite(p));
       if (!external.length) return;
       const summary = this.indexer.updatePaths(external);
       if (summary.indexed.length || summary.removed.length) {
@@ -103,6 +108,20 @@ export class VaultService {
   stop(): void {
     this.watcher?.close();
     this.watcher = null;
+  }
+
+  private markSelfWrite(p: string): void {
+    const now = Date.now();
+    for (const [k, at] of this.selfWrites)
+      if (now - at > SELF_WRITE_TTL_MS) this.selfWrites.delete(k);
+    this.selfWrites.set(p, now);
+  }
+
+  private consumeSelfWrite(p: string): boolean {
+    const at = this.selfWrites.get(p);
+    if (at === undefined) return false;
+    this.selfWrites.delete(p);
+    return Date.now() - at <= SELF_WRITE_TTL_MS;
   }
 
   /** Broadcast that jira data changed (after a sync) so UIs refresh. */
@@ -160,7 +179,7 @@ export class VaultService {
   write(relPath: string, content: string): UpdateSummary {
     const p = this.assertSafe(relPath);
     if (!p.endsWith('.md')) throw new HttpError(400, 'only .md files are writable');
-    this.selfWrites.add(p);
+    this.markSelfWrite(p);
     writeFileAtomic(join(this.root, p), content);
     return this.indexer.updatePaths([p]);
   }
@@ -199,8 +218,8 @@ export class VaultService {
     const toAbs = join(this.root, to);
     if (!existsSync(fromAbs)) throw new HttpError(404, `not found: ${from}`);
     if (existsSync(toAbs)) throw new HttpError(409, `already exists: ${to}`);
-    this.selfWrites.add(from);
-    this.selfWrites.add(to);
+    this.markSelfWrite(from);
+    this.markSelfWrite(to);
     writeFileAtomic(toAbs, readFileSync(fromAbs, 'utf8'));
     unlinkSync(fromAbs);
     this.indexer.updatePaths([from, to]);
@@ -210,7 +229,7 @@ export class VaultService {
     const p = this.assertSafe(relPath);
     const abs = join(this.root, p);
     if (!existsSync(abs)) throw new HttpError(404, `not found: ${p}`);
-    this.selfWrites.add(p);
+    this.markSelfWrite(p);
     // move to OS-independent trash inside the vault rather than unlink
     const trashDir = join(this.root, '.trash');
     mkdirSync(trashDir, { recursive: true });
@@ -250,7 +269,7 @@ export class VaultService {
     const abs = join(this.root, p);
     if (existsSync(abs)) return { path: p };
     const body = content ?? this.templateFor(title, type);
-    this.selfWrites.add(p);
+    this.markSelfWrite(p);
     writeFileAtomic(abs, body);
     this.indexer.updatePaths([p]);
     return { path: p };
@@ -287,6 +306,9 @@ export class VaultService {
     return `---\ntitle: ${JSON.stringify(title)}\ncreated: ${today}\n---\n\n# ${title}\n\n`;
   }
 }
+
+/** how long a self-write marker may wait for its watcher event */
+const SELF_WRITE_TTL_MS = 5_000;
 
 /** .trash is a safety net, not an archive (git has the history): drop entries older than 30 days. */
 const TRASH_KEEP_MS = 30 * 86_400_000;

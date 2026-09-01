@@ -193,7 +193,7 @@ export function replaceAvailabilityTable(markdown: string, entries: Availability
 // ------------------------------------------------------------ absence maths
 
 const dayKey = (d: Date): string => d.toISOString().slice(0, 10);
-const isWeekend = (d: Date): boolean => d.getUTCDay() === 0 || d.getUTCDay() === 6;
+export const isWeekend = (d: Date): boolean => d.getUTCDay() === 0 || d.getUTCDay() === 6;
 
 /**
  * The civil day Jira wrote for a sprint boundary. The first ten characters

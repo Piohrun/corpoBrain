@@ -1,3 +1,5 @@
+import { isWeekend, weekdaysIn } from './availability.ts';
+
 /**
  * Projects: a slice of Jira issues that belong to one initiative, plus the
  * forecast of when that slice lands.
@@ -136,35 +138,18 @@ export function rollupProject(def: ProjectDef, issues: ProjectIssue[]): ProjectR
 
 // ----------------------------------------------------------- calendar maths
 
-const DAY = 86_400_000;
-
-function isWeekend(d: Date): boolean {
-  const day = d.getUTCDay();
-  return day === 0 || day === 6;
-}
-
-/** Working days (Mon–Fri) in [from, to). */
+/** Working days in [from, to): weekdays only, no holiday awareness (that lives in availability). */
 export function workingDaysBetween(from: Date, to: Date): number {
-  let n = 0;
-  const cur = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
-  const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
-  while (cur < end) {
-    if (!isWeekend(cur)) n++;
-    cur.setUTCDate(cur.getUTCDate() + 1);
-  }
-  return n;
+  return weekdaysIn(from, to).length;
 }
 
-/** The date `n` working days after `from` (n may be fractional; the fraction is a part-day). */
+/** `n` working days after `from` (Friday + 1 → Monday). */
 export function addWorkingDays(from: Date, n: number): Date {
-  const cur = new Date(from.getTime());
-  let whole = Math.floor(n);
-  while (whole > 0) {
-    cur.setUTCDate(cur.getUTCDate() + 1);
-    if (!isWeekend(cur)) whole--;
+  const d = new Date(from.getTime());
+  let left = n;
+  while (left > 0) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    if (!isWeekend(d)) left--;
   }
-  const frac = n - Math.floor(n);
-  return frac > 0 ? new Date(cur.getTime() + frac * DAY) : cur;
+  return d;
 }
-
-// -------------------------------------------------------------- forecasting

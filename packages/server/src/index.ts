@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
@@ -46,7 +46,14 @@ if (uiDir) {
     const url = new URL(c.req.url);
     if (url.pathname.startsWith('/api/')) return c.notFound();
     let file = join(uiDir, url.pathname.replace(/^\//, ''));
-    if (!existsSync(file) || url.pathname === '/') file = join(uiDir, 'index.html');
+    const isFile = (f: string) => {
+      try {
+        return statSync(f).isFile();
+      } catch {
+        return false;
+      }
+    };
+    if (url.pathname === '/' || !isFile(file)) file = join(uiDir, 'index.html');
     const body = readFileSync(file);
     return c.body(body, 200, {
       'Content-Type': MIME[extname(file)] ?? 'application/octet-stream',

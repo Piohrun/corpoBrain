@@ -40,13 +40,15 @@ export class GitService {
     return stdout.trim();
   }
 
-  async available(): Promise<boolean> {
-    try {
-      await run('git', ['--version'], { timeout: 5_000 });
-      return true;
-    } catch {
-      return false;
-    }
+  private availableOnce: Promise<boolean> | null = null;
+
+  /** Is a git binary on PATH? Probed once per process — it does not change underneath us. */
+  available(): Promise<boolean> {
+    this.availableOnce ??= run('git', ['--version'], { timeout: 5_000 }).then(
+      () => true,
+      () => false,
+    );
+    return this.availableOnce;
   }
 
   /** True only when the vault itself is the repository root — a vault nested
