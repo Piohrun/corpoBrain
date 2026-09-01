@@ -134,7 +134,24 @@ function peopleTreeRank(v: VaultService): Map<string, number> {
   return rank;
 }
 
+/**
+ * The board is rebuilt from the index on every request that needs it (board,
+ * availability, projects, timeline, person…). Between two index changes the
+ * answer is identical, so it is memoised per vault on the index version —
+ * and on the day, since risk flags look at today.
+ */
+const boardCache = new WeakMap<VaultService, { key: string; board: BoardModel }>();
+
 export function buildBoard(v: VaultService, now = new Date()): BoardModel {
+  const key = `${v.indexer.version}|${now.toISOString().slice(0, 10)}`;
+  const hit = boardCache.get(v);
+  if (hit && hit.key === key) return hit.board;
+  const board = computeBoard(v, now);
+  boardCache.set(v, { key, board });
+  return board;
+}
+
+function computeBoard(v: VaultService, now: Date): BoardModel {
   const db = v.indexer.db;
   const cap = v.config.capacity;
   const estimateUnit = v.config.jira.estimateUnit as EffortUnit;
@@ -586,8 +603,7 @@ export function planRoutes(v: VaultService): Hono {
     const note = v.indexer.db.prepare('SELECT type FROM notes WHERE path = ?').get(body.path) as
       | { type: string }
       | undefined;
-    if (!note || note.type !== 'person')
-      throw new HttpError(400, `${body.path} is not a person note`);
+    if (note?.type !== 'person') throw new HttpError(400, `${body.path} is not a person note`);
     const finite = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
     const numberMap = (x: unknown, what: string): Record<string, number> => {
       if (!x || typeof x !== 'object' || Array.isArray(x))

@@ -515,6 +515,23 @@ describe('tree order carries into planning', () => {
   });
 });
 
+describe('board memo', () => {
+  it('reuses the board until the index or the config changes', async () => {
+    const a = buildBoard(vault);
+    expect(buildBoard(vault)).toBe(a);
+    await app.request('/api/plan/issue/EXEC-2', {
+      method: 'PUT',
+      body: JSON.stringify({ rank: 3 }),
+    });
+    const b = buildBoard(vault);
+    expect(b).not.toBe(a);
+    expect(b.issues.find((i) => i.key === 'EXEC-2')?.plan.rank).toBe(3);
+    expect(buildBoard(vault)).toBe(b);
+    vault.updateConfig('capacity', { defaultCapacity: 4 });
+    expect(buildBoard(vault)).not.toBe(b);
+  });
+});
+
 describe('write guards', () => {
   it('PUT /api/plan/person only touches person notes and checks value types', async () => {
     const put = (body: unknown) =>

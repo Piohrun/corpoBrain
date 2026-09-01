@@ -50,6 +50,9 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
 
 export class Indexer {
+  /** Moves whenever the index content changes; cheap cache key for derived models. */
+  version = 0;
+
   constructor(
     readonly root: string,
     readonly config: VaultConfig,
@@ -126,6 +129,7 @@ export class Indexer {
       return 0;
     }
     this.db.exec("DELETE FROM sprints WHERE source = 'jira'");
+    this.version++;
     const ins = this.db.prepare(
       `INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal, source, path)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'jira', NULL)`,
@@ -171,6 +175,7 @@ export class Indexer {
       if (opts.full) this.resolveAll();
       else if (touched.length) this.resolveLinks(touched, keys);
       this.db.exec('COMMIT');
+      if (touched.length) this.version++;
     } catch (e) {
       this.db.exec('ROLLBACK');
       throw e;
