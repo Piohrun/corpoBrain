@@ -139,18 +139,23 @@ export function Editor({
   };
 
   /** encrypt the plaintext cells of one encrypted column (header ⚠ button) */
+  /** false once the note switched under an in-flight async edit */
+  const stillOpen = (view: EditorView): boolean => viewRef.current === view;
+
   const onEncryptPending = async (tableFrom: number, colIndex: number) => {
     const view = viewRef.current;
     if (!view) return;
     const table = findTables(view.state).find((t) => t.from === tableFrom);
     if (!table) return;
     if (!(await ensureUnlocked())) return;
+    if (!stillOpen(view)) return;
     try {
       const { lines, encrypted } = await encryptTableCells(
         table.lines,
         { kind: 'column', index: colIndex },
         async (t) => (await privateApi.encrypt(t)).data,
       );
+      if (!stillOpen(view)) return;
       if (encrypted > 0) {
         view.dispatch({ changes: { from: table.from, to: table.to, insert: lines.join('\n') } });
       }
@@ -179,7 +184,9 @@ export function Editor({
     } catch {
       return;
     }
+    if (!stillOpen(view)) return;
     for (const table of targets) {
+      // re-read: the doc may have moved on while a previous table encrypted
       const current = findTables(view.state).find((t) => t.from === table.from);
       if (!current) continue;
       const cols = [...new Set(pendingCells(current.lines).map((c) => c.colIndex))];
@@ -193,8 +200,11 @@ export function Editor({
         lines = res.lines;
         total += res.encrypted;
       }
-      if (total > 0 && viewRef.current) {
-        viewRef.current.dispatch({
+      // the offsets belong to THIS view; a note switch mid-await must not
+      // splice encrypted rows into whatever note is open now
+      if (!stillOpen(view)) return;
+      if (total > 0) {
+        view.dispatch({
           changes: { from: current.from, to: current.to, insert: lines.join('\n') },
         });
       }
@@ -241,11 +251,13 @@ export function Editor({
         target = { kind: 'column', index };
       }
       if (!(await ensureUnlocked())) return;
+      if (!stillOpen(view)) return;
       try {
         const { lines, encrypted } = await encryptTableCells(table.lines, target, async (t) => {
           const { data } = await privateApi.encrypt(t);
           return data;
         });
+        if (!stillOpen(view)) return;
         if (encrypted === 0) {
           window.alert('Nothing to encrypt there (cells empty or already encrypted).');
           return;
@@ -260,11 +272,13 @@ export function Editor({
     }
     const text = view.state.doc.sliceString(sel.from, sel.to);
     if (!(await ensureUnlocked())) return;
+    if (!stillOpen(view)) return;
     try {
       const { data } = await privateApi.encrypt(text);
+      if (!stillOpen(view)) return;
       const insert = text.includes('\n')
-        ? '\n```secret\n' + data + '\n```\n'
-        : '`\u{1F512}' + data + '`';
+        ? `\n\`\`\`secret\n${data}\n\`\`\`\n`
+        : `\`\u{1F512}${data}\``;
       view.dispatch({
         changes: { from: sel.from, to: sel.to, insert },
       });
