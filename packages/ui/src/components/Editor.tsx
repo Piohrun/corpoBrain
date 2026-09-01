@@ -1,4 +1,4 @@
-import { EditorState } from '@codemirror/state';
+import { Annotation, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
@@ -26,6 +26,9 @@ interface Props {
    */
   discardRef?: React.RefObject<boolean>;
 }
+
+/** marks a doc replacement that came FROM the server (SSE), so it is not saved back */
+const externalChange = Annotation.define<boolean>();
 
 export function Editor({
   path,
@@ -341,10 +344,12 @@ export function Editor({
           completions: () => latest.current.completions(),
         }),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged) {
-            save(path, u.state.doc.toString());
-            scheduleAutoEncrypt();
-          }
+          if (!u.docChanged) return;
+          // content pushed in from the vault watcher is already on disk;
+          // echoing it back would overwrite a newer external edit
+          if (u.transactions.some((t) => t.annotation(externalChange))) return;
+          save(path, u.state.doc.toString());
+          scheduleAutoEncrypt();
         }),
       ],
     });
@@ -375,6 +380,7 @@ export function Editor({
       view.dispatch({
         changes: { from: 0, to: current.length, insert: content },
         selection: { anchor: head },
+        annotations: externalChange.of(true),
       });
     }
   }, [content]);
