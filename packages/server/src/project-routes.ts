@@ -112,7 +112,14 @@ export function projectDefs(v: VaultService): ProjectDef[] {
     } catch {
       /* unparsable frontmatter: rules stay empty */
     }
-    if (fm.type !== undefined && fm.type !== 'project' && !r.path.startsWith(`${folder}/`))
+    const explicit = fm.type === 'project';
+    if (fm.type !== undefined && !explicit && !r.path.startsWith(`${folder}/`)) continue;
+    // Child pages of a project (nested under it in the tree, or in a
+    // sub-folder) are notes about the project, not projects of their own.
+    if (
+      !explicit &&
+      (typeof fm.parent === 'string' || r.path.slice(folder.length + 1).includes('/'))
+    )
       continue;
     defs.push({
       path: r.path,

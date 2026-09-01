@@ -66,6 +66,29 @@ afterEach(() => {
 });
 
 describe('GET /api/projects', () => {
+  it('ignores child pages of a project', async () => {
+    mkdirSync(join(root, 'projects', 'falcon'), { recursive: true });
+    writeFileSync(join(root, 'projects', 'falcon', 'retro.md'), '# Retro notes\n');
+    writeFileSync(
+      join(root, 'projects', 'falcon-risks.md'),
+      '---\nparent: "[[falcon]]"\n---\n# Risks\n',
+    );
+    writeFileSync(join(root, 'projects', 'eagle.md'), '# Eagle\n'); // sibling: a project
+    writeFileSync(
+      join(root, 'projects', 'owl.md'),
+      '---\ntype: project\nparent: "[[falcon]]"\n---\n# Owl\n',
+    ); // explicit type wins even with a parent
+    vault.indexer.update();
+    const res = (await (await app.request('/api/projects')).json()) as {
+      projects: { path: string }[];
+    };
+    expect(res.projects.map((p) => p.path).sort()).toEqual([
+      'projects/eagle.md',
+      'projects/falcon.md',
+      'projects/owl.md',
+    ]);
+  });
+
   it('rolls up membership from epics, labels and explicit tags', async () => {
     const res = await app.request('/api/projects');
     expect(res.status).toBe(200);
