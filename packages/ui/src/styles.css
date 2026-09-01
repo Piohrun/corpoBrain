@@ -2560,3 +2560,48 @@ tr.wb-conflict td {
 .health-head .spacer {
   flex: 1;
 }
+
+/* ---- planning grid: whole-sprint presence ---- */
+.bw-cell {
+  position: relative;
+}
+.bw-cell.away-all {
+  background-color: color-mix(in srgb, var(--fg-muted) 10%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--fg-muted) 22%, transparent) 6px 8px
+  );
+}
+.bw-cell.support-only {
+  background-color: color-mix(in srgb, var(--st-ready) 12%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    color-mix(in srgb, var(--st-ready) 30%, transparent) 6px 8px
+  );
+}
+.bw-presence {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 10px;
+  line-height: 14px;
+  padding: 0 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  pointer-events: none;
+}
+.bw-presence.away-all {
+  background: color-mix(in srgb, var(--fg-muted) 22%, var(--bg-panel));
+  color: var(--fg-muted);
+}
+.bw-presence.support-only {
+  background: color-mix(in srgb, var(--st-ready) 35%, var(--bg-panel));
+  color: var(--fg);
+}
+.bw-cell.away-all .cap-edit,
+.bw-cell.support-only .cap-edit {
+  margin-top: 16px;
+}

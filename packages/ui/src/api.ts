@@ -143,7 +143,10 @@ export interface BoardPerson {
   sortOrder: number | null;
   country: string | null;
   suggested: Record<string, number>;
-  absence: Record<string, { ooo: number; support: number; total: number; available: number }>;
+  absence: Record<
+    string,
+    { ooo: number; holiday: number; support: number; total: number; available: number }
+  >;
 }
 
 export interface BoardModel {

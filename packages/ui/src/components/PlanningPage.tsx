@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   type BoardIssue,
   type BoardModel,
+  type BoardPerson,
   type JiraStatus,
   type PlanPatch,
   planApi,
@@ -308,7 +309,7 @@ interface Row {
   overrides: Record<string, number>;
   loadOverrides: Record<string, number>;
   suggested: Record<string, number>;
-  absence: Record<string, { ooo: number; support: number; total: number; available: number }>;
+  absence: BoardPerson['absence'];
   region: string | null;
   team: string | null;
   editable: boolean;
@@ -599,6 +600,43 @@ function BandwidthGrid({
     );
   };
 
+  /**
+   * Whole-sprint presence, so a row reads at a glance: nobody home for the
+   * sprint (leave/holiday every working day, or bandwidth pinned to 0) vs.
+   * on the support rota for every day they are not off.
+   */
+  const presenceOf = (
+    row: Row,
+    col: string,
+    cap: number | null,
+  ): { cls: string; label: string; title: string } | null => {
+    if (col === 'Backlog' || !row.editable) return null;
+    const a = row.absence[col];
+    const off = a ? a.ooo + (a.holiday ?? 0) : 0;
+    if (a && a.total > 0 && off >= a.total) {
+      return {
+        cls: 'away-all',
+        label: 'away',
+        title: `${row.name} is away for the whole of ${col} (${a.ooo}d leave, ${a.holiday ?? 0}d holiday)`,
+      };
+    }
+    if (a && a.total > 0 && a.support > 0 && off + a.support >= a.total) {
+      return {
+        cls: 'support-only',
+        label: off > 0 ? `support · ${off}d away` : 'support',
+        title: `${row.name} is on the support rota for every working day of ${col} they are not away (${a.support}d support, ${off}d off)`,
+      };
+    }
+    if (cap === 0) {
+      return {
+        cls: 'away-all',
+        label: 'no bandwidth',
+        title: `${row.name} has 0 ${board.unit} for ${col}`,
+      };
+    }
+    return null;
+  };
+
   const memberRow = (row: Row) => (
     <tr key={row.id}>
       <td className="person-cell">
@@ -648,13 +686,18 @@ function BandwidthGrid({
         const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
         const collapsedCol = col === 'Backlog' && backlogCollapsed;
         const cellCards = cellIssues.get(cKey) ?? [];
+        const presence = presenceOf(row, col, cap);
         return (
           <td
             key={col}
-            className={`bw-cell${cls}${collapsedCol ? ' backlog-col' : ''}`}
+            className={`bw-cell${cls}${collapsedCol ? ' backlog-col' : ''}${
+              presence ? ` ${presence.cls}` : ''
+            }`}
+            title={presence?.title}
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => drop(row, col)}
           >
+            {presence && <span className={`bw-presence ${presence.cls}`}>{presence.label}</span>}
             <div className="cell-load">
               {row.editable && row.path ? (
                 <span>
