@@ -15,6 +15,8 @@ export interface WriteAdapter {
   setAssignee(key: string, assignee: string | null): Promise<void>;
   moveIssuesToSprint(sprintId: number, keys: string[]): Promise<void>;
   moveIssuesToBacklog(keys: string[]): Promise<void>;
+  /** the issue's current (open) sprint per the Agile API — verification after a move */
+  issueSprint(key: string): Promise<{ id: number; name: string } | null>;
 }
 
 export type WriteField = 'sprint' | 'assignee';
@@ -41,7 +43,8 @@ export interface PreviewRow extends StagedChange {
 export interface ApplyItem {
   key: string;
   field: WriteField;
-  to: string;
+  /** sprint name / Backlog, or the assignee id; null clears the assignee */
+  to: string | null;
   /** apply even when the issue changed in Jira since last sync */
   force?: boolean;
 }
@@ -49,7 +52,7 @@ export interface ApplyItem {
 export interface ApplyResult {
   key: string;
   field: WriteField;
-  to: string;
+  to: string | null;
   status: 'applied' | 'dry-run' | 'conflict' | 'error' | 'not-run';
   detail?: string;
 }
@@ -255,10 +258,12 @@ export async function applyChanges(
           status: 'dry-run',
           detail:
             item.field === 'assignee'
-              ? `would PUT assignee=${item.to}`
+              ? item.to === null
+                ? 'would clear the assignee'
+                : `would PUT assignee=${item.to}`
               : item.to === 'Backlog'
                 ? 'would POST to backlog'
-                : `would POST to sprint "${item.to}" (id ${sprintIdOf(item.to) ?? '?'})`,
+                : `would POST to sprint "${item.to}" (id ${sprintIdOf(item.to ?? '') ?? '?'})`,
         });
         journal(v, {
           batchId,
@@ -276,14 +281,20 @@ export async function applyChanges(
         const verify = await adapter.issueFields(item.key, ['assignee']);
         if (liveAssigneeId(verify) !== item.to)
           throw new Error('verification failed: assignee did not take');
+      } else if (item.to === null || item.to === 'Backlog') {
+        await adapter.moveIssuesToBacklog([item.key]);
+        const live = await adapter.issueSprint(item.key);
+        if (live !== null)
+          throw new Error(`verification failed: issue is still in sprint "${live.name}"`);
       } else {
-        if (item.to === 'Backlog') {
-          await adapter.moveIssuesToBacklog([item.key]);
-        } else {
-          const sprintId = sprintIdOf(item.to);
-          if (sprintId === null) throw new Error(`sprint "${item.to}" not found in Jira`);
-          await adapter.moveIssuesToSprint(sprintId, [item.key]);
-        }
+        const sprintId = sprintIdOf(item.to);
+        if (sprintId === null) throw new Error(`sprint "${item.to}" not found in Jira`);
+        await adapter.moveIssuesToSprint(sprintId, [item.key]);
+        const live = await adapter.issueSprint(item.key);
+        if (live?.id !== sprintId)
+          throw new Error(
+            `verification failed: issue is in ${live ? `"${live.name}"` : 'no sprint'}, not "${item.to}"`,
+          );
       }
       if (mirror?.path) clearPlanField(v, mirror.path, item.field);
       journal(v, {
@@ -316,12 +327,16 @@ export async function applyChanges(
 
 /** Inverse items for a previously applied batch (fed back through preview/apply). */
 export function undoItems(v: VaultService, batchId: string): ApplyItem[] {
+  // an assignment made from "unassigned" undoes to null: clearing the
+  // assignee is a real write, not something to drop
   return journalTail(v, 1000)
     .filter((e) => e.batchId === batchId && e.ok === true && e.dryRun === false)
     .map((e) => ({
       key: e.key as string,
       field: e.field as WriteField,
-      to: (e.before as string | null) ?? (e.field === 'sprint' ? 'Backlog' : ''),
-    }))
-    .filter((i) => i.to !== '');
+      to:
+        e.field === 'sprint'
+          ? ((e.before as string | null) ?? 'Backlog')
+          : ((e.before as string | null) ?? null),
+    }));
 }

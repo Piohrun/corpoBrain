@@ -244,7 +244,8 @@ export function jiraRoutes(v: VaultService): Hono {
       const items = Array.isArray(body.items) ? (body.items as ApplyItem[]) : [];
       if (!items.length) throw new HttpError(400, 'items required');
       for (const i of items) {
-        if (!i.key || !['sprint', 'assignee'].includes(i.field) || typeof i.to !== 'string')
+        const toOk = typeof i.to === 'string' || (i.to === null && i.field === 'assignee');
+        if (!i.key || !['sprint', 'assignee'].includes(i.field) || !toOk)
           throw new HttpError(400, 'invalid item');
       }
       const adapter = createJiraAdapter(v.root, v.config);

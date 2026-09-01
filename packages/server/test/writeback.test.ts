@@ -20,11 +20,19 @@ function jiraFile(key: string, extra: string): string {
   return `---\ntype: jira\nkey: ${key}\n${extra}url: https://j/browse/${key}\njira:\n  synced: 2026-08-31T00:00:00Z\n  profile: team\n---\n\n# ${key}\n\n<!-- jira:end -->\n\n## My notes\nkeep me\n`;
 }
 
+const SPRINT_NAMES: Record<number, string> = { 37: 'Sprint 37', 38: 'Sprint 38' };
+
 class FakeWriteAdapter implements WriteAdapter {
   calls: string[] = [];
   liveUpdated: Record<string, string> = {};
   liveAssignee: Record<string, string | null> = {};
+  liveSprint: Record<string, { id: number; name: string } | null> = {};
+  /** simulate Jira silently ignoring a sprint move */
+  ignoreSprintMoves = false;
   failOn: string | null = null;
+  async issueSprint(key: string): Promise<{ id: number; name: string } | null> {
+    return this.liveSprint[key] ?? null;
+  }
   async issueFields(key: string): Promise<Record<string, unknown>> {
     return {
       updated: this.liveUpdated[key] ?? '2026-08-30T10:00:00Z',
@@ -39,9 +47,13 @@ class FakeWriteAdapter implements WriteAdapter {
   async moveIssuesToSprint(sprintId: number, keys: string[]): Promise<void> {
     if (this.failOn && keys.includes(this.failOn)) throw new Error('boom: sprint move failed');
     this.calls.push(`sprint ${keys.join(',')} -> ${sprintId}`);
+    if (this.ignoreSprintMoves) return;
+    for (const k of keys)
+      this.liveSprint[k] = { id: sprintId, name: SPRINT_NAMES[sprintId] ?? '?' };
   }
   async moveIssuesToBacklog(keys: string[]): Promise<void> {
     this.calls.push(`backlog ${keys.join(',')}`);
+    for (const k of keys) this.liveSprint[k] = null;
   }
 }
 
@@ -186,6 +198,37 @@ describe('applyChanges', () => {
       { key: 'EXEC-1', field: 'sprint', to: 'Sprint 37' },
       { key: 'EXEC-1', field: 'assignee', to: 'anna' },
     ]);
+  });
+
+  it('undo of an assignment from unassigned clears the assignee, and null is applied and verified', async () => {
+    const adapter = new FakeWriteAdapter();
+    // EXEC-2 has no assignee in the mirror
+    const report = await applyChanges(
+      vault,
+      adapter,
+      [{ key: 'EXEC-2', field: 'assignee', to: 'john' }],
+      { dryRun: false },
+    );
+    expect(report.results[0]?.status).toBe('applied');
+    const inverse = undoItems(vault, report.batchId);
+    expect(inverse).toEqual([{ key: 'EXEC-2', field: 'assignee', to: null }]);
+    const undo = await applyChanges(vault, adapter, inverse, { dryRun: false });
+    expect(undo.results[0]?.status).toBe('applied');
+    expect(adapter.calls).toContain('assignee EXEC-2 -> null');
+  });
+
+  it('a sprint move that Jira ignored fails verification instead of clearing the plan', async () => {
+    const adapter = new FakeWriteAdapter();
+    adapter.ignoreSprintMoves = true;
+    const report = await applyChanges(
+      vault,
+      adapter,
+      [{ key: 'EXEC-1', field: 'sprint', to: 'Sprint 38' }],
+      { dryRun: false },
+    );
+    expect(report.results[0]?.status).toBe('error');
+    expect(report.results[0]?.detail).toContain('verification failed');
+    expect(readFileSync(join(root, 'jira', 'EXEC-1.md'), 'utf8')).toContain('sprint: Sprint 38');
   });
 });
 

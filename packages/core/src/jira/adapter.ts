@@ -170,6 +170,20 @@ export class JiraAdapter {
     );
   }
 
+  /**
+   * The issue's current open sprint via the Agile issue resource, which
+   * exposes `sprint` under a stable name on DC and Cloud alike (the REST
+   * search only has it under a per-instance custom field id).
+   */
+  async issueSprint(key: string): Promise<{ id: number; name: string } | null> {
+    const data = await this.get<{ fields?: { sprint?: { id: number; name: string } | null } }>(
+      `rest/agile/1.0/issue/${encodeURIComponent(key)}`,
+      { fields: 'sprint' },
+    );
+    const s = data.fields?.sprint;
+    return s && typeof s.id === 'number' ? { id: s.id, name: s.name } : null;
+  }
+
   /** Move issues into a sprint (Agile API; max 50 per call, we send few). */
   async moveIssuesToSprint(sprintId: number, keys: string[]): Promise<void> {
     await this.send('POST', `rest/agile/1.0/sprint/${sprintId}/issue`, { issues: keys });
