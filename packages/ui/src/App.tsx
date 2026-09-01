@@ -23,6 +23,10 @@ import { Sidebar } from './components/Sidebar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
 import { useVaultEvents } from './hooks.ts';
 
+function hashPath(): string {
+  return decodeURIComponent(window.location.hash.replace(/^#\//, ''));
+}
+
 export function App() {
   const [notes, setNotes] = useState<NoteListItem[]>([]);
   const [tree, setTree] = useState<TreeModel | null>(null);
@@ -47,6 +51,8 @@ export function App() {
   noteRef.current = note;
   /** true while a delete is in flight, so the editor drops its pending save */
   const discardRef = useRef(false);
+  /** sequence of note loads: a slow earlier response must not overtake a later click */
+  const loadSeq = useRef(0);
 
   const refreshLists = useCallback(() => {
     api
@@ -66,20 +72,28 @@ export function App() {
   useEffect(refreshLists, [refreshLists]);
 
   const openPath = useCallback((path: string) => {
+    const seq = ++loadSeq.current;
     api
       .note(path)
       .then((n) => {
+        if (seq !== loadSeq.current) return; // a later open won
         setNote(n);
         setSaveState('saved');
-        window.location.hash = `#/${encodeURIComponent(path)}`;
+        if (hashPath() !== path) window.location.hash = `#/${encodeURIComponent(path)}`;
       })
       .catch(() => {});
   }, []);
 
-  // restore note from URL hash on load
+  // restore note from URL hash on load, and follow back/forward
   useEffect(() => {
-    const fromHash = decodeURIComponent(window.location.hash.replace(/^#\//, ''));
+    const fromHash = hashPath();
     if (fromHash) openPath(fromHash);
+    const onHash = () => {
+      const p = hashPath();
+      if (p && p !== noteRef.current?.path) openPath(p);
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, [openPath]);
 
   // live updates from the vault watcher
@@ -348,6 +362,7 @@ export function App() {
                         .remove(current.path)
                         .then(() => {
                           setNote(null);
+                          history.replaceState(null, '', window.location.pathname);
                           refreshLists();
                         })
                         .catch((e: Error) => window.alert(`Delete failed: ${e.message}`))
@@ -378,7 +393,10 @@ export function App() {
                   onSnapshot={(path, content) =>
                     setNote((prev) => (prev && prev.path === path ? { ...prev, content } : prev))
                   }
-                  onSaveState={setSaveState}
+                  onSaveState={(p, st) => {
+                    // a save for the previous note must not relabel this one
+                    if (noteRef.current?.path === p) setSaveState(st);
+                  }}
                   onSaved={onSaved}
                   discardRef={discardRef}
                 />

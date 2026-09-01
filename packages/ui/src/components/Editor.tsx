@@ -17,7 +17,8 @@ interface Props {
   onNavigate: (target: string) => void;
   /** called on unmount with the editor's final text so the app state stays current */
   onSnapshot: (path: string, content: string) => void;
-  onSaveState: (state: 'saved' | 'saving' | 'error') => void;
+  /** save progress for `path` — the app ignores reports for a note that is no longer open */
+  onSaveState: (path: string, state: 'saved' | 'saving' | 'error') => void;
   onSaved: () => void;
   /**
    * Set to true right before unmounting when the note is being deleted:
@@ -312,14 +313,14 @@ export function Editor({
   latest.current = { path, onNavigate, onSnapshot, completions, resolveMap, onSaveState, onSaved };
 
   const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, text: string) => {
-    latest.current.onSaveState('saving');
+    latest.current.onSaveState(p, 'saving');
     api
       .save(p, text)
       .then(() => {
-        latest.current.onSaveState('saved');
+        latest.current.onSaveState(p, 'saved');
         latest.current.onSaved();
       })
-      .catch(() => latest.current.onSaveState('error'));
+      .catch(() => latest.current.onSaveState(p, 'error'));
   }, 700);
 
   const [scheduleAutoEncrypt] = useDebouncedCallback(() => {
