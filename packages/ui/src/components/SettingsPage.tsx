@@ -56,21 +56,21 @@ export function SettingsPage() {
   });
 
   const applyStatusColor = (key: string, value: string | null) => {
-    setStatusColors((prev) => {
-      const next = { ...prev };
-      if (value) next[key] = value;
-      else delete next[key];
-      try {
-        localStorage.setItem('cb.colors', JSON.stringify(next));
-      } catch {
-        /* storage unavailable */
-      }
-      if (value) document.documentElement.style.setProperty(`--${key}`, value);
-      else document.documentElement.style.removeProperty(`--${key}`);
-      return next;
-    });
+    // side effects outside the updater: StrictMode runs updaters twice
+    const next = { ...statusColors };
+    if (value) next[key] = value;
+    else delete next[key];
+    setStatusColors(next);
+    try {
+      localStorage.setItem('cb.colors', JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+    if (value) document.documentElement.style.setProperty(`--${key}`, value);
+    else document.documentElement.style.removeProperty(`--${key}`);
   };
   const [gitMsg, setGitMsg] = useState<string | null>(null);
+  const [hubError, setHubError] = useState<string | null>(null);
 
   const applyTheme = (t: Theme) => {
     setTheme(t);
@@ -148,11 +148,11 @@ export function SettingsPage() {
               <div>
                 {STATUS_COLORS.map((c, idx) => (
                   <div key={c.key} className="status-color-row">
-                    <input
+                    <ColorPicker
                       id={idx === 0 ? 's-status-0' : undefined}
-                      type="color"
+                      label={`${c.label} color`}
                       value={statusColors[c.key] ?? c.fallback}
-                      onChange={(e) => applyStatusColor(c.key, e.target.value)}
+                      onCommit={(v) => applyStatusColor(c.key, v)}
                     />
                     <span className="muted small">{c.label}</span>
                     {statusColors[c.key] && (
@@ -272,16 +272,17 @@ export function SettingsPage() {
                 Stored on the hub note (shared via the vault, unlike the per-browser theme). Unset
                 hubs use an automatic color derived from the name.
               </p>
+              {hubError && <p className="plan-error">{hubError}</p>}
               {hubs.map((h) => (
                 <div key={h.path} className="status-color-row">
-                  <input
-                    type="color"
+                  <ColorPicker
+                    label={`${h.name} color`}
                     value={h.color ?? nameColorHex(h.name)}
-                    onChange={(e) => {
+                    onCommit={(v) => {
                       planApi
-                        .patchPerson({ path: h.path, color: e.target.value })
+                        .patchPerson({ path: h.path, color: v })
                         .then(refreshHubs)
-                        .catch(() => {});
+                        .catch((e: Error) => setHubError(e.message));
                     }}
                   />
                   <span className="muted small">
@@ -296,7 +297,7 @@ export function SettingsPage() {
                         planApi
                           .patchPerson({ path: h.path, color: null })
                           .then(refreshHubs)
-                          .catch(() => {});
+                          .catch((e: Error) => setHubError(e.message));
                       }}
                     >
                       ✕
@@ -355,5 +356,42 @@ export function SettingsPage() {
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * A colour input that commits once the picker closes. Browsers fire
+ * `input`/`change` on every tick while dragging in the picker, which for the
+ * hub colours meant one vault write per tick.
+ */
+function ColorPicker({
+  id,
+  label,
+  value,
+  onCommit,
+}: {
+  id?: string | undefined;
+  label: string;
+  value: string;
+  onCommit: (value: string) => void;
+}) {
+  const [live, setLive] = useState(value);
+  // follow the outside value when it changes (reset, another browser)
+  useEffect(() => setLive(value), [value]);
+  const commit = () => {
+    if (live !== value) onCommit(live);
+  };
+  return (
+    <input
+      id={id}
+      type="color"
+      aria-label={label}
+      value={live}
+      onChange={(e) => setLive(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit();
+      }}
+    />
   );
 }
