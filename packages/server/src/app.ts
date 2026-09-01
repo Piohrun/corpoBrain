@@ -2,6 +2,7 @@ import { SPEC_VERSION } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { availabilityRoutes } from './availability-routes.ts';
 import { digestRoutes } from './digest-routes.ts';
+import { flowRoutes } from './flow-routes.ts';
 import { gitFor } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
@@ -231,6 +232,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/private', privateRoutes(v).app);
   app.route('/api/tree', treeRoutes(v));
   app.route('/api/task', taskRoutes(v));
+  app.route('/api/flow', flowRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.
   app.get('/api/events', () => {

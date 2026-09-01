@@ -40,6 +40,15 @@ export {
   unlockKeystore,
 } from './crypto.ts';
 export { openDb, resetDb, SCHEMA_VERSION } from './db.ts';
+export type { FlowTimes, SprintChurn, StatusBand, StatusCategory } from './flow.ts';
+export {
+  daysBetween,
+  flowTimes,
+  mentionsSprint,
+  percentile,
+  sprintChurn,
+  statusBands,
+} from './flow.ts';
 export type { Eol, FrontmatterSplit, ParsedFrontmatter } from './frontmatter.ts';
 export {
   deleteFrontmatterKey,
