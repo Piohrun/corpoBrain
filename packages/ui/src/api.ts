@@ -341,6 +341,8 @@ export interface CalendarModel {
   rail: { key: string; summary: string | null; path: string; days: number; estimated: boolean }[];
   finishDate: string | null;
   target: string | null;
+  /** membership rules from the project note */
+  rules: { epics: string[]; labels: string[]; keys: string[] };
   cycles: string[][];
   warnings: string[];
 }
@@ -431,7 +433,19 @@ export const projectApi = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
+  /** add/remove membership rules: every issue in the epic / with the label joins at once */
+  rules: (path: string, change: { add?: ProjectRules; remove?: ProjectRules }) =>
+    req<{ ok: boolean; rules: Required<ProjectRules> }>('/api/projects/rules', {
+      method: 'PUT',
+      body: JSON.stringify({ path, ...change }),
+    }),
 };
+
+export interface ProjectRules {
+  epics?: string[];
+  labels?: string[];
+  keys?: string[];
+}
 
 export const digestApi = {
   get: (range: string) => req<DigestResponse>(`/api/digest?range=${encodeURIComponent(range)}`),

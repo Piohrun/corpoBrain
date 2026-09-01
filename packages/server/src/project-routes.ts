@@ -89,9 +89,14 @@ export interface CalendarModel {
   rail: { key: string; summary: string | null; path: string; days: number; estimated: boolean }[];
   finishDate: string | null;
   target: string | null;
+  /** membership rules from the project note (epic keys, Jira labels, issue keys) */
+  rules: { epics: string[]; labels: string[]; keys: string[] };
   cycles: string[][];
   warnings: string[];
 }
+
+const RULE_KINDS = ['epics', 'labels', 'keys'] as const;
+type RuleKind = (typeof RULE_KINDS)[number];
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const list = (v: unknown): string[] =>
@@ -538,6 +543,7 @@ export function projectRoutes(v: VaultService): Hono {
         })),
       finishDate: arranged.finishDate,
       target: def.target,
+      rules: { epics: def.epics, labels: def.labels, keys: def.keys },
       cycles: arranged.cycles,
       warnings,
     };
@@ -573,6 +579,52 @@ export function projectRoutes(v: VaultService): Hono {
       pinned++;
     }
     return c.json({ ok: true, pinned, finishDate: arranged.finishDate, cycles: arranged.cycles });
+  });
+
+  /**
+   * Add or remove membership rules on the project note: every issue in the
+   * epic / with the label / with the key joins (or leaves) the project at once.
+   */
+  app.put('/rules', async (c) => {
+    const body = (await c.req.json()) as {
+      path?: string;
+      add?: Partial<Record<RuleKind, unknown>>;
+      remove?: Partial<Record<RuleKind, unknown>>;
+    };
+    if (!body.path) throw new HttpError(400, 'path is required');
+    const def = projectDefs(v).find((d) => d.path === body.path);
+    if (!def) throw new HttpError(404, `unknown project: ${body.path}`);
+    const cleaned = (kind: RuleKind, raw: unknown): string[] => {
+      if (raw === undefined) return [];
+      if (!Array.isArray(raw) || !raw.every((x) => typeof x === 'string'))
+        throw new HttpError(400, `${kind} must be a list of strings`);
+      const out = raw.map((x) => x.trim()).filter(Boolean);
+      if (kind !== 'labels') {
+        const bad = out.find((k) => !/^[A-Z][A-Z0-9_]+-\d+$/.test(k));
+        if (bad) throw new HttpError(400, `"${bad}" is not a Jira issue key`);
+      }
+      return out;
+    };
+    let { content } = v.read(body.path);
+    const rules: Record<RuleKind, string[]> = {
+      epics: def.epics,
+      labels: def.labels,
+      keys: def.keys,
+    };
+    for (const kind of RULE_KINDS) {
+      const add = cleaned(kind, body.add?.[kind]);
+      const remove = new Set(cleaned(kind, body.remove?.[kind]));
+      const next = [
+        ...rules[kind].filter((x) => !remove.has(x)),
+        ...add.filter((x) => !rules[kind].includes(x)),
+      ];
+      if (next.length === rules[kind].length && next.every((x, i) => x === rules[kind][i]))
+        continue;
+      rules[kind] = next;
+      content = setFrontmatterKey(content, kind, next);
+    }
+    v.write(body.path, content);
+    return c.json({ ok: true, rules });
   });
 
   /** Replace the project's people roster (person note paths). */

@@ -2452,3 +2452,22 @@ tr.wb-conflict td {
 .cm-cb-checkbox.jira {
   accent-color: var(--st-ready);
 }
+
+/* ---- projects: bulk add ---- */
+.bulk-pop {
+  width: 380px;
+}
+.bulk-pop .proj-add-list {
+  max-height: 300px;
+  overflow: auto;
+}
+.bulk-section {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  padding: 6px 4px 2px;
+}
+.bulk-hint {
+  margin: 6px 0 0;
+}

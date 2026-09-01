@@ -241,6 +241,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                   +
                 </button>
               </span>
+              <BulkAddButton model={model} onSaved={refresh} onError={setError} />
               <RosterButton model={model} onSaved={refresh} onError={setError} />
               <button
                 type="button"
@@ -806,6 +807,176 @@ function IssueSearch({
         </div>
       </div>
     </>
+  );
+}
+
+// ------------------------------------------------------- bulk add by epic/label
+
+/**
+ * Membership rules live on the project note (epics / labels / keys). Adding an
+ * epic or a label here pulls every matching issue in at once; the chips show
+ * what is in force and remove a rule with one click.
+ */
+function BulkAddButton({
+  model,
+  onSaved,
+  onError,
+}: {
+  model: CalendarModel;
+  onSaved: () => void;
+  onError: (e: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [board, setBoard] = useState<BoardModel | null>(null);
+  const [q, setQ] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    planApi
+      .board()
+      .then(setBoard)
+      .catch(() => {});
+    inputRef.current?.focus();
+  }, [open]);
+
+  const { epics, labels } = useMemo(() => {
+    const epics = new Map<string, { summary: string | null; open: number; total: number }>();
+    const labels = new Map<string, { open: number; total: number }>();
+    for (const i of board?.issues ?? []) {
+      const isOpen = i.statusCategory !== 'done';
+      if (i.epic) {
+        const e = epics.get(i.epic) ?? { summary: null, open: 0, total: 0 };
+        e.total++;
+        if (isOpen) e.open++;
+        epics.set(i.epic, e);
+      }
+      for (const l of i.labels) {
+        const e = labels.get(l) ?? { open: 0, total: 0 };
+        e.total++;
+        if (isOpen) e.open++;
+        labels.set(l, e);
+      }
+    }
+    // the epic's own mirrored issue gives it a name
+    for (const i of board?.issues ?? []) {
+      const e = epics.get(i.key);
+      if (e) e.summary = i.summary;
+    }
+    const needle = q.trim().toLowerCase();
+    const hit = (...parts: (string | null)[]) =>
+      !needle || parts.some((p) => p?.toLowerCase().includes(needle));
+    return {
+      epics: [...epics.entries()]
+        .filter(([k, e]) => !model.rules.epics.includes(k) && hit(k, e.summary))
+        .sort((a, b) => b[1].open - a[1].open || a[0].localeCompare(b[0])),
+      labels: [...labels.entries()]
+        .filter(([l]) => !model.rules.labels.includes(l) && hit(l))
+        .sort((a, b) => b[1].open - a[1].open || a[0].localeCompare(b[0])),
+    };
+  }, [board, q, model.rules]);
+
+  const change = (body: Parameters<typeof projectApi.rules>[1]) => {
+    projectApi
+      .rules(model.project.path, body)
+      .then(() => onSaved())
+      .catch((e: Error) => onError(e.message));
+  };
+
+  const ruleChips = [
+    ...model.rules.epics.map((k) => ({ kind: 'epics' as const, value: k, label: `epic ${k}` })),
+    ...model.rules.labels.map((l) => ({ kind: 'labels' as const, value: l, label: `label ${l}` })),
+    ...model.rules.keys.map((k) => ({ kind: 'keys' as const, value: k, label: k })),
+  ];
+
+  return (
+    <span className="cal-roster">
+      <button
+        type="button"
+        className="plan-btn"
+        onClick={() => setOpen((o) => !o)}
+        title="Add every issue of an epic or with a label to this project in one go"
+      >
+        + issues
+      </button>
+      {open && (
+        <div className="cal-search cal-roster-pop bulk-pop">
+          <div className="cal-search-head">
+            <b>Add to {model.project.title} by epic or label</b>
+            <span className="spacer" />
+            <button type="button" className="row-del" onClick={() => setOpen(false)}>
+              ✕
+            </button>
+          </div>
+          <input
+            ref={inputRef}
+            className="plan-filter"
+            placeholder="filter epics and labels…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setOpen(false);
+            }}
+          />
+          <div className="proj-add-list">
+            {epics.length > 0 && <div className="bulk-section">Epics</div>}
+            {epics.map(([key, e]) => (
+              <button
+                type="button"
+                key={`e:${key}`}
+                className="proj-add-row"
+                onClick={() => change({ add: { epics: [key] } })}
+                title={`Add all ${e.total} issues of ${key}`}
+              >
+                <b>{key}</b> {e.summary ?? ''}
+                <span className="muted small">
+                  {' '}
+                  · {e.open} open / {e.total}
+                </span>
+              </button>
+            ))}
+            {labels.length > 0 && <div className="bulk-section">Labels</div>}
+            {labels.map(([label, e]) => (
+              <button
+                type="button"
+                key={`l:${label}`}
+                className="proj-add-row"
+                onClick={() => change({ add: { labels: [label] } })}
+                title={`Add all ${e.total} issues labelled ${label}`}
+              >
+                <b>#{label}</b>
+                <span className="muted small">
+                  {' '}
+                  · {e.open} open / {e.total}
+                </span>
+              </button>
+            ))}
+            {board && epics.length === 0 && labels.length === 0 && (
+              <span className="muted small">nothing left to add</span>
+            )}
+            {!board && <span className="muted small">loading…</span>}
+          </div>
+          {ruleChips.length > 0 && (
+            <div className="cal-roster-current">
+              {ruleChips.map((r) => (
+                <button
+                  type="button"
+                  key={`${r.kind}:${r.value}`}
+                  className="digest-chip"
+                  title="Remove this rule (issues tagged by hand stay)"
+                  onClick={() => change({ remove: { [r.kind]: [r.value] } })}
+                >
+                  {r.label} ✕
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="muted small bulk-hint">
+            Single issues: click an empty day on the calendar and search.
+          </p>
+        </div>
+      )}
+    </span>
   );
 }
 

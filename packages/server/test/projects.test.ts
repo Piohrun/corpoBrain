@@ -363,3 +363,39 @@ describe('tagging an issue to a project', () => {
     expect(body.untagged).toBe(0);
   });
 });
+
+describe('PUT /api/projects/rules', () => {
+  it('adds and removes epic/label/key rules in bulk and rejects junk', async () => {
+    jira(
+      'EXEC-4',
+      'summary: In the new epic\nstatus: To Do\nstatus_category: new\nepic: EXEC-200\n',
+    );
+    jira('EXEC-5', 'summary: Tagged\nstatus: To Do\nstatus_category: new\nlabels: ["infra"]\n');
+    vault.indexer.update();
+    const put = (body: unknown) =>
+      app.request('/api/projects/rules', { method: 'PUT', body: JSON.stringify(body) });
+    const res = await put({
+      path: 'projects/falcon.md',
+      add: { epics: ['EXEC-200'], labels: ['infra'], keys: ['EXEC-9'] },
+      remove: { labels: ['falcon'] },
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown).toEqual({
+      ok: true,
+      rules: { epics: ['EXEC-100', 'EXEC-200'], labels: ['infra'], keys: ['EXEC-9'] },
+    });
+    const text = readFileSync(join(root, 'projects', 'falcon.md'), 'utf8');
+    expect(text).toContain('- EXEC-200');
+    expect(text).not.toContain('- falcon');
+    expect(text).toContain('## Goal'); // body untouched
+    const list = (await (await app.request('/api/projects')).json()) as {
+      projects: { path: string; issues: number }[];
+    };
+    // EXEC-1 (epic 100), EXEC-3 (tagged), EXEC-4 (epic 200), EXEC-5 (label), EXEC-9 (key); EXEC-2 left
+    expect(list.projects.find((p) => p.path === 'projects/falcon.md')?.issues).toBe(5);
+    expect((await put({ path: 'projects/falcon.md', add: { epics: ['not a key'] } })).status).toBe(
+      400,
+    );
+    expect((await put({ path: 'projects/nope.md', add: {} })).status).toBe(404);
+  });
+});
