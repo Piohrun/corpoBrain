@@ -158,6 +158,7 @@ switch (command) {
                 (r.peopleCreated.length ? `, people: ${r.peopleCreated.join(', ')}` : ''),
             );
             for (const skip of r.skipped) console.log(`  ! ${skip.key}: ${skip.reason}`);
+            for (const w of r.warnings) console.log(`  ! ${w}`);
           }
           const idx = withIndexer();
           idx.loadSprints();

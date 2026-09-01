@@ -49,10 +49,11 @@ export interface JiraIssueRow {
 let liveProgress: (SyncProgress & { startedAt: string }) | null = null;
 let lastReports: SyncReport[] | null = null;
 let lastSyncError: string | null = null;
+/** One sync at a time, whoever asks (button, scheduler, post-write-back). */
+let syncInFlight = false;
 
 export function jiraRoutes(v: VaultService): Hono {
   const app = new Hono();
-  let syncing = false;
 
   const sanitizedConfig = () => ({
     baseUrl: v.config.jira.baseUrl,
@@ -201,8 +202,7 @@ export function jiraRoutes(v: VaultService): Hono {
   );
 
   app.post('/sync', async (c) => {
-    if (syncing) throw new HttpError(409, 'sync already running');
-    syncing = true;
+    if (syncInFlight) throw new HttpError(409, 'sync already running');
     try {
       const body = (await c.req.json().catch(() => ({}))) as {
         profile?: string;
@@ -214,8 +214,6 @@ export function jiraRoutes(v: VaultService): Hono {
       throw e instanceof HttpError
         ? e
         : new HttpError(502, e instanceof Error ? e.message : 'sync failed');
-    } finally {
-      syncing = false;
     }
   });
 
@@ -276,7 +274,7 @@ export function jiraRoutes(v: VaultService): Hono {
       synced: string | null;
     };
     return c.json({
-      syncing: liveProgress !== null || syncing,
+      syncing: liveProgress !== null || syncInFlight,
       progress: liveProgress,
       lastReports,
       lastSyncError,
@@ -295,6 +293,8 @@ export async function runSync(
   profile?: string,
   full = false,
 ): Promise<SyncReport[]> {
+  if (syncInFlight) throw new HttpError(409, 'sync already running');
+  syncInFlight = true;
   const adapter = createJiraAdapter(v.root, v.config);
   const sync = new JiraSync(v.root, v.config, adapter);
   const startedAt = new Date().toISOString();
@@ -314,6 +314,7 @@ export async function runSync(
     throw e;
   } finally {
     liveProgress = null;
+    syncInFlight = false;
   }
 }
 

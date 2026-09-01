@@ -103,8 +103,69 @@ describe('JiraSync', () => {
     const person = readFileSync(join(root, 'people/anna.md'), 'utf8');
     expect(person).toContain('jira: "anna"');
     const state = JSON.parse(readFileSync(join(root, '.corpobrain/jira-cache/state.json'), 'utf8'));
-    expect(state.watermarks.team).toBe('2026/08/30 11:55'); // 5 min overlap
+    expect(state.lastSyncAt.team).toBe('2026-08-30T12:00:00.000Z');
     expect(adapter.jqls[0]).toBe('project = EXEC');
+  });
+
+  it('sizes the incremental window from the last run, in minutes, timezone-free', async () => {
+    adapter.issues = [issue('EXEC-1', 'x')];
+    await sync.run();
+    let t = new Date('2026-08-30T14:30:00Z');
+    const later = new JiraSync(root, config, adapter, () => t);
+    await later.run();
+    expect(adapter.jqls[1]).toBe('(project = EXEC) AND updated >= -155m'); // 150 + 5
+    // a state.json from before lastSyncAt existed still works via the legacy watermark
+    const file = join(root, '.corpobrain/jira-cache/state.json');
+    const state = JSON.parse(readFileSync(file, 'utf8'));
+    state.lastSyncAt = undefined;
+    state.watermarks.team = '2026/08/30 14:00';
+    writeFileSync(file, JSON.stringify(state));
+    t = new Date('2026-08-30T15:00:00Z');
+    await later.run();
+    expect(adapter.jqls[2]).toBe('(project = EXEC) AND updated >= -60m'); // 14:05 → 15:00, +5
+  });
+
+  it('a full pass reports mirrored issues the JQL no longer returns, without touching them', async () => {
+    adapter.issues = [issue('EXEC-1', 'stays'), issue('EXEC-2', 'moves away')];
+    await sync.run();
+    const p = join(root, 'jira/EXEC-2.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('## My notes\n', '## My notes\n\nMINE.\n'));
+    adapter.issues = [issue('EXEC-1', 'stays')];
+    const [incremental] = await sync.run();
+    expect(incremental?.gone).toEqual([]); // an incremental pass cannot know
+    const [full] = await sync.run(undefined, { full: true });
+    expect(full?.gone).toEqual(['EXEC-2']);
+    expect(full?.warnings.some((w) => w.includes('EXEC-2'))).toBe(true);
+    expect(readFileSync(p, 'utf8')).toContain('MINE.');
+  });
+
+  it("keeps another board's sprints in the cache when a profile syncs", async () => {
+    adapter.issues = [issue('EXEC-1', 'x')];
+    await sync.run();
+    const file = join(root, '.corpobrain/jira-cache/sprints.json');
+    const mine = JSON.parse(readFileSync(file, 'utf8')) as { id: number; originBoardId: number }[];
+    expect(mine.map((s) => s.originBoardId)).toEqual([7, 7, 7]);
+    const other: VaultConfig = {
+      ...config,
+      jira: {
+        ...config.jira,
+        profiles: [{ ...config.jira.profiles[0]!, name: 'other', boards: [9] }],
+      },
+    };
+    const otherAdapter = new FakeAdapter();
+    otherAdapter.sprints = async (boardId: number) => [
+      { id: 90, name: 'Ops 5', state: 'active', originBoardId: boardId },
+    ];
+    await new JiraSync(root, other, otherAdapter, () => new Date('2026-08-30T12:00:00Z')).run();
+    const merged = JSON.parse(readFileSync(file, 'utf8')) as {
+      id: number;
+      originBoardId: number;
+    }[];
+    expect(merged.map((s) => s.id).sort((a, b) => a - b)).toEqual([1, 2, 3, 90]);
+    // re-running the first profile replaces only board 7's sprints
+    await sync.run(undefined, { full: true });
+    const again = JSON.parse(readFileSync(file, 'utf8')) as { id: number }[];
+    expect(again.map((s) => s.id).sort((a, b) => a - b)).toEqual([1, 2, 3, 90]);
   });
 
   it('second run is incremental and idempotent; user notes survive', async () => {
@@ -114,7 +175,7 @@ describe('JiraSync', () => {
     const p = join(root, 'jira/EXEC-1.md');
     writeFileSync(p, readFileSync(p, 'utf8').replace('## My notes\n', '## My notes\n\nMINE.\n'));
     const [r2] = await sync.run();
-    expect(adapter.jqls[1]).toContain('AND updated >= "2026/08/30 11:55"');
+    expect(adapter.jqls[1]).toBe('(project = EXEC) AND updated >= -5m'); // 0 min + overlap
     expect(r2).toMatchObject({ created: [], updated: [], unchanged: 1 });
     // now the issue actually changes
     adapter.issues = [issue('EXEC-1', 'Renamed thing')];

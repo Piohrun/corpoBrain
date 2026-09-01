@@ -43,6 +43,8 @@ export interface SyncReport {
   warnings: string[];
   /** field-level changes since the previous refresh (0 on the very first sync) */
   changes: number;
+  /** full pass only: mirrored keys of this profile that the JQL no longer returns */
+  gone: string[];
 }
 
 interface SyncState {
@@ -101,8 +103,13 @@ export class JiraSync {
   private async runProfile(profile: JiraProfile, full: boolean): Promise<SyncReport> {
     const syncStart = this.now();
     const state = this.loadState();
-    const watermark = full ? undefined : state.watermarks[profile.name];
-    const jql = watermark ? `(${profile.jql}) AND updated >= "${watermark}"` : profile.jql;
+    // Incremental window as a *relative* JQL clause: an absolute timestamp is
+    // read in the Jira profile's timezone, so a user hours west of UTC would
+    // silently miss updates. Minutes since the last completed run, plus an
+    // overlap for clock skew.
+    const since = full ? null : lastRunOf(state, profile.name);
+    const window = since ? minutesSince(since, syncStart) + OVERLAP_MINUTES : null;
+    const jql = window !== null ? `(${profile.jql}) AND updated >= -${window}m` : profile.jql;
     if (full) delete state.sprintField; // re-detect on a full pass too
     const extraFields = this.config.jira.estimateField ? [this.config.jira.estimateField] : [];
     // The issue's own sprint field is authoritative (full history, handles
@@ -182,11 +189,19 @@ export class JiraSync {
       }
     }
     if (allSprints.length) {
-      const dedup = new Map(allSprints.map((s) => [s.id, s]));
-      writeFileSync(
-        join(this.cacheDir(), 'sprints.json'),
-        `${JSON.stringify([...dedup.values()], null, 2)}\n`,
-      );
+      // Merge per board: another profile's boards keep their sprints.
+      const file = join(this.cacheDir(), 'sprints.json');
+      let kept: JiraSprint[] = [];
+      try {
+        const prev = JSON.parse(readFileSync(file, 'utf8')) as JiraSprint[];
+        kept = prev.filter(
+          (s) => s.originBoardId !== undefined && !profile.boards.includes(s.originBoardId),
+        );
+      } catch {
+        kept = [];
+      }
+      const dedup = new Map([...kept, ...allSprints].map((s) => [s.id, s]));
+      writeFileSync(file, `${JSON.stringify([...dedup.values()], null, 2)}\n`);
     }
 
     const report: SyncReport = {
@@ -200,6 +215,7 @@ export class JiraSync {
       sprints: allSprints.length,
       warnings,
       changes: 0,
+      gone: [],
     };
 
     const syncedAt = syncStart.toISOString();
@@ -283,6 +299,25 @@ export class JiraSync {
       }
     }
 
+    // A full pass sees the whole JQL result, so anything mirrored for this
+    // profile that did not come back has left the query (moved project,
+    // closed out of scope, deleted). Never touched — the user's notes below
+    // the marker are theirs — but reported so the mirror is not silently stale.
+    if (full) {
+      const fetched = new Set(issues.map((i) => i.key));
+      for (const key of this.mirroredKeys(profile)) {
+        if (!fetched.has(key)) report.gone.push(key);
+      }
+      report.gone.sort();
+      if (report.gone.length) {
+        warnings.push(
+          `${report.gone.length} mirrored issue${report.gone.length === 1 ? '' : 's'} no longer match${
+            report.gone.length === 1 ? 'es' : ''
+          } the JQL: ${report.gone.slice(0, 10).join(', ')}${report.gone.length > 10 ? ', …' : ''}`,
+        );
+      }
+    }
+
     digest.append(events);
     report.changes = events.length;
     state.lastSyncAt = { ...state.lastSyncAt, [profile.name]: syncedAt };
@@ -298,6 +333,25 @@ export class JiraSync {
       total: issues.length,
     });
     return report;
+  }
+
+  /** Keys of the files this profile wrote (by the jira.profile stamp in their frontmatter). */
+  private mirroredKeys(profile: JiraProfile): string[] {
+    const dir = join(this.root, profile.folder);
+    if (!existsSync(dir)) return [];
+    const keys: string[] = [];
+    for (const file of readdirSync(dir)) {
+      if (!file.endsWith('.md')) continue;
+      try {
+        const fm = parseFrontmatter(readFileSync(join(dir, file), 'utf8')).data;
+        const meta = fm.jira as { profile?: unknown } | undefined;
+        if (fm.type === 'jira' && typeof fm.key === 'string' && meta?.profile === profile.name)
+          keys.push(fm.key);
+      } catch {
+        /* unreadable: not ours to judge */
+      }
+    }
+    return keys;
   }
 
   private knownPeopleIds(): Set<string> {
@@ -335,7 +389,28 @@ export class JiraSync {
   }
 }
 
-/** Jira JQL datetime literal: yyyy/MM/dd HH:mm (in the server's zone; UTC is close enough with the overlap). */
+const OVERLAP_MINUTES = 5;
+
+/** When this profile last completed: lastSyncAt (ISO), else the legacy UTC watermark. */
+function lastRunOf(state: SyncState, profile: string): Date | null {
+  const iso = state.lastSyncAt?.[profile];
+  if (iso) {
+    const d = new Date(iso);
+    if (Number.isFinite(d.getTime())) return d;
+  }
+  const wm = state.watermarks[profile];
+  const m = wm ? /^(\d{4})\/(\d{2})\/(\d{2}) (\d{2}):(\d{2})$/.exec(wm) : null;
+  if (!m) return null;
+  const [, y, mo, d, h, mi] = m as unknown as [string, string, string, string, string, string];
+  // the legacy watermark already carried the overlap
+  return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi + OVERLAP_MINUTES));
+}
+
+function minutesSince(then: Date, now: Date): number {
+  return Math.max(0, Math.ceil((now.getTime() - then.getTime()) / 60_000));
+}
+
+/** Jira JQL datetime literal: yyyy/MM/dd HH:mm, UTC (kept for the legacy watermark). */
 export function jqlDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}/${p(d.getUTCMonth() + 1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
