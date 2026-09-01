@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AvailabilityEntry,
   type AvailabilityResponse,
@@ -57,10 +57,10 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
     setDirty(true);
   };
 
-  const save = () => {
+  const persist = (rows: DraftEntry[]) => {
     setSaving(true);
     availabilityApi
-      .save(draft.map(({ rowId: _rowId, ...e }) => e))
+      .save(rows.map(({ rowId: _rowId, ...e }) => e))
       .then(() => {
         setSaving(false);
         load();
@@ -69,6 +69,14 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
         setSaving(false);
         setError(e.message);
       });
+  };
+  const save = () => persist(draft);
+
+  /** Drawn on the month grid: goes straight into the table and is saved. */
+  const addEntry = (e: AvailabilityEntry) => {
+    const next = [...draft, withId(e)];
+    setDraft(next);
+    persist(next);
   };
 
   const saveHolidays = () => {
@@ -160,7 +168,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
       ))}
 
       <div className="planning-scroll">
-        <MonthGrid data={data} onOpenNote={onOpenNote} />
+        <MonthGrid data={data} entries={draft} onAdd={addEntry} onOpenNote={onOpenNote} />
 
         <h2 className="plan-h2">Entries</h2>
         <div className="grid-wrap">
@@ -472,32 +480,90 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
 
 const CELL = 26;
 const NAME_W = 150;
+/** days shown from the neighbouring months, so a trip over month-end reads as one */
+const EDGE_DAYS = 5;
+
+type DrawKind = Exclude<AvailabilityEntry['kind'], 'holiday'>;
 
 function MonthGrid({
   data,
+  entries,
+  onAdd,
   onOpenNote,
 }: {
   data: AvailabilityResponse;
+  /** the table as currently drafted (so a just-drawn entry shows at once) */
+  entries: AvailabilityEntry[];
+  onAdd: (e: AvailabilityEntry) => void;
   onOpenNote: (path: string) => void;
 }) {
   const [month, setMonth] = useState(() => {
     const d = new Date();
     return { y: d.getUTCFullYear(), m: d.getUTCMonth() };
   });
+  const [drawKind, setDrawKind] = useState<DrawKind>('ooo');
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [drag, setDrag] = useState<{ path: string; name: string; from: number; to: number } | null>(
+    null,
+  );
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
 
   const days = useMemo(() => {
-    const out: { date: string; day: number; weekend: boolean }[] = [];
+    const out: { date: string; day: number; weekend: boolean; outside: boolean }[] = [];
     const d = new Date(Date.UTC(month.y, month.m, 1));
-    while (d.getUTCMonth() === month.m) {
+    d.setUTCDate(d.getUTCDate() - EDGE_DAYS);
+    const end = new Date(Date.UTC(month.y, month.m + 1, 1));
+    end.setUTCDate(end.getUTCDate() + EDGE_DAYS);
+    while (d < end) {
       out.push({
         date: d.toISOString().slice(0, 10),
         day: d.getUTCDate(),
         weekend: d.getUTCDay() === 0 || d.getUTCDay() === 6,
+        outside: d.getUTCMonth() !== month.m,
       });
       d.setUTCDate(d.getUTCDate() + 1);
     }
     return out;
   }, [month]);
+
+  // drag across a person's row → one entry from the first to the last day touched
+  const dayAt = useCallback(
+    (clientX: number): number => {
+      const el = gridRef.current;
+      if (!el) return 0;
+      const x = clientX - el.getBoundingClientRect().left - NAME_W;
+      return Math.max(0, Math.min(days.length - 1, Math.floor(x / CELL)));
+    },
+    [days.length],
+  );
+  useEffect(() => {
+    if (!drag) return;
+    const onMove = (e: PointerEvent) => {
+      const to = dayAt(e.clientX);
+      setDrag((d) => (d && d.to !== to ? { ...d, to } : d));
+    };
+    const onUp = () => {
+      const d = dragRef.current;
+      setDrag(null);
+      if (!d) return;
+      const a = days[Math.min(d.from, d.to)];
+      const b = days[Math.max(d.from, d.to)];
+      if (!a || !b) return;
+      onAdd({ person: d.name, from: a.date, to: b.date, kind: drawKind, note: '' });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [drag, dayAt, days, drawKind, onAdd]);
+  const inDrag = (path: string, idx: number) =>
+    drag !== null &&
+    drag.path === path &&
+    idx >= Math.min(drag.from, drag.to) &&
+    idx <= Math.max(drag.from, drag.to);
 
   // person path → date → entry; precedence: leave > bank holiday > support
   const cover = useMemo(() => {
@@ -514,7 +580,7 @@ function MonthGrid({
       }
       m.set(path, per);
     };
-    for (const e of data.entries) {
+    for (const e of entries) {
       const n = norm(e.person);
       const person = data.people.find(
         (p) => norm(p.name) === n || norm(p.path) === n || norm(basename(p.path)) === n,
@@ -529,7 +595,7 @@ function MonthGrid({
       }
     }
     return m;
-  }, [data, days]);
+  }, [data, entries, days]);
 
   const label = new Date(Date.UTC(month.y, month.m, 1)).toLocaleDateString(undefined, {
     month: 'long',
@@ -563,15 +629,40 @@ function MonthGrid({
           <i className="avail-chip holiday">bank holiday</i>
           <i className="avail-chip support">support rota</i>
         </span>
+        <span className="spacer" />
+        <span className="av-draw" title="Drag across a person's row to add an entry of this kind">
+          draw as
+          <button
+            type="button"
+            className={`plan-btn small${drawKind === 'ooo' ? ' active' : ''}`}
+            onClick={() => setDrawKind('ooo')}
+          >
+            out of office
+          </button>
+          <button
+            type="button"
+            className={`plan-btn small${drawKind === 'support' ? ' active' : ''}`}
+            onClick={() => setDrawKind('support')}
+          >
+            support
+          </button>
+        </span>
       </div>
       <div className="grid-wrap">
-        <div className="av-grid" style={{ width: NAME_W + days.length * CELL }}>
+        <div
+          ref={gridRef}
+          className={`av-grid${drag ? ' dragging' : ''}`}
+          style={{ width: NAME_W + days.length * CELL }}
+        >
           <div className="av-row av-head">
             <span className="av-name" />
             {days.map((d) => (
               <span
                 key={d.date}
-                className={`av-day${d.weekend ? ' weekend' : ''}${d.date === today ? ' today' : ''}`}
+                className={`av-day${d.weekend ? ' weekend' : ''}${d.date === today ? ' today' : ''}${
+                  d.outside ? ' outside' : ''
+                }`}
+                title={d.date}
               >
                 {d.day}
               </span>
@@ -584,14 +675,15 @@ function MonthGrid({
                   {p.name}
                 </button>
               </span>
-              {days.map((d) => {
+              {days.map((d, idx) => {
                 const e = cover.get(p.path)?.get(d.date);
+                const drawing = inDrag(p.path, idx);
                 return (
                   <span
                     key={d.date}
                     className={`av-cell${d.weekend ? ' weekend' : ''}${d.date === today ? ' today' : ''}${
-                      e ? ` ${e.kind}` : ''
-                    }`}
+                      d.outside ? ' outside' : ''
+                    }${e ? ` ${e.kind}` : ''}${drawing ? ` drawing ${drawKind}` : ''}`}
                     title={
                       e
                         ? `${p.name} · ${
@@ -601,8 +693,13 @@ function MonthGrid({
                                 ? 'bank holiday'
                                 : 'support rota'
                           } ${e.from} → ${e.to}${e.note ? ` · ${e.note}` : ''}`
-                        : undefined
+                        : `${p.name} · ${d.date} — drag to add ${drawKind === 'ooo' ? 'time off' : 'support rota'}`
                     }
+                    onPointerDown={(ev) => {
+                      if (ev.button !== 0) return;
+                      ev.preventDefault();
+                      setDrag({ path: p.path, name: p.name, from: idx, to: idx });
+                    }}
                   />
                 );
               })}
