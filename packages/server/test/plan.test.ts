@@ -202,6 +202,34 @@ describe('dependencies and saved views', () => {
       },
     ]);
   });
+
+  it('never overwrites a non-view note and updates a re-saved view', async () => {
+    mkdirSync(join(root, 'planning'), { recursive: true });
+    writeFileSync(join(root, 'planning', 'holidays.md'), '# Holidays\n\n| a | b |\n');
+    vault.indexer.update();
+    const clash = await app.request('/api/plan/views', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Holidays', filter: { text: 'x' } }),
+    });
+    expect(clash.status).toBe(409);
+    expect(readFileSync(join(root, 'planning', 'holidays.md'), 'utf8')).toContain('| a | b |');
+
+    for (const text of ['one', 'two']) {
+      const res = await app.request('/api/plan/views', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'Mine', filter: { text, junk: 'evil: yes\nowned: 1' } }),
+      });
+      expect(res.status).toBe(200);
+    }
+    const views = (await (await app.request('/api/plan/views')).json()) as {
+      title: string;
+      filter: Record<string, unknown>;
+    }[];
+    expect(views.filter((w) => w.title === 'Mine')).toEqual([
+      { path: 'planning/mine.md', title: 'Mine', filter: { text: 'two' } },
+    ]);
+    expect(readFileSync(join(root, 'planning', 'mine.md'), 'utf8')).not.toContain('owned');
+  });
 });
 
 describe('local sprints', () => {

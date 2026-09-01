@@ -6,6 +6,7 @@ import {
   type EffortUnit,
   issueRiskFlags,
   parseFrontmatter,
+  patchFrontmatter,
   type RiskFlag,
   setFrontmatterKey,
   sprintHealth,
@@ -101,6 +102,8 @@ export interface BoardModel {
   /** loads[personKey][column] = summed effective effort */
   loads: Record<string, Record<string, number>>;
 }
+
+const VIEW_FILTER_KEYS = ['text', 'flag', 'sprint', 'assignee'] as const;
 
 const PLAN_KEYS = [
   'sprint',
@@ -475,18 +478,28 @@ export function planRoutes(v: VaultService): Hono {
 
   app.post('/views', async (c) => {
     const body = (await c.req.json()) as { title?: string; filter?: Record<string, unknown> };
-    if (!body.title?.trim()) throw new HttpError(400, 'title required');
-    const slug = body.title
+    const title = body.title?.trim();
+    if (!title) throw new HttpError(400, 'title required');
+    const slug = title
       .toLowerCase()
       .replace(/[^\p{L}\p{N}]+/gu, '-')
       .replace(/^-|-$/g, '');
     const path = `${v.config.folders.planning}/${slug || 'view'}.md`;
-    const content = `---\ntype: view\ntitle: ${JSON.stringify(body.title.trim())}\nfilter:\n${Object.entries(
-      body.filter ?? {},
-    )
-      .filter(([, val]) => val !== null && val !== undefined && val !== '')
-      .map(([k, val]) => `  ${k}: ${JSON.stringify(val)}`)
-      .join('\n')}\n---\n\nSaved planning view.\n`;
+    // Only the filter keys the UI knows, and only as strings: the frontmatter
+    // is rendered by the YAML writer, never by string concatenation.
+    const filter: Record<string, string> = {};
+    for (const k of VIEW_FILTER_KEYS) {
+      const val = body.filter?.[k];
+      if (typeof val === 'string' && val.trim() !== '') filter[k] = val;
+    }
+    // Re-saving a view updates it; any other note at that path is left alone.
+    const existing = v.indexer.db.prepare('SELECT type FROM notes WHERE path = ?').get(path) as
+      | { type: string }
+      | undefined;
+    if (existing && existing.type !== 'view')
+      throw new HttpError(409, `${path} exists and is not a view — pick another title`);
+    const base = existing ? v.read(path).content : 'Saved planning view.\n';
+    const content = patchFrontmatter(base, { type: 'view', title, filter });
     v.write(path, content);
     return c.json({ ok: true, path });
   });
