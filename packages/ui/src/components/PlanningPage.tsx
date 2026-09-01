@@ -1155,8 +1155,10 @@ function SprintTable({
               <tr key={i.key}>
                 <td>
                   <input
+                    key={`${i.key}:${i.plan.rank ?? ''}`}
                     className="cell-input rank"
                     type="number"
+                    aria-label={`rank of ${i.key}`}
                     defaultValue={i.plan.rank ?? ''}
                     onBlur={(e) => {
                       const v = e.target.value === '' ? null : Number(e.target.value);
@@ -1210,9 +1212,11 @@ function SprintTable({
                 </td>
                 <td>
                   <input
+                    key={`${i.key}:${i.effectiveEffort ?? ''}`}
                     className="cell-input effort"
                     type="number"
                     step="0.5"
+                    aria-label={`effort of ${i.key}`}
                     defaultValue={i.effectiveEffort ?? ''}
                     title={i.plan.effort !== null ? 'local effort' : 'from Jira estimate'}
                     onBlur={(e) => {
@@ -1235,7 +1239,9 @@ function SprintTable({
                 </td>
                 <td>
                   <input
+                    key={`${i.key}:${i.plan.note ?? ''}`}
                     className="cell-input note"
+                    aria-label={`note on ${i.key}`}
                     defaultValue={i.plan.note ?? ''}
                     placeholder="…"
                     onBlur={(e) => {
