@@ -214,7 +214,11 @@ export class Indexer {
 
     const abs = join(this.root, f.path);
     let text = readFileSync(abs, 'utf8');
-    let parsed = parseFrontmatter(text);
+    const inTemplates = f.path.startsWith(`${this.config.folders.templates}/`);
+    // `date: {{date}}` in a template is a YAML flow mapping to the parser (and
+    // a warning); read placeholders as strings so templates index cleanly.
+    const parseSource = (t: string) => (inTemplates ? quotePlaceholders(t) : t);
+    let parsed = parseFrontmatter(parseSource(text));
     let assignedId = false;
 
     const inJiraFolder = f.path.startsWith(`${this.config.folders.jira}/`);
@@ -228,7 +232,7 @@ export class Indexer {
       writeFileAtomic(abs, text);
       const st = statSync(abs);
       f = { ...f, mtimeMs: st.mtimeMs, size: st.size };
-      parsed = parseFrontmatter(text);
+      parsed = parseFrontmatter(parseSource(text));
       assignedId = true;
     }
 
@@ -601,6 +605,11 @@ export class Indexer {
       )
       .all() as unknown as { srcPath: string; target: string; line: number; ambiguous: number }[];
   }
+}
+
+/** `key: {{name}}` → `key: "{{name}}"` (only unquoted, whole-value placeholders). */
+function quotePlaceholders(text: string): string {
+  return text.replace(/^([^\S\n]*[^\s#:][^:\n]*:[ \t]+)(\{\{\w+\}\})[ \t]*$/gm, '$1"$2"');
 }
 
 function marks(n: number): string {

@@ -6,3 +6,4 @@ coverage/
 # local dev vault
 vault/
 .env
+.claude/worktrees/
