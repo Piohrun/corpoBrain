@@ -192,6 +192,10 @@ fragment  = "^" blockid | heading-text
   frontmatter values other than as described in 3.2.
 - Markdown links `[text](path.md)` to a vault-relative `.md` path are ALSO
   indexed as links (type `md`) so imported vaults keep their graph.
+- External `http`, `https`, and `mailto` links use standard Markdown syntax
+  (`[label](https://example.com)`). The editor renders the label and opens it
+  externally. GFM bare URLs, `www.` addresses, email addresses, and angle-bracket
+  autolinks are clickable too; they are not added to the vault link graph.
 - A bare Jira key in body text (`EXEC-1834`, regex `\b[A-Z][A-Z0-9_]+-\d+\b`,
   restricted to configured project keys) is indexed as an **implicit link**
   of type `mention` to `jira/EXEC-1834` but is not rendered as a link unless

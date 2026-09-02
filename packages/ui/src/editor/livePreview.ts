@@ -22,10 +22,12 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+import { type ExternalLink, externalLinksInTree } from './externalLinks.ts';
 import { tablesField } from './tables.ts';
 
 export interface LivePreviewConfig {
   onNavigate: (target: string) => void;
+  onOpenExternal?: (href: string) => void;
   /** revealed plaintext for an inline secret, or null while hidden */
   getSecret?: (cipher: string) => string | null;
   onSecretClick?: (cipher: string) => void;
@@ -163,12 +165,29 @@ interface LineCtx {
   inCodeBlock: boolean;
 }
 
+interface InlineDecoration {
+  from: number;
+  to: number;
+  deco: Decoration;
+  /** Higher values win when two decorations cover the exact same span. */
+  priority?: number;
+}
+
 function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const { state } = view;
   const config = state.facet(livePreviewConfig);
   const cursor = state.selection.main.head;
   const doc = state.doc;
+  const tree = syntaxTree(state);
+  const viewportFrom = view.visibleRanges[0]?.from ?? 0;
+  const viewportTo = view.visibleRanges.at(-1)?.to ?? doc.length;
+  const externalLinks = externalLinksInTree(
+    tree,
+    (from, to) => doc.sliceString(from, to),
+    viewportFrom,
+    viewportTo,
+  );
 
   // Frontmatter block bounds (manual: lang-markdown does not parse it).
   let fmEnd = -1;
@@ -189,7 +208,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   const emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[] = [];
 
   for (const { from, to } of view.visibleRanges) {
-    syntaxTree(state).iterate({
+    tree.iterate({
       from,
       to,
       enter(node) {
@@ -239,7 +258,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         cursorTouches: cursor >= line.from && cursor <= line.to,
         inCodeBlock: codeLines.has(line.number),
       };
-      const inline: { from: number; to: number; deco: Decoration }[] = [];
+      const inline: InlineDecoration[] = [];
 
       // line-level classes
       if (fmEnd >= 0 && line.number <= fmEnd) {
@@ -273,10 +292,13 @@ function buildDecorations(view: EditorView): DecorationSet {
           emphasis,
           config.isResolved,
           config.getSecret,
+          externalLinks,
         );
       }
 
-      inline.sort((a, b) => a.from - b.from || a.to - b.to);
+      inline.sort(
+        (a, b) => a.from - b.from || (b.priority ?? 0) - (a.priority ?? 0) || a.to - b.to,
+      );
       let last = line.from;
       for (const d of inline) {
         if (d.from < last) continue; // skip overlaps
@@ -312,10 +334,11 @@ export function collectInline(
   text: string,
   ctx: LineCtx,
   cursor: number,
-  out: { from: number; to: number; deco: Decoration }[],
+  out: InlineDecoration[],
   emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[],
   isResolved?: (target: string) => boolean | undefined,
   getSecret?: (cipher: string) => string | null,
+  externalLinks: readonly ExternalLink[] = [],
 ): void {
   const lineTo = lineFrom + text.length;
 
@@ -393,16 +416,54 @@ export function collectInline(
       'data-fragment': m[3] ?? '',
     };
     if (cursorIn || ctx.cursorTouches) {
-      out.push({ from, to, deco: Decoration.mark({ attributes: attrs }) });
+      out.push({ from, to, deco: Decoration.mark({ attributes: attrs }), priority: 2 });
       continue;
     }
     // hide `[[` + (target| when aliased) … `]]`
     const openEnd =
       from + 2 + (alias !== undefined ? (m[2] as string).length + (m[3]?.length ?? 0) + 1 : 0);
-    out.push({ from, to: openEnd, deco: Decoration.replace({}) });
-    out.push({ from: openEnd, to: to - 2, deco: Decoration.mark({ attributes: attrs }) });
-    out.push({ from: to - 2, to, deco: Decoration.replace({}) });
+    out.push({ from, to: openEnd, deco: Decoration.replace({}), priority: 2 });
+    out.push({
+      from: openEnd,
+      to: to - 2,
+      deco: Decoration.mark({ attributes: attrs }),
+      priority: 2,
+    });
+    out.push({ from: to - 2, to, deco: Decoration.replace({}), priority: 2 });
     void target;
+  }
+
+  // Standard Markdown links, autolinks, and GFM bare URLs. Markdown syntax is
+  // revealed on the active line; elsewhere `[label](url)` collapses to label.
+  for (const link of externalLinks) {
+    if (link.from < lineFrom || link.to > lineTo) continue;
+    const attrs = {
+      class: 'cm-cb-external-link',
+      'data-href': link.href,
+      title: link.href,
+    };
+    const cursorIn = cursor >= link.from && cursor <= link.to;
+    if (cursorIn || ctx.cursorTouches || link.labelFrom >= link.labelTo) {
+      out.push({
+        from: link.from,
+        to: link.to,
+        deco: Decoration.mark({ attributes: attrs }),
+        priority: 1,
+      });
+      continue;
+    }
+    if (link.from < link.labelFrom) {
+      out.push({ from: link.from, to: link.labelFrom, deco: Decoration.replace({}), priority: 1 });
+    }
+    out.push({
+      from: link.labelFrom,
+      to: link.labelTo,
+      deco: Decoration.mark({ attributes: attrs }),
+      priority: 1,
+    });
+    if (link.labelTo < link.to) {
+      out.push({ from: link.labelTo, to: link.to, deco: Decoration.replace({}), priority: 1 });
+    }
   }
 
   // tags
@@ -570,9 +631,19 @@ const plugin = ViewPlugin.fromClass(
 );
 
 const clickHandler = (view: EditorView, event: MouseEvent): boolean => {
-  const el = (event.target as HTMLElement).closest('.cm-cb-wikilink');
-  if (!el) return false;
-  const target = el.getAttribute('data-target');
+  const eventTarget = event.target as HTMLElement;
+  const external = eventTarget.closest('.cm-cb-external-link');
+  if (external) {
+    const href = external.getAttribute('data-href');
+    if (!href) return false;
+    event.preventDefault();
+    view.state.facet(livePreviewConfig).onOpenExternal?.(href);
+    return true;
+  }
+
+  const wiki = eventTarget.closest('.cm-cb-wikilink');
+  if (!wiki) return false;
+  const target = wiki.getAttribute('data-target');
   if (!target || target === 'SELF') return false;
   event.preventDefault();
   view.state.facet(livePreviewConfig).onNavigate(target);

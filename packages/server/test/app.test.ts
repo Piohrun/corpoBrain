@@ -262,9 +262,11 @@ describe('objects and tasks', () => {
     ]);
 
     const source = (await (await app.request('/api/note?path=notes/a.md')).json()) as {
-      backlinks: { srcPath: string }[];
+      backlinks: { srcPath: string; kind: string }[];
     };
-    expect(source.backlinks).toContainEqual(expect.objectContaining({ srcPath: result.path }));
+    expect(source.backlinks.filter((backlink) => backlink.srcPath === result.path)).toEqual([
+      expect.objectContaining({ srcPath: result.path, kind: 'link' }),
+    ]);
 
     await app.request('/api/note', {
       method: 'PUT',

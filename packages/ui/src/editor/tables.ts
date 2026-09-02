@@ -1,11 +1,12 @@
 /**
  * Live-preview rendering for GFM tables: a StateField block widget replaces
  * the raw pipes with a real <table> while the cursor is outside. Cells
- * render wikilinks, inline secrets, bold and code; columns containing
+ * render links, inline secrets, bold and code; columns containing
  * secrets get a reveal-all button in the header.
  */
 import { type EditorState, RangeSetBuilder, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
+import { type ExternalLink, externalLinksInText } from './externalLinks.ts';
 import { INLINE_SECRET, linksUpdated, livePreviewConfig } from './livePreview.ts';
 
 interface TableBlock {
@@ -72,20 +73,60 @@ export function tokenCipher(wholeToken: string): string | null {
   return m ? (m[1] as string) : null;
 }
 
-/** cell text → DOM with wikilinks, secrets, bold, code */
+interface CellToken {
+  from: number;
+  to: number;
+  external?: ExternalLink;
+  match?: RegExpExecArray;
+}
+
+/** cell text → DOM with wikilinks, external links, secrets, bold and code */
 function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
   const config = view.state.facet(livePreviewConfig);
   const pattern = /(`\u{1F512}[A-Za-z0-9+/=]{8,}`)|(`[^`]+`)|(\[\[[^[\]]+\]\])|(\*\*[^*]+\*\*)/gu;
-  let last = 0;
+  const tokens: CellToken[] = externalLinksInText(cell).map((external) => ({
+    from: external.from,
+    to: external.to,
+    external,
+  }));
   pattern.lastIndex = 0;
-  for (let m = pattern.exec(cell); m; m = pattern.exec(cell)) {
-    if (m.index > last) td.appendChild(document.createTextNode(cell.slice(last, m.index)));
+  for (let match = pattern.exec(cell); match; match = pattern.exec(cell)) {
+    tokens.push({ from: match.index, to: match.index + match[0].length, match });
+  }
+  // Containers such as a wikilink win over a URL-looking substring inside it.
+  tokens.sort((a, b) => a.from - b.from || b.to - a.to);
+
+  let last = 0;
+  for (const token of tokens) {
+    if (token.from < last) continue;
+    if (token.from > last) td.appendChild(document.createTextNode(cell.slice(last, token.from)));
+    if (token.external) {
+      const { href, labelFrom, labelTo } = token.external;
+      const link = document.createElement('a');
+      link.className = 'cm-cb-external-link';
+      link.href = href;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.title = href;
+      link.textContent = cell.slice(labelFrom, labelTo);
+      link.onclick = (event) => {
+        if (!config.onOpenExternal) return;
+        event.preventDefault();
+        config.onOpenExternal(href);
+      };
+      td.appendChild(link);
+      last = token.to;
+      continue;
+    }
+
+    const m = token.match;
+    if (!m) continue;
     const [whole, secret, code, wiki, bold] = m;
     if (secret) {
       const cipher = tokenCipher(whole);
       if (cipher === null) {
         td.appendChild(document.createTextNode(whole));
-        last = m.index + whole.length;
+        last = token.to;
         continue;
       }
       const revealedText = config.getSecret?.(cipher) ?? null;
@@ -123,7 +164,7 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
       el.textContent = bold.slice(2, -2);
       td.appendChild(el);
     }
-    last = m.index + whole.length;
+    last = token.to;
   }
   if (last < cell.length) td.appendChild(document.createTextNode(cell.slice(last)));
 }

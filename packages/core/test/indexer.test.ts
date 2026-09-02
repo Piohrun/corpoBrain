@@ -105,6 +105,21 @@ describe('Indexer', () => {
     );
   });
 
+  it('returns one backlink per source note and prefers a visible body link', () => {
+    write(
+      'notes/repeat.md',
+      '---\nid: R1\ntitle: Repeat\nsource: "[[Alpha Note]]"\n---\nSee [[Alpha Note]] twice: [[Alpha Note]].\n',
+    );
+    indexer.rebuild();
+
+    const backlinks = indexer
+      .backlinks('notes/alpha.md')
+      .filter((backlink) => backlink.srcPath === 'notes/repeat.md');
+    expect(backlinks).toEqual([
+      expect.objectContaining({ srcPath: 'notes/repeat.md', kind: 'link', line: 6 }),
+    ]);
+  });
+
   it('populates jira, plan, and people tables', () => {
     indexer.rebuild();
     expect(indexer.db.prepare('SELECT * FROM jira').get()).toMatchObject({

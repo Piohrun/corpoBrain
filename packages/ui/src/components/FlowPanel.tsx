@@ -1,8 +1,21 @@
-import { useCallback, useEffect, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
 import { type FlowIssue, type FlowSprint, flowApi } from '../api.ts';
 import { lsGet, lsSet } from '../storage.ts';
+import {
+  boundedColumnWidth,
+  ColumnResizeHandle,
+  usePersistentColumnWidths,
+} from './resizableColumns.tsx';
 
 const WINDOWS = [30, 90, 180];
+const FLOW_WIDTHS_KEY = 'cb.plan.flowColumnWidths.v1';
+const FLOW_COLUMNS = [
+  { id: 'issue', label: 'Issue', fallback: 90, min: 72, max: 220 },
+  { id: 'summary', label: 'Summary / owner', fallback: 250, min: 140, max: 620 },
+  { id: 'elapsed', label: 'Age / cycle', fallback: 350, min: 160, max: 720 },
+  { id: 'history', label: 'Status history', fallback: 140, min: 90, max: 420 },
+  { id: 'details', label: 'Timing', fallback: 190, min: 130, max: 420 },
+] as const;
 
 const fmtDays = (d: number | null): string => (d === null ? '—' : `${Math.round(d * 10) / 10}d`);
 const shortDate = (iso: string): string =>
@@ -31,6 +44,29 @@ export function FlowPanel({
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(() => Number(lsGet('cb.flow.days', '90')));
   const [byPerson, setByPerson] = useState(false);
+  const {
+    widths: flowColumnWidths,
+    setWidth: setFlowColumnWidth,
+    resetWidth: resetFlowColumnWidth,
+    resetAll: resetFlowColumnWidths,
+  } = usePersistentColumnWidths(FLOW_WIDTHS_KEY);
+  const [flowViewportWidth, setFlowViewportWidth] = useState(0);
+  const stopFlowMeasure = useRef<() => void>(() => {});
+  const flowGridRef = useCallback((element: HTMLDivElement | null) => {
+    stopFlowMeasure.current();
+    stopFlowMeasure.current = () => {};
+    if (!element) return;
+    const measure = () => setFlowViewportWidth(Math.floor(element.clientWidth));
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      stopFlowMeasure.current = () => window.removeEventListener('resize', measure);
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    stopFlowMeasure.current = () => observer.disconnect();
+  }, []);
 
   const load = useCallback(() => {
     flowApi
@@ -44,6 +80,7 @@ export function FlowPanel({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey is the external refresh trigger
   useEffect(load, [load, reloadKey]);
   useEffect(() => lsSet('cb.flow.days', String(days)), [days]);
+  useEffect(() => () => stopFlowMeasure.current(), []);
 
   if (error) return <section className="health-empty">Flow: {error}</section>;
   if (!data) return <section className="health-empty">Reading history…</section>;
@@ -54,6 +91,26 @@ export function FlowPanel({
   const scale = Math.max(p85 ?? 0, ...data.open.map((o) => o.times.ageDays ?? 0), 1) * 1.15;
   const noHistory =
     ref.cycle.n === 0 && data.open.every((o) => o.bands.length <= 1) && data.done.length === 0;
+  const flowBaseWidth =
+    FLOW_COLUMNS.reduce((total, column) => total + column.fallback, 0) +
+    (FLOW_COLUMNS.length - 1) * 10;
+  const elapsedFill = Math.max(0, flowViewportWidth - flowBaseWidth);
+  const resolvedFlowColumns = FLOW_COLUMNS.map((column) => ({
+    ...column,
+    width: boundedColumnWidth(
+      flowColumnWidths[column.id],
+      column.fallback + (column.id === 'elapsed' ? elapsedFill : 0),
+      column.min,
+      column.max,
+    ),
+  }));
+  const flowGridWidth =
+    resolvedFlowColumns.reduce((total, column) => total + column.width, 0) +
+    (resolvedFlowColumns.length - 1) * 10;
+  const flowGridStyle = {
+    '--flow-columns': resolvedFlowColumns.map((column) => `${column.width}px`).join(' '),
+    '--flow-grid-min': `${flowGridWidth}px`,
+  } as CSSProperties;
 
   return (
     <section className="health flow">
@@ -112,56 +169,100 @@ export function FlowPanel({
         </p>
       )}
 
-      {data.open.length > 0 && (
-        <>
-          <h3 className="flow-h3">
-            Aging work in progress
-            <span className="muted small">
-              {' '}
-              — age since first In Progress, against the team's p50 / p85
-            </span>
-          </h3>
-          <div className="flow-rows">
-            {data.open.map((o) => (
-              <FlowRow
-                key={o.key}
-                issue={o}
-                onOpenNote={onOpenNote}
-                bar={o.times.ageDays}
-                scale={scale}
-                p50={p50}
-                p85={p85}
-                right={
-                  o.times.ageDays === null
-                    ? `not started · ${fmtDays(o.times.inStatusDays)} in ${o.status ?? '?'}`
-                    : `${fmtDays(o.times.ageDays)} old · ${fmtDays(o.times.inStatusDays)} in ${o.status ?? '?'}`
-                }
-              />
-            ))}
-          </div>
-        </>
-      )}
+      {(data.open.length > 0 || data.done.length > 0) && (
+        <div className="flow-grid-scroll" ref={flowGridRef}>
+          <div className="flow-grid-canvas" style={flowGridStyle}>
+            <div className="flow-legend muted small">
+              <span className="flow-legend-group">
+                Age / cycle:
+                <i className="flow-legend-swatch normal" />{' '}
+                {p50 === null ? 'elapsed (no baseline yet)' : 'within p50'}
+                <i className="flow-legend-swatch warn" /> past p50
+                <i className="flow-legend-swatch late" /> past p85
+              </span>
+              <span className="flow-legend-group">
+                Status history:
+                <i className="flow-legend-swatch todo" /> to do / other
+                <i className="flow-legend-swatch progress" /> in progress
+                <i className="flow-legend-swatch done" /> done
+              </span>
+              <span>Hover a bar segment for its status, dates, and duration.</span>
+              <span className="spacer" />
+              {Object.keys(flowColumnWidths).length > 0 && (
+                <button type="button" className="column-reset" onClick={resetFlowColumnWidths}>
+                  Reset widths
+                </button>
+              )}
+            </div>
+            <div className="flow-row flow-column-head">
+              {resolvedFlowColumns.map((column) => (
+                <div key={column.id}>
+                  {column.label}
+                  <ColumnResizeHandle
+                    label={`Flow ${column.label}`}
+                    width={column.width}
+                    min={column.min}
+                    max={column.max}
+                    onResize={(width) => setFlowColumnWidth(column.id, width)}
+                    onReset={() => resetFlowColumnWidth(column.id)}
+                  />
+                </div>
+              ))}
+            </div>
 
-      {data.done.length > 0 && (
-        <>
-          <h3 className="flow-h3">
-            Finished in this sprint <span className="muted small">({data.done.length})</span>
-          </h3>
-          <div className="flow-rows">
-            {data.done.map((o) => (
-              <FlowRow
-                key={o.key}
-                issue={o}
-                onOpenNote={onOpenNote}
-                bar={o.times.cycleDays}
-                scale={scale}
-                p50={p50}
-                p85={p85}
-                right={`cycle ${fmtDays(o.times.cycleDays)} · lead ${fmtDays(o.times.leadDays)}`}
-              />
-            ))}
+            {data.open.length > 0 && (
+              <>
+                <h3 className="flow-h3">
+                  Aging work in progress
+                  <span className="muted small">
+                    {' '}
+                    — age since first In Progress, against the team's p50 / p85
+                  </span>
+                </h3>
+                <div className="flow-rows">
+                  {data.open.map((o) => (
+                    <FlowRow
+                      key={o.key}
+                      issue={o}
+                      onOpenNote={onOpenNote}
+                      bar={o.times.ageDays}
+                      scale={scale}
+                      p50={p50}
+                      p85={p85}
+                      right={
+                        o.times.ageDays === null
+                          ? `not started · ${fmtDays(o.times.inStatusDays)} in ${o.status ?? '?'}`
+                          : `${fmtDays(o.times.ageDays)} old · ${fmtDays(o.times.inStatusDays)} in ${o.status ?? '?'}`
+                      }
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {data.done.length > 0 && (
+              <>
+                <h3 className="flow-h3">
+                  Finished in this sprint <span className="muted small">({data.done.length})</span>
+                </h3>
+                <div className="flow-rows">
+                  {data.done.map((o) => (
+                    <FlowRow
+                      key={o.key}
+                      issue={o}
+                      onOpenNote={onOpenNote}
+                      bar={o.times.cycleDays}
+                      scale={scale}
+                      p50={p50}
+                      p85={p85}
+                      right={`cycle ${fmtDays(o.times.cycleDays)} · lead ${fmtDays(o.times.leadDays)}`}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-        </>
+        </div>
       )}
 
       {(data.churn.added.length > 0 ||
@@ -276,6 +377,23 @@ function FlowRow({
         : p50 !== null && bar > p50
           ? ' warn'
           : '';
+  const rangeMeaning =
+    bar === null
+      ? 'No age or cycle-time bar is available yet.'
+      : cls === ' late'
+        ? `Red means this is past the team's p85${p85 === null ? '' : ` (${fmtDays(p85)})`}.`
+        : cls === ' warn'
+          ? `Amber means this is past the team's p50${p50 === null ? '' : ` (${fmtDays(p50)})`} but within p85.`
+          : p50 === null
+            ? 'Blue shows elapsed time; there is no cycle-time baseline yet.'
+            : `Blue means this is within the team's typical range (at or below p50 ${fmtDays(p50)}).`;
+  const markerMeaning = [
+    p50 === null ? '' : `Gray marker: p50 ${fmtDays(p50)}.`,
+    p85 === null ? '' : `Red marker: p85 ${fmtDays(p85)}.`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const barTitle = `${right}\n${rangeMeaning}${markerMeaning ? ` ${markerMeaning}` : ''}`;
   return (
     <div className="flow-row">
       <button type="button" className="key-link flow-key" onClick={() => onOpenNote(issue.path)}>
@@ -285,7 +403,7 @@ function FlowRow({
         {issue.summary}
         {issue.assigneeName ? <span className="muted small"> · {issue.assigneeName}</span> : null}
       </span>
-      <span className="flow-bar-wrap" title={right}>
+      <span className="flow-bar-wrap" title={barTitle} role="img" aria-label={barTitle}>
         {p50 !== null && (
           <i className="flow-mark p50" style={{ left: `${(p50 / scale) * 100}%` }} />
         )}
@@ -313,17 +431,29 @@ function StatusStrip({ bands }: { bands: FlowIssue['bands'] }) {
     ms: Math.max(0, (b.to ? new Date(b.to).getTime() : now) - new Date(b.from).getTime()),
   }));
   const total = spans.reduce((a, b) => a + b.ms, 0) || 1;
+  const categoryLabel = (category: FlowIssue['bands'][number]['category']) => {
+    if (category === 'new') return 'to do';
+    if (category === 'indeterminate') return 'in progress';
+    if (category === 'done') return 'done';
+    return 'other';
+  };
+  const titleOf = (span: (typeof spans)[number]) =>
+    `${span.status} · ${categoryLabel(span.category)} · ${fmtDays(span.ms / 86_400_000)} · ${shortDate(span.from)} → ${span.to ? shortDate(span.to) : 'now'}`;
   return (
-    <span
-      className="flow-strip"
-      title={spans.map((s) => `${s.status} ${fmtDays(s.ms / 86_400_000)}`).join(' → ')}
-    >
-      {spans.map((s) => (
-        <i
-          key={`${s.status}:${s.from}`}
-          className={`flow-seg ${s.category ?? 'other'}`}
-          style={{ width: `${Math.max((s.ms / total) * 100, 1.5)}%` }}
-        />
+    <span className="flow-strip">
+      {spans.map((span) => (
+        <button
+          type="button"
+          key={`${span.status}:${span.from}`}
+          className={`flow-seg ${span.category ?? 'other'}`}
+          style={{ width: `${Math.max((span.ms / total) * 100, 1.5)}%` }}
+          aria-label={titleOf(span)}
+          tabIndex={0}
+        >
+          <span className="flow-seg-tip" role="tooltip">
+            {titleOf(span)}
+          </span>
+        </button>
       ))}
     </span>
   );

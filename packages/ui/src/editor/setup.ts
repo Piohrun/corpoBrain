@@ -1,16 +1,18 @@
 import {
   autocompletion,
+  type Completion,
   type CompletionContext,
   type CompletionResult,
   closeBrackets,
   closeBracketsKeymap,
   completionKeymap,
+  pickedCompletion,
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
-import type { Extension } from '@codemirror/state';
+import type { EditorState, Extension } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { livePreview } from './livePreview.ts';
@@ -40,6 +42,14 @@ const mdHighlight = HighlightStyle.define([
   { tag: tags.comment, color: 'var(--fg-muted)', fontStyle: 'italic' },
 ]);
 
+/** Consume the closing brackets that closeBrackets() already put after the cursor. */
+export function wikilinkCompletionReplaceTo(state: EditorState, to: number): number {
+  const after = state.doc.sliceString(to, Math.min(state.doc.length, to + 2));
+  if (after.startsWith(']]')) return to + 2;
+  if (after.startsWith(']')) return to + 1;
+  return to;
+}
+
 function wikilinkCompletions(cfg: EditorConfig) {
   return (context: CompletionContext): CompletionResult | null => {
     const before = context.matchBefore(/\[\[([^\][|#]*)$/);
@@ -50,7 +60,19 @@ function wikilinkCompletions(cfg: EditorConfig) {
       options: items.map((n) => ({
         label: n.title,
         detail: n.path,
-        apply: `${n.title}]]`,
+        apply: (view: EditorView, completion: Completion, from: number, to: number) => {
+          const insert = `${n.title}]]`;
+          view.dispatch({
+            changes: {
+              from,
+              to: wikilinkCompletionReplaceTo(view.state, to),
+              insert,
+            },
+            selection: { anchor: from + insert.length },
+            annotations: pickedCompletion.of(completion),
+            scrollIntoView: true,
+          });
+        },
       })),
       validFor: /^[^\][|#]*$/,
     };
@@ -88,6 +110,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     EditorView.domEventHandlers({ paste: (e, v) => tablePaste(e, v) }),
     livePreview({
       onNavigate: cfg.onNavigate,
+      onOpenExternal: (href) => window.open(href, '_blank', 'noopener,noreferrer'),
       isResolved: cfg.isResolved,
       getSecret: cfg.getSecret,
       onSecretClick: cfg.onSecretClick,

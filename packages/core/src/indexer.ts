@@ -630,9 +630,20 @@ export class Indexer {
   backlinks(path: string): Backlink[] {
     return this.db
       .prepare(
-        `SELECT l.src_path AS srcPath, n.title AS srcTitle, l.kind, l.line, l.alias
-         FROM links l JOIN notes n ON n.path = l.src_path
-         WHERE l.dst_path = ? ORDER BY l.src_path, l.line`,
+        `WITH ranked AS (
+           SELECT l.src_path AS srcPath, n.title AS srcTitle, l.kind, l.line, l.alias,
+             ROW_NUMBER() OVER (
+               PARTITION BY l.src_path
+               ORDER BY CASE l.kind
+                 WHEN 'link' THEN 0 WHEN 'md' THEN 1 WHEN 'embed' THEN 2
+                 WHEN 'mention' THEN 3 WHEN 'property' THEN 4 ELSE 5 END,
+                 l.line, l.rowid
+             ) AS occurrence
+           FROM links l JOIN notes n ON n.path = l.src_path
+           WHERE l.dst_path = ?
+         )
+         SELECT srcPath, srcTitle, kind, line, alias
+         FROM ranked WHERE occurrence = 1 ORDER BY srcPath, line`,
       )
       .all(path) as unknown as Backlink[];
   }

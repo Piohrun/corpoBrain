@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
 import { EditableNumber } from './EditableNumber.tsx';
 import { type GroupBy, personName, type Row, UNASSIGNED } from './planningShared.ts';
+import {
+  boundedColumnWidth,
+  ColumnResizeHandle,
+  usePersistentColumnWidths,
+} from './resizableColumns.tsx';
+
+const BANDWIDTH_WIDTHS_KEY = 'cb.plan.bandwidthColumnWidths.v1';
+const PERSON_WIDTH = { fallback: 160, min: 120, max: 360 };
+const SPRINT_WIDTH = { fallback: 190, min: 120, max: 520 };
+const BACKLOG_FALLBACK_WIDTH = 140;
 
 export function BandwidthGrid({
   board,
@@ -36,6 +46,51 @@ export function BandwidthGrid({
     () => new Set(lsJson<string[]>('cb.plan.groups', [])),
   );
   useEffect(() => lsSetJson('cb.plan.groups', [...collapsed]), [collapsed]);
+  const {
+    widths: columnWidths,
+    setWidth: setColumnWidth,
+    resetWidth: resetColumnWidth,
+    resetAll: resetColumnWidths,
+  } = usePersistentColumnWidths(BANDWIDTH_WIDTHS_KEY);
+  const gridWrapRef = useRef<HTMLDivElement>(null);
+  const [gridViewportWidth, setGridViewportWidth] = useState(0);
+  useEffect(() => {
+    const element = gridWrapRef.current;
+    if (!element) return;
+    const measure = () => setGridViewportWidth(Math.floor(element.clientWidth));
+    measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const personColumnWidth = boundedColumnWidth(
+    columnWidths.person,
+    PERSON_WIDTH.fallback,
+    PERSON_WIDTH.min,
+    PERSON_WIDTH.max,
+  );
+  const sprintCount = columns.filter((column) => column !== 'Backlog').length;
+  const responsiveSprintFallback =
+    gridViewportWidth > 0 && sprintCount > 0
+      ? Math.max(
+          SPRINT_WIDTH.fallback,
+          (gridViewportWidth - PERSON_WIDTH.fallback - BACKLOG_FALLBACK_WIDTH) / sprintCount,
+        )
+      : SPRINT_WIDTH.fallback;
+  const sprintColumnWidth = (column: string) =>
+    boundedColumnWidth(
+      columnWidths[`sprint:${column}`],
+      column === 'Backlog' ? BACKLOG_FALLBACK_WIDTH : responsiveSprintFallback,
+      SPRINT_WIDTH.min,
+      SPRINT_WIDTH.max,
+    );
+  const tableWidth =
+    personColumnWidth + columns.reduce((total, column) => total + sprintColumnWidth(column), 0);
 
   const rows = useMemo<Row[]>(() => {
     const known: Row[] = board.people
@@ -278,12 +333,8 @@ export function BandwidthGrid({
     );
   };
 
-  /**
-   * Whole-sprint presence, so a row reads at a glance: nobody home for the
-   * sprint (leave/holiday every working day, or bandwidth pinned to 0) vs.
-   * on the support rota for every day they are not off.
-   */
-  const presenceOf = (
+  /** Every affected sprint gets a cue; whole-sprint absence remains stronger. */
+  const availabilityOf = (
     row: Row,
     col: string,
     cap: number | null,
@@ -291,23 +342,32 @@ export function BandwidthGrid({
     if (col === 'Backlog' || !row.editable) return null;
     const a = row.absence[col];
     const off = a ? a.ooo + (a.holiday ?? 0) : 0;
-    if (a && a.total > 0 && off >= a.total) {
+    const support = a?.support ?? 0;
+    if (a && (off > 0 || support > 0)) {
+      const wholeSprintAway = a.total > 0 && off >= a.total;
+      const supportEveryAvailableDay =
+        !wholeSprintAway && a.total > 0 && support > 0 && off + support >= a.total;
+      const labels = [
+        a.ooo > 0 ? `${a.ooo}d OOO` : '',
+        (a.holiday ?? 0) > 0 ? `${a.holiday}d holiday` : '',
+        support > 0 ? `${support}d support` : '',
+      ].filter(Boolean);
+      const classes = [
+        'has-availability',
+        off > 0 ? 'has-away' : '',
+        support > 0 ? 'has-support' : '',
+        wholeSprintAway ? 'away-all' : '',
+        supportEveryAvailableDay ? 'support-only' : '',
+      ].filter(Boolean);
       return {
-        cls: 'away-all',
-        label: 'away',
-        title: `${row.name} is away for the whole of ${col} (${a.ooo}d leave, ${a.holiday ?? 0}d holiday)`,
-      };
-    }
-    if (a && a.total > 0 && a.support > 0 && off + a.support >= a.total) {
-      return {
-        cls: 'support-only',
-        label: off > 0 ? `support · ${off}d away` : 'support',
-        title: `${row.name} is on the support rota for every working day of ${col} they are not away (${a.support}d support, ${off}d off)`,
+        cls: classes.join(' '),
+        label: wholeSprintAway ? 'away' : labels.join(' · '),
+        title: `${row.name} · ${col}: ${labels.join(', ')}. Effective availability ${a.available}/${a.total} working days.`,
       };
     }
     if (cap === 0) {
       return {
-        cls: 'away-all',
+        cls: 'has-availability no-bandwidth',
         label: 'no bandwidth',
         title: `${row.name} has 0 ${board.unit} for ${col}`,
       };
@@ -315,191 +375,268 @@ export function BandwidthGrid({
     return null;
   };
 
-  const memberRow = (row: Row) => (
-    <tr key={row.id}>
-      <td className="person-cell">
-        <div>
-          <span
-            className="region-mark"
-            style={{ background: hubColor(row.region) }}
-            title={row.region ?? 'no region'}
-          />
-          {row.path ? (
-            <button
-              type="button"
-              className="person-link"
-              title="Open person overview"
-              onClick={() => onOpenNote(row.path as string)}
-            >
-              {row.name}
-            </button>
-          ) : (
-            row.name
-          )}
-        </div>
-        {row.editable && row.path && (
-          <div className="muted small">
-            <EditableNumber
-              value={row.capacity}
-              dimmed={row.capacityIsDefault}
-              title={
-                row.capacityIsDefault
-                  ? 'Inherited from the vault default — click to set explicitly'
-                  : 'Default capacity per sprint'
-              }
-              onCommit={(v) => onPatchPerson({ path: row.path as string, capacity: v })}
-            />{' '}
-            {board.unit}/sprint
+  const memberRow = (row: Row) => {
+    const visibleAvailability = columns.reduce(
+      (summary, col) => {
+        if (col === 'Backlog') return summary;
+        const a = row.absence[col];
+        if (!a) return summary;
+        summary.ooo += a.ooo;
+        summary.holiday += a.holiday ?? 0;
+        summary.support += a.support;
+        if (a.ooo > 0 || (a.holiday ?? 0) > 0 || a.support > 0) {
+          const parts = [
+            a.ooo > 0 ? `${a.ooo}d OOO` : '',
+            (a.holiday ?? 0) > 0 ? `${a.holiday}d holiday` : '',
+            a.support > 0 ? `${a.support}d support` : '',
+          ].filter(Boolean);
+          summary.details.push(`${col}: ${parts.join(', ')}`);
+        }
+        return summary;
+      },
+      { ooo: 0, holiday: 0, support: 0, details: [] as string[] },
+    );
+    const away = visibleAvailability.ooo + visibleAvailability.holiday;
+    const personClasses = [
+      away > 0 ? 'has-away' : '',
+      visibleAvailability.support > 0 ? 'has-support' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    return (
+      <tr key={row.id} className={`bw-person-row ${personClasses}`}>
+        <td
+          className={`person-cell ${personClasses}`}
+          title={
+            visibleAvailability.details.length ? visibleAvailability.details.join('\n') : undefined
+          }
+        >
+          <div>
+            <span
+              className="region-mark"
+              style={{ background: hubColor(row.region) }}
+              title={row.region ?? 'no region'}
+            />
+            {row.path ? (
+              <button
+                type="button"
+                className="person-link"
+                title="Open person overview"
+                onClick={() => onOpenNote(row.path as string)}
+              >
+                {row.name}
+              </button>
+            ) : (
+              row.name
+            )}
           </div>
-        )}
-      </td>
-      {columns.map((col) => {
-        const cKey = `${row.id}|${col}`;
-        const committedLoad = committed.get(cKey) ?? 0;
-        const computedPlanned = planned.get(cKey) ?? 0;
-        const loadOverridden = row.loadOverrides[col] !== undefined;
-        const plannedLoad = plannedOf(row, col);
-        const cap = capOf(row, col);
-        const pct = cap ? plannedLoad / cap : null;
-        const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
-        const collapsedCol = col === 'Backlog' && backlogCollapsed;
-        const cellCards = cellIssues.get(cKey) ?? [];
-        const presence = presenceOf(row, col, cap);
-        return (
-          <td
-            key={col}
-            className={`bw-cell${cls}${collapsedCol ? ' backlog-col' : ''}${
-              presence ? ` ${presence.cls}` : ''
-            }`}
-            title={presence?.title}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => drop(row, col)}
-          >
-            {presence && <span className={`bw-presence ${presence.cls}`}>{presence.label}</span>}
-            <div className="cell-load">
-              {row.editable && row.path ? (
-                <span>
-                  {committedLoad !== plannedLoad && (
-                    <>
-                      <span className="load-committed">{committedLoad}</span>
-                      {' → '}
-                    </>
-                  )}
-                  <EditableNumber
-                    variant="load"
-                    value={loadOverridden ? (row.loadOverrides[col] as number) : null}
-                    fallback={computedPlanned}
-                    title={
-                      loadOverridden
-                        ? `Manual used-load override (Jira-derived would be ${computedPlanned}); empty restores`
-                        : 'Click to override the used load for this sprint (BAU, meetings, non-Jira work)'
-                    }
-                    onCommit={(v) => {
-                      const loadOverrides = { ...row.loadOverrides };
-                      if (v === null) delete loadOverrides[col];
-                      else loadOverrides[col] = v;
-                      onPatchPerson({ path: row.path as string, loadOverrides });
-                    }}
-                  />
-                  {cap !== null && <span className="muted"> / {cap}</span>}
-                  {cap !== null && plannedLoad > cap && <span className="over-flag"> over</span>}
-                </span>
-              ) : (
-                <LoadLine committedLoad={committedLoad} plannedLoad={plannedLoad} cap={cap} />
+          {row.editable && row.path && (
+            <div className="muted small">
+              <EditableNumber
+                value={row.capacity}
+                dimmed={row.capacityIsDefault}
+                title={
+                  row.capacityIsDefault
+                    ? 'Inherited from the vault default — click to set explicitly'
+                    : 'Default capacity per sprint'
+                }
+                onCommit={(v) => onPatchPerson({ path: row.path as string, capacity: v })}
+              />{' '}
+              {board.unit}/sprint
+            </div>
+          )}
+          {visibleAvailability.details.length > 0 && (
+            <div className="person-availability">
+              {visibleAvailability.ooo > 0 && (
+                <span className="avail-chip ooo">{visibleAvailability.ooo}d OOO</span>
               )}
-              {row.editable && row.path && col !== 'Backlog' && (
-                <span className="cap-edit">
-                  <EditableNumber
-                    value={row.overrides[col] ?? null}
-                    placeholder={
-                      row.suggested[col] !== undefined
-                        ? `✈ ${row.suggested[col]}`
-                        : row.capacity !== null
-                          ? String(row.capacity)
-                          : '—'
-                    }
-                    title={
-                      row.absence[col]
-                        ? `${row.name} is away ${row.absence[col]?.ooo ?? 0}d + ${
-                            row.absence[col]?.support ?? 0
-                          }d support in ${col}: bandwidth ${row.capacity} → ${row.suggested[col]}. Type a number to override.`
-                        : `Bandwidth override for ${col} (empty = default)`
-                    }
-                    onCommit={(v) => {
-                      const overrides = { ...row.overrides };
-                      if (v === null) delete overrides[col];
-                      else overrides[col] = v;
-                      onPatchPerson({ path: row.path as string, overrides });
-                    }}
-                  />
-                </span>
+              {visibleAvailability.holiday > 0 && (
+                <span className="avail-chip holiday">{visibleAvailability.holiday}d holiday</span>
+              )}
+              {visibleAvailability.support > 0 && (
+                <span className="avail-chip support">{visibleAvailability.support}d support</span>
               )}
             </div>
-            {cap !== null && (
-              <div className="cap-bar">
-                <div
-                  className="cap-fill"
-                  style={{ width: `${Math.min(100, (pct ?? 0) * 100)}%` }}
-                />
+          )}
+        </td>
+        {columns.map((col) => {
+          const cKey = `${row.id}|${col}`;
+          const committedLoad = committed.get(cKey) ?? 0;
+          const computedPlanned = planned.get(cKey) ?? 0;
+          const loadOverridden = row.loadOverrides[col] !== undefined;
+          const plannedLoad = plannedOf(row, col);
+          const cap = capOf(row, col);
+          const pct = cap ? plannedLoad / cap : null;
+          const cls = pct === null ? '' : pct > 1 ? ' over' : pct > 0.85 ? ' warn' : ' ok';
+          const collapsedCol = col === 'Backlog' && backlogCollapsed;
+          const cellCards = cellIssues.get(cKey) ?? [];
+          const availability = availabilityOf(row, col, cap);
+          return (
+            <td
+              key={col}
+              className={`bw-cell${cls}${collapsedCol ? ' backlog-col' : ''}${
+                availability ? ` ${availability.cls}` : ''
+              }`}
+              title={availability?.title}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => drop(row, col)}
+            >
+              {availability && (
+                <span className={`bw-presence ${availability.cls}`}>{availability.label}</span>
+              )}
+              <div className="cell-load">
+                {row.editable && row.path ? (
+                  <span>
+                    {committedLoad !== plannedLoad && (
+                      <>
+                        <span className="load-committed">{committedLoad}</span>
+                        {' → '}
+                      </>
+                    )}
+                    <EditableNumber
+                      variant="load"
+                      value={loadOverridden ? (row.loadOverrides[col] as number) : null}
+                      fallback={computedPlanned}
+                      title={
+                        loadOverridden
+                          ? `Manual used-load override (Jira-derived would be ${computedPlanned}); empty restores`
+                          : 'Click to override the used load for this sprint (BAU, meetings, non-Jira work)'
+                      }
+                      onCommit={(v) => {
+                        const loadOverrides = { ...row.loadOverrides };
+                        if (v === null) delete loadOverrides[col];
+                        else loadOverrides[col] = v;
+                        onPatchPerson({ path: row.path as string, loadOverrides });
+                      }}
+                    />
+                    {cap !== null && <span className="muted"> / {cap}</span>}
+                    {cap !== null && plannedLoad > cap && <span className="over-flag"> over</span>}
+                  </span>
+                ) : (
+                  <LoadLine committedLoad={committedLoad} plannedLoad={plannedLoad} cap={cap} />
+                )}
+                {row.editable && row.path && col !== 'Backlog' && (
+                  <span className="cap-edit">
+                    <EditableNumber
+                      value={row.overrides[col] ?? null}
+                      placeholder={
+                        row.suggested[col] !== undefined
+                          ? `✈ ${row.suggested[col]}`
+                          : row.capacity !== null
+                            ? String(row.capacity)
+                            : '—'
+                      }
+                      title={
+                        availability
+                          ? `${availability.title} Bandwidth ${row.capacity} → ${row.suggested[col]}. Type a number to override.`
+                          : `Bandwidth override for ${col} (empty = default)`
+                      }
+                      onCommit={(v) => {
+                        const overrides = { ...row.overrides };
+                        if (v === null) delete overrides[col];
+                        else overrides[col] = v;
+                        onPatchPerson({ path: row.path as string, overrides });
+                      }}
+                    />
+                  </span>
+                )}
               </div>
-            )}
-            {collapsedCol ? (
-              cellCards.length > 0 && (
-                <div className="muted small backlog-count" title="Expand via the Backlog header">
-                  {cellCards.length} card{cellCards.length === 1 ? '' : 's'}
+              {cap !== null && (
+                <div className="cap-bar">
+                  <div
+                    className="cap-fill"
+                    style={{ width: `${Math.min(100, (pct ?? 0) * 100)}%` }}
+                  />
                 </div>
-              )
-            ) : (
-              <div className="chips">
-                {cellCards.map((i) => {
-                  const moved = i.overridden.sprint || i.overridden.assignee;
-                  return (
-                    <button
-                      type="button"
-                      key={i.key}
-                      className={`chip${moved ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
-                      draggable
-                      onDragStart={() => setDragKey(i.key)}
-                      onDragEnd={() => setDragKey(null)}
-                      onClick={() => onOpenNote(i.path)}
-                      title={`${statusTitle(i.status, i.statusCategory)} — ${i.summary ?? ''}${
-                        moved
-                          ? `\nUNCOMMITTED: Jira has ${i.jiraSprint ?? 'Backlog'} / ${personName(board, i.jiraAssignee)}`
-                          : ''
-                      }${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
-                    >
-                      <span
-                        className="status-dot"
-                        style={{ background: statusColor(i.status, i.statusCategory) }}
-                      />
-                      {i.key}
-                      {i.effectiveEffort !== null && (
-                        <span className="chip-effort">{i.effectiveEffort}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </td>
-        );
-      })}
-    </tr>
-  );
+              )}
+              {collapsedCol ? (
+                cellCards.length > 0 && (
+                  <div className="muted small backlog-count" title="Expand via the Backlog header">
+                    {cellCards.length} card{cellCards.length === 1 ? '' : 's'}
+                  </div>
+                )
+              ) : (
+                <div className="chips">
+                  {cellCards.map((i) => {
+                    const moved = i.overridden.sprint || i.overridden.assignee;
+                    return (
+                      <button
+                        type="button"
+                        key={i.key}
+                        className={`chip${moved ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
+                        draggable
+                        onDragStart={() => setDragKey(i.key)}
+                        onDragEnd={() => setDragKey(null)}
+                        onClick={() => onOpenNote(i.path)}
+                        title={`${statusTitle(i.status, i.statusCategory)} — ${i.summary ?? ''}${
+                          moved
+                            ? `\nUNCOMMITTED: Jira has ${i.jiraSprint ?? 'Backlog'} / ${personName(board, i.jiraAssignee)}`
+                            : ''
+                        }${i.riskFlags.length ? `\nflags: ${i.riskFlags.join(', ')}` : ''}`}
+                      >
+                        <span
+                          className="status-dot"
+                          style={{ background: statusColor(i.status, i.statusCategory) }}
+                        />
+                        {i.key}
+                        {i.effectiveEffort !== null && (
+                          <span className="chip-effort">{i.effectiveEffort}</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </td>
+          );
+        })}
+      </tr>
+    );
+  };
 
   return (
     <section>
-      <h2 className="plan-h2">Team bandwidth</h2>
-      <div className="grid-wrap">
-        <table className="bw-grid">
+      <div className="plan-section-title">
+        <h2 className="plan-h2">Team bandwidth</h2>
+        <span className="muted small">Drag header dividers to resize</span>
+        {Object.keys(columnWidths).length > 0 && (
+          <button type="button" className="column-reset" onClick={resetColumnWidths}>
+            Reset widths
+          </button>
+        )}
+      </div>
+      <div className="grid-wrap" ref={gridWrapRef}>
+        <table className="bw-grid resizable-grid" style={{ width: tableWidth }}>
+          <colgroup>
+            <col style={{ width: personColumnWidth }} />
+            {columns.map((column) => (
+              <col key={column} style={{ width: sprintColumnWidth(column) }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th>Person</th>
+              <th className="resizable-head">
+                Person
+                <ColumnResizeHandle
+                  label="Person"
+                  width={personColumnWidth}
+                  min={PERSON_WIDTH.min}
+                  max={PERSON_WIDTH.max}
+                  onResize={(width) => setColumnWidth('person', width)}
+                  onReset={() => resetColumnWidth('person')}
+                />
+              </th>
               {columns.map((c) => {
                 const sprint = board.sprints.find((s) => s.name === c);
+                const widthKey = `sprint:${c}`;
+                const width = sprintColumnWidth(c);
                 if (c === 'Backlog') {
                   return (
-                    <th key={c} className={backlogCollapsed ? 'backlog-col' : ''}>
+                    <th
+                      key={c}
+                      className={`resizable-head${backlogCollapsed ? ' backlog-col' : ''}`}
+                    >
                       <button
                         type="button"
                         className="group-toggle"
@@ -510,17 +647,33 @@ export function BandwidthGrid({
                       >
                         {backlogCollapsed ? '▸' : '▾'} Backlog
                       </button>
+                      <ColumnResizeHandle
+                        label="Backlog"
+                        width={width}
+                        min={SPRINT_WIDTH.min}
+                        max={SPRINT_WIDTH.max}
+                        onResize={(next) => setColumnWidth(widthKey, next)}
+                        onReset={() => resetColumnWidth(widthKey)}
+                      />
                     </th>
                   );
                 }
                 return (
-                  <th key={c}>
+                  <th key={c} className="resizable-head">
                     {c}
                     {sprint?.state === 'active' && <span className="badge-active">active</span>}
                     {sprint?.source === 'local' && <span className="sprint-badge">local</span>}
                     {sprint?.end && (
                       <div className="muted small">ends {sprint.end.slice(0, 10)}</div>
                     )}
+                    <ColumnResizeHandle
+                      label={c}
+                      width={width}
+                      min={SPRINT_WIDTH.min}
+                      max={SPRINT_WIDTH.max}
+                      onResize={(next) => setColumnWidth(widthKey, next)}
+                      onReset={() => resetColumnWidth(widthKey)}
+                    />
                   </th>
                 );
               })}
@@ -566,7 +719,7 @@ export function BandwidthGrid({
             done
           </span>
         </span>
-        . Fold with the ▾ toggles.
+        . Availability is called out on each person and affected sprint. Fold with the ▾ toggles.
       </p>
     </section>
   );

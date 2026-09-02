@@ -28,6 +28,28 @@ function hashPath(): string {
   return decodeURIComponent(window.location.hash.replace(/^#\//, ''));
 }
 
+type NoteHistoryMode = 'push' | 'replace' | 'none';
+
+interface NoteHistoryState {
+  corpoBrainNote: true;
+  index: number;
+  path: string | null;
+}
+
+function noteHistoryState(value: unknown): NoteHistoryState | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<NoteHistoryState>;
+  return candidate.corpoBrainNote === true &&
+    typeof candidate.index === 'number' &&
+    (typeof candidate.path === 'string' || candidate.path === null)
+    ? (candidate as NoteHistoryState)
+    : null;
+}
+
+function noteHash(path: string): string {
+  return `#/${encodeURIComponent(path)}`;
+}
+
 /** Does the sidebar (note list, tags, tree) need refetching after this save? */
 function listsAffected(prev: NoteResponse, fresh: NoteResponse): boolean {
   const meta = (n: NoteResponse) =>
@@ -62,6 +84,9 @@ export function App() {
   const discardRef = useRef(false);
   /** sequence of note loads: a slow earlier response must not overtake a later click */
   const loadSeq = useRef(0);
+  /** Browser-history position owned by note navigation in this app session. */
+  const noteHistoryIndex = useRef(0);
+  const [canGoBack, setCanGoBack] = useState(false);
 
   const refreshLists = useCallback(() => {
     api
@@ -80,30 +105,76 @@ export function App() {
 
   useEffect(refreshLists, [refreshLists]);
 
-  const openPath = useCallback((path: string) => {
+  const openPath = useCallback((path: string, historyMode: NoteHistoryMode = 'push') => {
     const seq = ++loadSeq.current;
+    const previousPath = noteRef.current?.path ?? null;
     api
       .note(path)
       .then((n) => {
         if (seq !== loadSeq.current) return; // a later open won
         setNote(n);
         setSaveState('saved');
-        if (hashPath() !== path) window.location.hash = `#/${encodeURIComponent(path)}`;
+
+        if (historyMode === 'none') return;
+        if (historyMode === 'push' && previousPath && previousPath !== path) {
+          const index = noteHistoryIndex.current + 1;
+          noteHistoryIndex.current = index;
+          setCanGoBack(true);
+          window.history.pushState(
+            { corpoBrainNote: true, index, path } satisfies NoteHistoryState,
+            '',
+            noteHash(path),
+          );
+          return;
+        }
+
+        // The first opened note and path-only changes (rename/move) replace
+        // the current entry, so Back never points at an empty or dead note.
+        window.history.replaceState(
+          {
+            corpoBrainNote: true,
+            index: noteHistoryIndex.current,
+            path,
+          } satisfies NoteHistoryState,
+          '',
+          noteHash(path),
+        );
       })
       .catch(() => {});
   }, []);
 
-  // restore note from URL hash on load, and follow back/forward
+  // Restore from the URL and make browser Back/Forward share the same note
+  // history as the in-app Back button.
   useEffect(() => {
     const fromHash = hashPath();
-    if (fromHash) openPath(fromHash);
-    const onHash = () => {
+    const existing = noteHistoryState(window.history.state);
+    const index = existing && existing.path === (fromHash || null) ? existing.index : 0;
+    noteHistoryIndex.current = index;
+    setCanGoBack(index > 0);
+    window.history.replaceState(
+      { corpoBrainNote: true, index, path: fromHash || null } satisfies NoteHistoryState,
+      '',
+    );
+    if (fromHash) openPath(fromHash, 'none');
+
+    const onPopState = (event: PopStateEvent) => {
+      const entry = noteHistoryState(event.state);
+      noteHistoryIndex.current = entry?.index ?? 0;
+      setCanGoBack(noteHistoryIndex.current > 0);
       const p = hashPath();
-      if (p && p !== noteRef.current?.path) openPath(p);
+      if (p && p !== noteRef.current?.path) openPath(p, 'none');
+      else if (!p) {
+        ++loadSeq.current;
+        setNote(null);
+      }
     };
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
   }, [openPath]);
+
+  const goBack = useCallback(() => {
+    if (noteHistoryIndex.current > 0) window.history.back();
+  }, []);
 
   // live updates from the vault watcher
   useVaultEvents((paths) => {
@@ -175,7 +246,13 @@ export function App() {
   // global shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'k')) {
+      const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+      const backShortcut = mac ? e.metaKey && e.key === '[' : e.altKey && e.key === 'ArrowLeft';
+      if (backShortcut && canGoBack) {
+        e.preventDefault();
+        e.stopPropagation();
+        goBack();
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'k')) {
         e.preventDefault();
         setPaletteOpen((v) => !v);
       } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
@@ -183,9 +260,9 @@ export function App() {
         openDaily();
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [openDaily]);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [canGoBack, goBack, openDaily]);
 
   const commands: PaletteCommand[] = [
     { id: 'daily', label: 'Open today’s daily note', hint: 'Ctrl+D', run: openDaily },
@@ -373,7 +450,7 @@ export function App() {
               refreshLists();
               const current = noteRef.current;
               if (!current) return;
-              if (moved && current.path === moved.from) openPath(moved.to);
+              if (moved && current.path === moved.from) openPath(moved.to, 'replace');
               else
                 api
                   .note(current.path)
@@ -385,6 +462,16 @@ export function App() {
             {note ? (
               <>
                 <div className="main-header">
+                  <button
+                    type="button"
+                    className="note-back"
+                    disabled={!canGoBack}
+                    title={`Back to previous note (${/Mac|iPhone|iPad|iPod/.test(navigator.platform) ? '⌘[' : 'Alt+←'})`}
+                    aria-label="Back to previous note"
+                    onClick={goBack}
+                  >
+                    ←
+                  </button>
                   <span className="title">{note.meta?.title ?? note.path}</span>
                   <span>{note.path}</span>
                   <span className="spacer" />
@@ -403,7 +490,15 @@ export function App() {
                         .remove(current.path)
                         .then(() => {
                           setNote(null);
-                          history.replaceState(null, '', window.location.pathname);
+                          window.history.replaceState(
+                            {
+                              corpoBrainNote: true,
+                              index: noteHistoryIndex.current,
+                              path: null,
+                            } satisfies NoteHistoryState,
+                            '',
+                            `${window.location.pathname}${window.location.search}`,
+                          );
                           refreshLists();
                         })
                         .catch((e: Error) => window.alert(`Delete failed: ${e.message}`))
@@ -478,7 +573,7 @@ export function App() {
               refreshLists();
               const current = noteRef.current;
               if (!current) return;
-              if (newPath && newPath !== current.path) openPath(newPath);
+              if (newPath && newPath !== current.path) openPath(newPath, 'replace');
               else
                 api
                   .note(current.path)
