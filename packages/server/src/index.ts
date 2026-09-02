@@ -11,7 +11,20 @@ const vaultRoot = resolve(process.env.CORPOBRAIN_VAULT ?? process.argv[2] ?? pro
 const port = Number(process.env.CORPOBRAIN_PORT ?? 4747);
 const hostname = '127.0.0.1'; // never bind externally
 
+// performance.now() counts from process start: this first line is the cost of
+// booting Node itself (flags such as --use-system-ca load before any of our code)
+console.log(`node booted in ${Math.round(performance.now())} ms`);
 const vault = new VaultService(vaultRoot);
+{
+  const { ms, summary } = vault.startup;
+  const total = summary.unchanged + summary.indexed.length;
+  const rebuilt = summary.unchanged === 0 && summary.indexed.length > 0;
+  console.log(
+    `index: ${total} notes, ${summary.indexed.length} re-indexed, ${summary.removed.length} removed in ${ms} ms${
+      rebuilt ? ' — full rebuild (first start, or the index schema changed with this version)' : ''
+    }`,
+  );
+}
 vault.startWatching();
 startSyncScheduler(vault);
 if (vault.config.git.autoCommit) {
@@ -66,5 +79,7 @@ if (uiDir) {
 
 serve({ fetch: app.fetch, port, hostname }, (info) => {
   console.log(`corpobrain vault: ${vaultRoot}`);
-  console.log(`corpobrain listening on http://${info.address}:${info.port}`);
+  console.log(
+    `corpobrain listening on http://${info.address}:${info.port} (ready ${Math.round(performance.now())} ms after process start)`,
+  );
 });

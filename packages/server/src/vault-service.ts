@@ -47,6 +47,8 @@ export class VaultService {
   private selfWrites = new Map<string, number>();
   /** Bumped on every write we make and every external change the watcher sees. */
   changeSeq = 0;
+  /** what the opening index pass cost — printed at startup so a slow start explains itself */
+  readonly startup: { ms: number; summary: UpdateSummary };
 
   constructor(
     readonly root: string,
@@ -58,8 +60,10 @@ export class VaultService {
       this.config,
       openDb(dbPath ?? join(root, '.corpobrain', 'index.sqlite')),
     );
-    this.indexer.update();
+    const t0 = performance.now();
+    const summary = this.indexer.update();
     this.indexer.loadSprints();
+    this.startup = { ms: Math.round(performance.now() - t0), summary };
   }
 
   /** Merge a partial section (jira / capacity / health) into config.json and the live config. */
