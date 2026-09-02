@@ -4208,3 +4208,24 @@ button.prop-chip {
 .nudge-input {
   width: 64px;
 }
+
+/* ---- tasks: pull into today ---- */
+.task-pull {
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 1px 6px;
+  cursor: pointer;
+  opacity: 0;
+}
+.task-row:hover .task-pull,
+.task-row:focus-within .task-pull {
+  opacity: 1;
+}
+.task-pull:hover {
+  border-color: var(--border);
+  color: var(--fg);
+}

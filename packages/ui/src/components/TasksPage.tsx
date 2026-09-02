@@ -1,12 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import type React from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type TaskItem } from '../api.ts';
 import { localISODate } from '../dates.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { lsGet, lsSet } from '../storage.ts';
 import { WikiText } from './WikiText.tsx';
 
 type Kind = 'task' | 'jira';
 
 /** Group a column's items the same way, so both sides read alike. */
+/** one group per source note, alphabetical, open tasks first inside each */
+function groupByNote(items: TaskItem[]): [string, TaskItem[]][] {
+  const m = new Map<string, TaskItem[]>();
+  for (const t of items) m.set(t.title, [...(m.get(t.title) ?? []), t]);
+  return [...m.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([title, list]) => [title, [...list].sort((a, b) => a.done - b.done || a.line - b.line)]);
+}
+
+/** ↑/↓ between task rows; x toggles the focused one — no mouse needed */
+function onTaskKeys(e: React.KeyboardEvent<HTMLElement>, toggleFocused: (el: HTMLElement) => void) {
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'INPUT' && (target as HTMLInputElement).type !== 'checkbox') return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const boxes = [
+      ...e.currentTarget.querySelectorAll<HTMLElement>('.task-row input[type=checkbox]'),
+    ];
+    const at = boxes.indexOf(target);
+    if (at < 0) return;
+    e.preventDefault();
+    boxes[at + (e.key === 'ArrowDown' ? 1 : -1)]?.focus();
+  } else if (e.key === 'x' && target.closest('.task-row')) {
+    e.preventDefault();
+    toggleFocused(target);
+  }
+}
+
 function groupTasks(items: TaskItem[]): [string, TaskItem[]][] {
   const overdue: TaskItem[] = [];
   const today: TaskItem[] = [];
@@ -41,6 +70,19 @@ export function TasksPage({
 }) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
+  const [groupMode, setGroupMode] = useState<'due' | 'note'>(() =>
+    lsGet('cb.tasks.group', 'due') === 'note' ? 'note' : 'due',
+  );
+  useEffect(() => lsSet('cb.tasks.group', groupMode), [groupMode]);
+  const todayPath = useRef<string | null>(null);
+  useEffect(() => {
+    api
+      .daily()
+      .then((d) => {
+        todayPath.current = d.path;
+      })
+      .catch(() => {});
+  }, []);
   const [newText, setNewText] = useState('');
   const [newDue, setNewDue] = useState('');
   const [newKind, setNewKind] = useState<Kind>('task');
@@ -97,13 +139,38 @@ export function TasksPage({
     [onNoteChanged, refresh],
   );
 
+  /** copy an open task into today's daily note and tick the original */
+  const pullToToday = useCallback(
+    (t: TaskItem) => {
+      api
+        .daily()
+        .then((d) => api.note(d.path))
+        .then(async (note) => {
+          const sep = note.content.endsWith('\n') ? '' : '\n';
+          const line = `- ${t.kind === 'jira' ? 'j[ ]' : '[ ]'} ${t.text}${t.due ? ` 📅 ${t.due}` : ''} (from [[${t.title}]])`;
+          await api.save(note.path, `${note.content}${sep}${line}\n`);
+          await api.toggleTask(t.path, t.line);
+          onNoteChanged(note.path);
+          onNoteChanged(t.path);
+        })
+        .then(() => {
+          setError(null);
+          refresh();
+        })
+        .catch((e: Error) => setError(e.message));
+    },
+    [onNoteChanged, refresh],
+  );
+
   const columns = useMemo(() => {
     const visible = tasks.filter((t) => showDone || !t.done);
+    const group = groupMode === 'note' ? groupByNote : groupTasks;
     return {
-      task: groupTasks(visible.filter((t) => t.kind !== 'jira')),
-      jira: groupTasks(visible.filter((t) => t.kind === 'jira')),
+      task: group(visible.filter((t) => t.kind !== 'jira')),
+      jira: group(visible.filter((t) => t.kind === 'jira')),
     };
-  }, [tasks, showDone]);
+  }, [tasks, showDone, groupMode]);
+  const byKey = useMemo(() => new Map(tasks.map((t) => [`${t.path}:${t.line}`, t])), [tasks]);
 
   const openCount = (kind: Kind) =>
     tasks.filter((t) => !t.done && (kind === 'jira' ? t.kind === 'jira' : t.kind !== 'jira'))
@@ -112,7 +179,17 @@ export function TasksPage({
   const column = (kind: Kind, title: string, hint: string) => {
     const groups = columns[kind];
     return (
-      <section className={`task-col${kind === 'jira' ? ' jira' : ''}`}>
+      // biome-ignore lint/a11y/noStaticElementInteractions: keyboard handling for the rows' own checkboxes
+      <section
+        className={`task-col${kind === 'jira' ? ' jira' : ''}`}
+        onKeyDown={(e) =>
+          onTaskKeys(e, (el) => {
+            const key = el.closest<HTMLElement>('.task-row')?.dataset.task;
+            const t = key ? byKey.get(key) : undefined;
+            if (t) toggle(t);
+          })
+        }
+      >
         <h2 className="plan-h2 task-col-head">
           {title}
           <span className="health-badge">{openCount(kind)}</span>
@@ -124,7 +201,11 @@ export function TasksPage({
             <div key={label}>
               <h3 className={`task-group${label === 'Overdue' ? ' overdue' : ''}`}>{label}</h3>
               {items.map((t) => (
-                <div key={`${t.path}:${t.line}`} className="task-row">
+                <div
+                  key={`${t.path}:${t.line}`}
+                  className="task-row"
+                  data-task={`${t.path}:${t.line}`}
+                >
                   <input
                     type="checkbox"
                     className={kind === 'jira' ? 'jira-box' : ''}
@@ -150,6 +231,16 @@ export function TasksPage({
                       }}
                     >
                       {t.due}
+                    </button>
+                  )}
+                  {!t.done && t.path !== todayPath.current && (
+                    <button
+                      type="button"
+                      className="task-pull"
+                      title="Copy into today’s daily note and tick it off here"
+                      onClick={() => pullToToday(t)}
+                    >
+                      → today
                     </button>
                   )}
                   <button
@@ -216,6 +307,22 @@ export function TasksPage({
         </button>
         <span className="spacer" />
         {error && <span className="plan-error">{error}</span>}
+        <span className="digest-ranges" title="Group tasks by due date or by the note they live in">
+          <button
+            type="button"
+            className={`tab${groupMode === 'due' ? ' active' : ''}`}
+            onClick={() => setGroupMode('due')}
+          >
+            by due
+          </button>
+          <button
+            type="button"
+            className={`tab${groupMode === 'note' ? ' active' : ''}`}
+            onClick={() => setGroupMode('note')}
+          >
+            by note
+          </button>
+        </span>
         <label className="muted small">
           <input
             type="checkbox"
