@@ -3938,3 +3938,65 @@ button.prop-chip {
 .props-toggle:hover {
   color: var(--fg);
 }
+
+/* ---- sidebar: pinned, recent, sort ---- */
+.tree-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tree-head .spacer {
+  flex: 1;
+}
+.sort-toggle {
+  font: inherit;
+  font-size: 10.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 1px 6px;
+  cursor: pointer;
+}
+.sort-toggle.active {
+  border-color: var(--border);
+  background: var(--bg);
+  color: var(--fg);
+}
+.tree-quick {
+  display: flex;
+  align-items: center;
+}
+.tree-quick .tree-item {
+  flex: 1;
+}
+.tree-quick.active .tree-item {
+  background: var(--bg-active);
+}
+.tree-unpin {
+  font: inherit;
+  font-size: 11px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 8px;
+  opacity: 0;
+}
+.tree-quick:hover .tree-unpin {
+  opacity: 1;
+}
+.note-pin {
+  font: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.35;
+  padding: 2px 4px;
+}
+.note-pin.on,
+.note-pin:hover {
+  opacity: 1;
+}

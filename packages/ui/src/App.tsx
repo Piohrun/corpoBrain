@@ -30,7 +30,7 @@ import { FinderProvider, useFinder, useFinderSections } from './finder/registry.
 import { type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
 import { installShortcuts, isMac, type Shortcut } from './shortcuts.ts';
-import { lsGet, lsSet } from './storage.ts';
+import { lsGet, lsJson, lsSet, lsSetJson } from './storage.ts';
 
 /** `#/<note path>` — the Notes panel with that note open. */
 function hashPath(): string {
@@ -123,6 +123,17 @@ function AppShell() {
   const dlg = useDialogs();
   const [helpOpen, setHelpOpen] = useState(false);
   const [foldFrontmatter, setFoldFrontmatter] = useState(() => lsGet('cb.fm.fold', 'yes') !== 'no');
+  const [recentPaths, setRecentPaths] = useState<string[]>(() => lsJson<string[]>('cb.recent', []));
+  const [pinnedPaths, setPinnedPaths] = useState<string[]>(() => lsJson<string[]>('cb.pinned', []));
+  const [treeSort, setTreeSort] = useState<'title' | 'recent'>(() =>
+    lsGet('cb.tree.sort', 'title') === 'recent' ? 'recent' : 'title',
+  );
+  useEffect(() => lsSetJson('cb.recent', recentPaths), [recentPaths]);
+  useEffect(() => lsSetJson('cb.pinned', pinnedPaths), [pinnedPaths]);
+  useEffect(() => lsSet('cb.tree.sort', treeSort), [treeSort]);
+  const togglePin = useCallback((path: string) => {
+    setPinnedPaths((p) => (p.includes(path) ? p.filter((x) => x !== path) : [...p, path]));
+  }, []);
   useEffect(() => lsSet('cb.fm.fold', foldFrontmatter ? 'yes' : 'no'), [foldFrontmatter]);
   const [chord, setChord] = useState<string | null>(null);
   const editorApi = useRef<EditorApi | null>(null);
@@ -174,6 +185,7 @@ function AppShell() {
         if (seq !== loadSeq.current) return; // a later open won
         setNote(n);
         setSaveState('saved');
+        setRecentPaths((r) => [path, ...r.filter((x) => x !== path)].slice(0, 10));
 
         if (historyMode === 'none') return;
         if (historyMode === 'push' && previousPath && previousPath !== path) {
@@ -678,6 +690,18 @@ function AppShell() {
           },
         },
         {
+          id: 'pin',
+          label: 'pin / unpin in sidebar',
+          when: (items) => {
+            const only = items.length === 1 ? items[0] : undefined;
+            return only !== undefined && !('create' in (only.data as object));
+          },
+          run: ([item], ctx) => {
+            ctx.close();
+            if (item) togglePin((item.data as NoteListItem).path);
+          },
+        },
+        {
           id: 'link',
           label: 'insert [[link]] here',
           keys: 'Mod+L',
@@ -738,8 +762,14 @@ function AppShell() {
     return view === 'notes'
       ? [section(inNote), section(noteSection), section(commands)]
       : [section(noteSection), section(commands)];
-  }, [notes, view, openPath, createNote, openDaily, refreshLists, goView]);
+  }, [notes, view, openPath, createNote, openDaily, refreshLists, goView, togglePin]);
   useFinderSections('app', notesSections);
+
+  const titleOf = useMemo(() => new Map(notes.map((n) => [n.path, n.title])), [notes]);
+  const mtimeOf = useMemo(() => {
+    const m = new Map(notes.map((n) => [n.path, n.mtime]));
+    return (path: string) => m.get(path) ?? 0;
+  }, [notes]);
 
   const completions = useCallback(
     () => notes.filter((n) => !n.protected).map((n) => ({ title: n.title, path: n.path })),
@@ -917,6 +947,15 @@ function AppShell() {
             onDaily={openDaily}
             onNew={() => finder.open({ section: 'notes' })}
             onFind={() => finder.open()}
+            recent={recentPaths
+              .filter((p) => p !== note?.path)
+              .map((p) => ({ path: p, title: titleOf.get(p) ?? p }))
+              .filter((r) => titleOf.has(r.path))}
+            pinned={pinnedPaths.map((p) => ({ path: p, title: titleOf.get(p) ?? p }))}
+            onUnpin={togglePin}
+            sort={treeSort}
+            onSort={setTreeSort}
+            mtimeOf={mtimeOf}
             onTreeChanged={(moved) => {
               refreshLists();
               const current = noteRef.current;
@@ -956,6 +995,19 @@ function AppShell() {
                   <span className="title">{note.meta?.title ?? note.path}</span>
                   <span>{note.path}</span>
                   <span className="spacer" />
+                  <button
+                    type="button"
+                    className={`note-pin${pinnedPaths.includes(note.path) ? ' on' : ''}`}
+                    title={
+                      pinnedPaths.includes(note.path)
+                        ? 'Unpin from the sidebar'
+                        : 'Pin to the top of the sidebar'
+                    }
+                    aria-label="Pin note"
+                    onClick={() => togglePin(note.path)}
+                  >
+                    📌
+                  </button>
                   <button
                     type="button"
                     className="note-delete"

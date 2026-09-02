@@ -45,6 +45,8 @@ export function PropertiesBar({
   onNavigate: (target: string) => void;
 }) {
   const fm = note.meta?.frontmatter ?? {};
+  // a note without a frontmatter block gets no bar at all
+  if (!/^\ufeff?---[ \t]*\r?\n/.test(note.content)) return null;
   const type = typeof fm.type === 'string' ? fm.type : null;
   const created = typeof fm.created === 'string' ? fm.created.slice(0, 10) : null;
   const parent = link(fm.parent);

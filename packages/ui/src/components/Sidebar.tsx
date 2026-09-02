@@ -15,6 +15,13 @@ interface Props {
   onNew: () => void;
   onFind: () => void;
   onTreeChanged: (moved?: { from: string; to: string }) => void;
+  /** last opened first */
+  recent: { path: string; title: string }[];
+  pinned: { path: string; title: string }[];
+  onUnpin: (path: string) => void;
+  sort: 'title' | 'recent';
+  onSort: (s: 'title' | 'recent') => void;
+  mtimeOf: (path: string) => number;
 }
 
 const ERROR_TTL = 6000;
@@ -30,6 +37,12 @@ export function Sidebar({
   onNew,
   onFind,
   onTreeChanged,
+  recent,
+  pinned,
+  onUnpin,
+  sort,
+  onSort,
+  mtimeOf,
 }: Props) {
   const [tagged, setTagged] = useState<{ path: string; title: string }[]>([]);
   const [treeError, setTreeError] = useState<string | null>(null);
@@ -95,6 +108,73 @@ export function Sidebar({
           </>
         ) : (
           <>
+            {pinned.length > 0 && (
+              <>
+                <h3>Pinned</h3>
+                {pinned.map((n) => (
+                  <div
+                    key={`p${n.path}`}
+                    className={`tree-quick${n.path === currentPath ? ' active' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      className="tree-item"
+                      data-quick-path={n.path}
+                      onClick={() => onOpen(n.path)}
+                      title={n.path}
+                    >
+                      📌 {n.title}
+                    </button>
+                    <button
+                      type="button"
+                      className="tree-unpin"
+                      title="Unpin"
+                      aria-label={`Unpin ${n.title}`}
+                      onClick={() => onUnpin(n.path)}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+            {recent.length > 0 && (
+              <>
+                <h3>Recent</h3>
+                {recent.map((n) => (
+                  <button
+                    type="button"
+                    key={`r${n.path}`}
+                    className={`tree-item${n.path === currentPath ? ' active' : ''}`}
+                    data-quick-path={n.path}
+                    onClick={() => onOpen(n.path)}
+                    title={n.path}
+                  >
+                    {n.title}
+                  </button>
+                ))}
+              </>
+            )}
+            <h3 className="tree-head">
+              Notes
+              <span className="spacer" />
+              <button
+                type="button"
+                className={`sort-toggle${sort === 'title' ? ' active' : ''}`}
+                onClick={() => onSort('title')}
+                title="Vault order (your ordering, then title)"
+              >
+                A–Z
+              </button>
+              <button
+                type="button"
+                className={`sort-toggle${sort === 'recent' ? ' active' : ''}`}
+                onClick={() => onSort('recent')}
+                title="Most recently edited first"
+              >
+                recent
+              </button>
+            </h3>
             {treeError && <div className="plan-error tree-error">{treeError}</div>}
             {tree && (
               <NoteTree
@@ -103,6 +183,8 @@ export function Sidebar({
                 onOpen={onOpen}
                 onChanged={onTreeChanged}
                 onError={setTreeError}
+                sort={sort}
+                mtimeOf={mtimeOf}
               />
             )}
             {tags.length > 0 && (
