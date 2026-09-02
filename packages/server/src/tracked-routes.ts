@@ -106,6 +106,53 @@ function rangeFor(content: string, id: string): TrackRange | null {
   return trackRanges(content).find((range) => range.id.toLowerCase() === id.toLowerCase()) ?? null;
 }
 
+/**
+ * Block syntax at the start of a line: list bullets and numbers, task boxes,
+ * heading hashes, blockquote chevrons. A marker in front of these would turn
+ * the line into a paragraph for every Markdown parser, so an anchor that
+ * starts on such a line starts after the syntax instead.
+ */
+const BLOCK_PREFIX = /^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+(?:\[[ xX]\][ \t]+)?|#{1,6}[ \t]+|>[ \t]+)/;
+
+export function pastBlockSyntax(content: string, from: number): number {
+  const lineStart = content.lastIndexOf('\n', from - 1) + 1;
+  const lineEnd = content.indexOf('\n', lineStart);
+  const line = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd);
+  const m = BLOCK_PREFIX.exec(line);
+  const prefixEnd = lineStart + (m ? m[0].length : 0);
+  return from < prefixEnd ? prefixEnd : from;
+}
+
+/**
+ * Where a record's evidence lives now. The index knows every anchor by id,
+ * so a source note that was renamed or moved is still found; without an
+ * anchor, fall back to the recorded path, then to resolving the [[source]]
+ * link the way the editor would.
+ */
+function locateSource(
+  v: VaultService,
+  fm: Record<string, unknown>,
+  trackId: string | null,
+): { path: string | null; anchor: { line: number; content: string } | null } {
+  if (trackId) {
+    const row = v.indexer.db
+      .prepare('SELECT path, line, content FROM track_anchors WHERE id = ? LIMIT 1')
+      .get(trackId.toUpperCase()) as { path: string; line: number; content: string } | undefined;
+    if (row) return { path: row.path, anchor: { line: row.line, content: row.content } };
+  }
+  const exists = (path: string) =>
+    v.indexer.db.prepare('SELECT 1 FROM notes WHERE path = ?').get(path) !== undefined;
+  const recorded = stringValue(fm.source_path);
+  if (recorded && exists(recorded)) return { path: recorded, anchor: null };
+  const link = stringValue(fm.source);
+  const target = link ? /^\[\[([^\]|#]+)/.exec(link)?.[1]?.trim() : null;
+  if (target) {
+    const r = v.resolve(target);
+    if (r.exists) return { path: r.path, anchor: null };
+  }
+  return { path: recorded, anchor: null };
+}
+
 function lineAt(content: string, offset: number): number {
   let line = 1;
   for (let i = 0; i < offset; i++) if (content.charCodeAt(i) === 10) line++;
@@ -154,13 +201,21 @@ export function trackedRoutes(v: VaultService): Hono {
     }[];
 
     const sourceMeta = v.indexer.db.prepare('SELECT title, mtime FROM notes WHERE path = ?');
+    // sources without an anchor are read at most once per request
+    const contentCache = new Map<string, string | null>();
+    const contentOf = (path: string): string | null => {
+      if (!contentCache.has(path)) {
+        try {
+          contentCache.set(path, v.read(path).content);
+        } catch {
+          contentCache.set(path, null);
+        }
+      }
+      return contentCache.get(path) ?? null;
+    };
     return c.json(
       rows.map((row) => {
         const fm = JSON.parse(row.frontmatter_json) as Record<string, unknown>;
-        const sourcePath = stringValue(fm.source_path);
-        const source = sourcePath
-          ? (sourceMeta.get(sourcePath) as { title: string; mtime: number } | undefined)
-          : undefined;
         const original = stringValue(fm.excerpt) ?? '';
         const explicitTrackId = stringValue(fm.track_id);
         const trackId = explicitTrackId ?? stringValue(fm.id);
@@ -168,32 +223,31 @@ export function trackedRoutes(v: VaultService): Hono {
           typeof fm.source_line === 'number' && Number.isInteger(fm.source_line)
             ? fm.source_line
             : null;
+        const located = locateSource(v, fm, trackId);
+        const sourcePath = located.path;
+        const source = sourcePath
+          ? (sourceMeta.get(sourcePath) as { title: string; mtime: number } | undefined)
+          : undefined;
         let sourceState: SourceState = 'missing';
         let currentExcerpt: string | null = null;
         let currentLine: number | null = null;
-        if (sourcePath) {
-          try {
-            const sourceNote = v.read(sourcePath);
-            const anchored = trackId ? rangeFor(sourceNote.content, trackId) : null;
-            if (anchored) {
-              currentExcerpt = cleanEvidence(anchored.content);
-              currentLine = lineAt(sourceNote.content, anchored.contentFrom);
-              sourceState =
-                currentExcerpt === ''
-                  ? 'removed'
-                  : currentExcerpt === cleanEvidence(original)
-                    ? 'unchanged'
-                    : 'edited';
-            } else if (original && !explicitTrackId) {
-              const occurrence = nearestOccurrence(sourceNote.content, original, originalLine ?? 1);
-              if (occurrence !== null) {
-                sourceState = 'unanchored';
-                currentExcerpt = original;
-                currentLine = lineAt(sourceNote.content, occurrence);
-              }
-            }
-          } catch {
-            // A deleted or inaccessible source is represented as missing.
+        if (located.anchor) {
+          currentExcerpt = located.anchor.content;
+          currentLine = located.anchor.line;
+          sourceState =
+            currentExcerpt === ''
+              ? 'removed'
+              : currentExcerpt === cleanEvidence(original)
+                ? 'unchanged'
+                : 'edited';
+        } else if (sourcePath && original && !explicitTrackId) {
+          const content = contentOf(sourcePath);
+          const occurrence =
+            content === null ? null : nearestOccurrence(content, original, originalLine ?? 1);
+          if (content !== null && occurrence !== null) {
+            sourceState = 'unanchored';
+            currentExcerpt = original;
+            currentLine = lineAt(content, occurrence);
           }
         }
         return {
@@ -235,11 +289,11 @@ export function trackedRoutes(v: VaultService): Hono {
     if (!isTrackKind(body.kind))
       throw new HttpError(400, 'kind must be commitment, decision, risk, or assumption');
     const statement = stringValue(body.statement);
-    const excerpt = stringValue(body.excerpt);
+    const selected = stringValue(body.excerpt);
     const sourcePath = stringValue(body.sourcePath);
-    if (!statement || !excerpt || !sourcePath)
+    if (!statement || !selected || !sourcePath)
       throw new HttpError(400, 'statement, excerpt, and sourcePath are required');
-    if (statement.length > 2_000 || excerpt.length > 4_000)
+    if (statement.length > 2_000 || selected.length > 4_000)
       throw new HttpError(400, 'tracked text is too long');
     if (
       typeof body.sourceLine !== 'number' ||
@@ -267,9 +321,15 @@ export function trackedRoutes(v: VaultService): Hono {
     if (body.sourceLine > lineCount) throw new HttpError(409, 'source line no longer exists');
     if (
       body.sourceTo > source.content.length ||
-      source.content.slice(body.sourceFrom, body.sourceTo) !== excerpt
+      source.content.slice(body.sourceFrom, body.sourceTo) !== body.excerpt
     )
       throw new HttpError(409, 'selected evidence no longer matches the source note');
+    // never wrap list/heading/quote syntax: the anchor starts after it
+    const anchorFrom = pastBlockSyntax(source.content, body.sourceFrom);
+    if (anchorFrom >= body.sourceTo)
+      throw new HttpError(400, 'select some text after the list or heading marker');
+    const excerpt = cleanEvidence(source.content.slice(anchorFrom, body.sourceTo));
+    if (!excerpt) throw new HttpError(400, 'selected evidence is empty');
 
     const title = titleOf(statement);
     if (!title) throw new HttpError(400, 'statement has no visible text');
@@ -293,13 +353,7 @@ export function trackedRoutes(v: VaultService): Hono {
     if (owner) fields.push(`owner: ${JSON.stringify(owner)}`);
     if (date) fields.push(`${dateKey}: ${JSON.stringify(date)}`);
     const content = `---\n${fields.join('\n')}\n---\n\n# ${title}\n\n> [!quote] Original evidence\n> [[${target}]] · line ${body.sourceLine}\n>\n${evidenceQuote(excerpt)}\n\n## Notes\n\n`;
-    const sourceContent = insertMarkers(
-      source.content,
-      body.sourceFrom,
-      body.sourceTo,
-      id,
-      body.kind,
-    );
+    const sourceContent = insertMarkers(source.content, anchorFrom, body.sourceTo, id, body.kind);
     v.write(source.path, sourceContent);
     try {
       v.create(path, title, content, body.kind);
@@ -330,12 +384,12 @@ export function trackedRoutes(v: VaultService): Hono {
     if (parsed.error) throw new HttpError(409, 'tracked record frontmatter cannot be parsed');
     const kind = parsed.data.type;
     if (!isTrackKind(kind)) throw new HttpError(400, 'path is not a tracked record');
-    const sourcePath = stringValue(parsed.data.source_path);
     const excerpt = stringValue(parsed.data.excerpt);
-    if (!sourcePath || !excerpt) throw new HttpError(409, 'tracked record has no source evidence');
-    const preferredLine = typeof parsed.data.source_line === 'number' ? parsed.data.source_line : 1;
     const trackId =
       stringValue(parsed.data.track_id) ?? stringValue(parsed.data.id) ?? generateUlid();
+    const sourcePath = locateSource(v, parsed.data, trackId).path;
+    if (!sourcePath || !excerpt) throw new HttpError(409, 'tracked record has no source evidence');
+    const preferredLine = typeof parsed.data.source_line === 'number' ? parsed.data.source_line : 1;
     const source = v.read(sourcePath);
     const existing = rangeFor(source.content, trackId);
     if (existing)
@@ -346,11 +400,21 @@ export function trackedRoutes(v: VaultService): Hono {
       });
     const at = nearestOccurrence(source.content, excerpt, preferredLine);
     if (at === null) throw new HttpError(409, 'original evidence no longer exists in the source');
-    const sourceContent = insertMarkers(source.content, at, at + excerpt.length, trackId, kind);
+    const from = pastBlockSyntax(source.content, at);
+    const to = at + excerpt.length;
+    if (from >= to) throw new HttpError(409, 'original evidence is only list or heading syntax');
+    const sourceContent = insertMarkers(source.content, from, to, trackId, kind);
     v.write(source.path, sourceContent);
-    if (stringValue(parsed.data.track_id) !== trackId) {
-      v.patchNote(path, (text) => setFrontmatterKey(text, 'track_id', trackId));
-    }
+    const anchored = cleanEvidence(source.content.slice(from, to));
+    v.patchNote(path, (text) => {
+      let next = text;
+      if (stringValue(parsed.data.track_id) !== trackId)
+        next = setFrontmatterKey(next, 'track_id', trackId);
+      if (source.path !== stringValue(parsed.data.source_path))
+        next = setFrontmatterKey(next, 'source_path', source.path);
+      if (anchored !== excerpt) next = setFrontmatterKey(next, 'excerpt', anchored);
+      return next;
+    });
     return c.json({ sourcePath: source.path, sourceContent, trackId });
   });
 

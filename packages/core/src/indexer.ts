@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { VaultConfig } from './config.ts';
 import { parseFrontmatter, setFrontmatterKey } from './frontmatter.ts';
 import { normalizeHistory } from './jira/render.ts';
-import { scanMarkdown, stripTrackMarkers } from './scan.ts';
+import { scanMarkdown, stripTrackMarkers, trackAnchors } from './scan.ts';
 import { generateUlid } from './ulid.ts';
 import { type VaultFile, vaultFileInfo, walkVault, writeFileAtomic } from './vault.ts';
 
@@ -194,6 +194,7 @@ export class Indexer {
       'tasks',
       'headings',
       'blocks',
+      'track_anchors',
     ])
       this.db
         .prepare(`DELETE FROM ${t} WHERE ${t === 'links' ? 'src_path' : 'path'} = ?`)
@@ -318,6 +319,13 @@ export class Indexer {
 
     const insBlock = this.db.prepare('INSERT INTO blocks(path, block_id, line) VALUES (?, ?, ?)');
     for (const b of scan.blocks) insBlock.run(f.path, b.blockId, b.line);
+
+    // tracked-record evidence anchors: found here so the Tracked page never
+    // has to re-read source notes, and so a moved source is still found
+    const insAnchor = this.db.prepare(
+      'INSERT INTO track_anchors(path, id, kind, line, content) VALUES (?, ?, ?, ?, ?)',
+    );
+    for (const a of trackAnchors(text)) insAnchor.run(f.path, a.id, a.kind, a.line, a.content);
 
     // properties + property links
     const insProp = this.db.prepare(

@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SCHEMA_VERSION = '0.3.0/11';
+export const SCHEMA_VERSION = '0.3.1/12';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -61,6 +61,11 @@ CREATE TABLE IF NOT EXISTS sprints(
   board_id INTEGER, goal TEXT,
   source TEXT NOT NULL DEFAULT 'jira', path TEXT
 );
+CREATE TABLE IF NOT EXISTS track_anchors(
+  path TEXT NOT NULL, id TEXT NOT NULL, kind TEXT NOT NULL, line INTEGER NOT NULL, content TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS track_anchors_id ON track_anchors(id);
+CREATE INDEX IF NOT EXISTS track_anchors_path ON track_anchors(path);
 CREATE TABLE IF NOT EXISTS transitions(
   key TEXT NOT NULL, at TEXT NOT NULL, author TEXT, field TEXT NOT NULL,
   from_value TEXT, to_value TEXT

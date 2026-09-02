@@ -72,6 +72,37 @@ export function stripTrackMarkers(text: string): string {
   return text.replace(TRACK_MARKER, '');
 }
 
+export interface TrackAnchor {
+  id: string;
+  kind: string;
+  /** 1-based line of the anchored passage's first character */
+  line: number;
+  /** the passage between the markers, CRLF-normalised and trimmed */
+  content: string;
+}
+
+const TRACK_RANGE =
+  /<!--\s*cb-track:([0-9A-Za-z]+):([a-z]+)\s*-->([\s\S]*?)<!--\s*\/cb-track:\1\s*-->/gi;
+
+/** Every tracked passage in a note (evidence for a tracked record lives here). */
+export function trackAnchors(text: string): TrackAnchor[] {
+  const out: TrackAnchor[] = [];
+  TRACK_RANGE.lastIndex = 0;
+  for (let m = TRACK_RANGE.exec(text); m; m = TRACK_RANGE.exec(text)) {
+    const open = m[0].indexOf('-->') + 3;
+    let line = 1;
+    const upto = m.index + open;
+    for (let i = 0; i < upto; i++) if (text.charCodeAt(i) === 10) line++;
+    out.push({
+      id: (m[1] as string).toUpperCase(),
+      kind: (m[2] as string).toLowerCase(),
+      line,
+      content: (m[3] as string).replace(/\r\n/g, '\n').trim(),
+    });
+  }
+  return out;
+}
+
 /** Replace inline code spans with spaces of equal length so offsets hold. */
 export function maskInlineCode(line: string): string {
   return line.replace(/(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/g, (m) => ' '.repeat(m.length));

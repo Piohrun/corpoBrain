@@ -476,3 +476,95 @@ describe('local-only guard', () => {
     expect(res.status).toBe(403);
   });
 });
+
+describe('tracked evidence anchors', () => {
+  const create = (body: Record<string, unknown>) =>
+    app.request('/api/tracked', { method: 'POST', body: JSON.stringify(body) });
+  const list = async () =>
+    (await (await app.request('/api/tracked')).json()) as {
+      path: string;
+      sourcePath: string;
+      sourceState: string;
+      currentLine: number | null;
+      currentExcerpt: string | null;
+    }[];
+
+  it('starts the anchor after list, task and heading syntax so the line keeps its shape', async () => {
+    writeFileSync(
+      join(root, 'notes', 'list.md'),
+      '---\nid: L\n---\n# Plan\n\n- [ ] ship the gateway by Friday\n> quoted promise\n',
+    );
+    vault.indexer.update();
+    const content = readFileSync(join(root, 'notes', 'list.md'), 'utf8');
+    const line = '- [ ] ship the gateway by Friday';
+    const from = content.indexOf(line);
+    const res = await create({
+      kind: 'commitment',
+      statement: 'ship the gateway',
+      excerpt: line,
+      sourcePath: 'notes/list.md',
+      sourceLine: 6,
+      sourceFrom: from,
+      sourceTo: from + line.length,
+    });
+    expect(res.status).toBe(201);
+    const after = readFileSync(join(root, 'notes', 'list.md'), 'utf8');
+    expect(after).toMatch(
+      /^- \[ \] <!-- cb-track:[0-9A-Z]+:commitment -->ship the gateway by Friday<!-- \/cb-track:[0-9A-Z]+ -->$/m,
+    );
+    // the task is still a task for the indexer
+    const tasks = vault.indexer.db
+      .prepare('SELECT text FROM tasks WHERE path = ?')
+      .all('notes/list.md') as { text: string }[];
+    expect(tasks.map((t) => t.text)).toEqual(['ship the gateway by Friday']);
+    const [item] = await list();
+    expect(item?.currentExcerpt).toBe('ship the gateway by Friday');
+    // a selection of only the syntax is refused
+    const bad = await create({
+      kind: 'risk',
+      statement: 'x',
+      excerpt: '- [ ] ',
+      sourcePath: 'notes/list.md',
+      sourceLine: 6,
+      sourceFrom: from,
+      sourceTo: from + 6,
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it('follows a renamed source through the anchor index and reports edits without re-reading', async () => {
+    const excerpt = 'See [[Beta]].';
+    const before = readFileSync(join(root, 'notes', 'a.md'), 'utf8');
+    const from = before.indexOf(excerpt);
+    await create({
+      kind: 'decision',
+      statement: 'Beta it is',
+      excerpt,
+      sourcePath: 'notes/a.md',
+      sourceLine: 6,
+      sourceFrom: from,
+      sourceTo: from + excerpt.length,
+    });
+    expect((await list())[0]).toMatchObject({ sourcePath: 'notes/a.md', sourceState: 'unchanged' });
+
+    // rename the source note: the recorded path is stale, the anchor is not
+    vault.move('notes/a.md', 'notes/alpha-renamed.md');
+    expect((await list())[0]).toMatchObject({
+      sourcePath: 'notes/alpha-renamed.md',
+      sourceState: 'unchanged',
+      currentLine: 6,
+    });
+
+    // edit the evidence in place → edited; delete it → removed
+    const p = join(root, 'notes', 'alpha-renamed.md');
+    writeFileSync(p, readFileSync(p, 'utf8').replace('See [[Beta]].', 'See [[Beta]] soon.'));
+    vault.indexer.updatePaths(['notes/alpha-renamed.md']);
+    expect((await list())[0]).toMatchObject({
+      sourceState: 'edited',
+      currentExcerpt: 'See [[Beta]] soon.',
+    });
+    writeFileSync(p, readFileSync(p, 'utf8').replace('See [[Beta]] soon.', ''));
+    vault.indexer.updatePaths(['notes/alpha-renamed.md']);
+    expect((await list())[0]?.sourceState).toBe('removed');
+  });
+});
