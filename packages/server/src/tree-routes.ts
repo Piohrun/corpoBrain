@@ -523,6 +523,44 @@ export function treeRoutes(v: VaultService): Hono {
   });
 
   /**
+   * Rename a note: new title in the frontmatter, the file renamed to match
+   * when it was named after the old title, and the old title kept as an
+   * alias so every [[old title]] link in the vault still resolves.
+   */
+  app.post('/rename', async (c) => {
+    const body = (await c.req.json()) as { path?: string; title?: string };
+    const title = body.title?.trim();
+    if (!body.path) throw new HttpError(400, 'path required');
+    if (!title) throw new HttpError(400, 'title required');
+    if (/[\\/:*?"<>|]/.test(title))
+      throw new HttpError(400, 'title cannot contain \\ / : * ? " < > |');
+    const { path, content } = v.read(body.path);
+    const fm = parseFrontmatter(content);
+    if (fm.error) throw new HttpError(409, `frontmatter cannot be parsed (${fm.error})`);
+    const oldTitle =
+      (typeof fm.data.title === 'string' ? fm.data.title : null) ??
+      (path.split('/').pop() as string).replace(/\.md$/, '');
+    if (oldTitle === title) return c.json({ ok: true, path, title });
+    const folder = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    const base = (path.split('/').pop() as string).replace(/\.md$/, '');
+    // move the file only when it was named after the title (people/anna.md stays)
+    const target = base === oldTitle ? `${folder ? `${folder}/` : ''}${title}.md` : path;
+    if (target !== path && v.list().some((n) => n.path === target))
+      throw new HttpError(409, `a note already exists at ${target}`);
+    v.patchNote(path, (text) => {
+      let next = setFrontmatterKey(text, 'title', title);
+      const aliases = Array.isArray(fm.data.aliases)
+        ? fm.data.aliases.filter((a): a is string => typeof a === 'string')
+        : [];
+      if (!aliases.some((a) => a.toLowerCase() === oldTitle.toLowerCase()))
+        next = setFrontmatterKey(next, 'aliases', [...aliases, oldTitle]);
+      return next;
+    });
+    if (target !== path) v.move(path, target);
+    return c.json({ ok: true, path: target, title });
+  });
+
+  /**
    * Place a note at a position: under a parent note (nesting) or as a root of
    * a folder group (optionally moving the file into that folder), at `index`
    * among its new siblings. Siblings are renumbered (order = 10, 20, …) so the

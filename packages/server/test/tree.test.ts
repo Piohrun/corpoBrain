@@ -116,6 +116,46 @@ describe('PUT /api/tree/meta', () => {
     expect((await put({ path: 'notes/loose.md', parent: 'No Such Note' })).status).toBe(404);
   });
 
+  it('renames: title, file name when it matched, and the old title as an alias', async () => {
+    writeFileSync(join(root, 'notes', 'Old name.md'), '---\ntitle: Old name\n---\n# Old name\n');
+    writeFileSync(join(root, 'notes', 'linker.md'), 'see [[Old name]]\n');
+    vault.indexer.update();
+    const res = await app.request('/api/tree/rename', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/Old name.md', title: 'New name' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown).toEqual({
+      ok: true,
+      path: 'notes/New name.md',
+      title: 'New name',
+    });
+    const text = readFileSync(join(root, 'notes', 'New name.md'), 'utf8');
+    expect(text).toContain('title: New name');
+    expect(text).toContain('- Old name');
+    // the link written against the old title still resolves
+    const link = vault.indexer.db
+      .prepare('SELECT dst_path FROM links WHERE src_path = ?')
+      .get('notes/linker.md') as { dst_path: string | null };
+    expect(link.dst_path).toBe('notes/New name.md');
+    // a file not named after its title keeps its name
+    writeFileSync(join(root, 'notes', 'slug.md'), '---\ntitle: Pretty\n---\n');
+    vault.indexer.update();
+    const keep = await app.request('/api/tree/rename', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/slug.md', title: 'Prettier' }),
+    });
+    expect(((await keep.json()) as { path: string }).path).toBe('notes/slug.md');
+    expect(
+      (
+        await app.request('/api/tree/rename', {
+          method: 'POST',
+          body: JSON.stringify({ path: 'notes/slug.md', title: 'a/b' }),
+        })
+      ).status,
+    ).toBe(400);
+  });
+
   it('sets order', async () => {
     await put({ path: 'notes/gateway.md', order: 0 });
     const children = buildTree(vault)

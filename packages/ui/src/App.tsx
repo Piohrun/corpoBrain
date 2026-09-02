@@ -73,6 +73,51 @@ function locationHash(view: string, path: string | null): string {
   return path ? noteHash(path) : `${window.location.pathname}${window.location.search}`;
 }
 
+/** The note title in the header: click to rename, Enter saves, Esc cancels. */
+function RenameableTitle({
+  title,
+  onRename,
+}: {
+  title: string;
+  onRename: (title: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(title);
+  if (!editing)
+    return (
+      <button
+        type="button"
+        className="title title-edit"
+        title="Click to rename"
+        onClick={() => {
+          setValue(title);
+          setEditing(true);
+        }}
+      >
+        {title}
+      </button>
+    );
+  return (
+    <input
+      className="title-input"
+      value={value}
+      // biome-ignore lint/a11y/noAutofocus: the field appears on an explicit click
+      autoFocus
+      aria-label="Note title"
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => setEditing(false)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') setEditing(false);
+        else if (e.key === 'Enter') {
+          e.preventDefault();
+          setEditing(false);
+          if (value.trim() && value.trim() !== title) onRename(value.trim());
+        }
+      }}
+    />
+  );
+}
+
 /** Does the sidebar (note list, tags, tree) need refetching after this save? */
 function listsAffected(prev: NoteResponse, fresh: NoteResponse): boolean {
   const meta = (n: NoteResponse) =>
@@ -992,7 +1037,30 @@ function AppShell() {
                   >
                     →
                   </button>
-                  <span className="title">{note.meta?.title ?? note.path}</span>
+                  <RenameableTitle
+                    key={note.path}
+                    title={note.meta?.title ?? note.path.replace(/^.*\//, '').replace(/\.md$/, '')}
+                    onRename={(title) =>
+                      treeApi
+                        .rename(note.path, title)
+                        .then((r) => {
+                          refreshLists();
+                          if (r.path !== note.path) openPath(r.path, 'replace');
+                          else
+                            api
+                              .note(note.path)
+                              .then((fresh) =>
+                                setNote((prev) =>
+                                  prev && prev.path === fresh.path
+                                    ? { ...fresh, content: prev.content }
+                                    : prev,
+                                ),
+                              )
+                              .catch(() => {});
+                        })
+                        .catch((e: Error) => dlg.alert(`Rename failed: ${e.message}`))
+                    }
+                  />
                   <span>{note.path}</span>
                   <span className="spacer" />
                   <button
