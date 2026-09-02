@@ -21,6 +21,7 @@ import { RightPanel } from './components/RightPanel.tsx';
 import { SettingsPage } from './components/SettingsPage.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
+import { TrackedPage } from './components/TrackedPage.tsx';
 import { useVaultEvents } from './hooks.ts';
 
 function hashPath(): string {
@@ -49,6 +50,7 @@ export function App() {
     | 'availability'
     | 'digest'
     | 'tasks'
+    | 'tracked'
     | 'objects'
     | 'jira'
     | 'private'
@@ -218,6 +220,31 @@ export function App() {
     [openPath],
   );
 
+  // Pages that edit notes while the editor is unmounted must refresh the
+  // selected note, otherwise returning to Notes remounts its stale snapshot.
+  const refreshOpenNote = useCallback(
+    (path: string) => {
+      if (noteRef.current?.path === path) openPath(path);
+    },
+    [openPath],
+  );
+
+  const trackedCreated = useCallback(
+    (_recordPath: string, sourcePath: string, sourceContent: string) => {
+      refreshLists();
+      setNote((prev) => (prev?.path === sourcePath ? { ...prev, content: sourceContent } : prev));
+      api
+        .note(sourcePath)
+        .then((fresh) =>
+          setNote((prev) =>
+            prev?.path === sourcePath ? { ...fresh, content: prev.content } : prev,
+          ),
+        )
+        .catch(() => {});
+    },
+    [refreshLists],
+  );
+
   return (
     <div className="app">
       <nav className="rail">
@@ -271,6 +298,14 @@ export function App() {
         </button>
         <button
           type="button"
+          className={view === 'tracked' ? 'active' : ''}
+          onClick={() => setView('tracked')}
+          title="Tracked: commitments, decisions, risks and assumptions"
+        >
+          ◎
+        </button>
+        <button
+          type="button"
           className={view === 'objects' ? 'active' : ''}
           onClick={() => setView('objects')}
           title="Objects"
@@ -311,7 +346,9 @@ export function App() {
       ) : view === 'digest' ? (
         <DigestPage onOpenNote={openFromPlanning} />
       ) : view === 'tasks' ? (
-        <TasksPage onOpenNote={openFromPlanning} />
+        <TasksPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
+      ) : view === 'tracked' ? (
+        <TrackedPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
       ) : view === 'objects' ? (
         <ObjectsPage onOpenNote={openFromPlanning} />
       ) : view === 'jira' ? (
@@ -402,6 +439,8 @@ export function App() {
                     if (noteRef.current?.path === p) setSaveState(st);
                   }}
                   onSaved={onSaved}
+                  onTrackedCreated={trackedCreated}
+                  onShowTracked={() => setView('tracked')}
                   discardRef={discardRef}
                 />
                 {note.tags.length > 0 && (

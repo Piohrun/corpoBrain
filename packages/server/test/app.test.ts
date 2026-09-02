@@ -209,6 +209,145 @@ describe('objects and tasks', () => {
     expect(bad.status).toBe(409);
   });
 
+  it('tracks selected note text as an evidence-linked object', async () => {
+    const excerpt = 'See [[Beta]].';
+    const sourceBefore = readFileSync(join(root, 'notes', 'a.md'), 'utf8');
+    const sourceFrom = sourceBefore.indexOf(excerpt);
+    const created = await app.request('/api/tracked', {
+      method: 'POST',
+      body: JSON.stringify({
+        kind: 'commitment',
+        statement: 'Send the rollout answer to Zoe',
+        excerpt,
+        sourcePath: 'notes/a.md',
+        sourceLine: 6,
+        sourceFrom,
+        sourceTo: sourceFrom + excerpt.length,
+        owner: 'Greg',
+        date: '2026-09-08',
+      }),
+    });
+    expect(created.status).toBe(201);
+    const result = (await created.json()) as { path: string; trackId: string };
+    expect(result.path).toMatch(/^tracked\/commitment-send-the-rollout-answer-to-zoe-/);
+
+    const text = readFileSync(join(root, result.path), 'utf8');
+    expect(text).toContain('type: commitment');
+    expect(text).toContain('status: open');
+    expect(text).toContain('track_id:');
+    expect(text).toContain('source: "[[notes/a]]"');
+    expect(text).toContain('due: "2026-09-08"');
+
+    const sourceAfter = readFileSync(join(root, 'notes', 'a.md'), 'utf8');
+    expect(sourceAfter).toMatch(/<!-- cb-track:[0-9A-Z]+:commitment -->See \[\[Beta\]\]\./);
+    expect(sourceAfter).toMatch(/<!-- \/cb-track:[0-9A-Z]+ -->/);
+
+    const listed = (await (await app.request('/api/tracked')).json()) as {
+      path: string;
+      kind: string;
+      owner: string;
+      sourceTitle: string;
+      sourceState: string;
+      currentExcerpt: string;
+    }[];
+    expect(listed).toMatchObject([
+      {
+        path: result.path,
+        kind: 'commitment',
+        owner: 'Greg',
+        sourceTitle: 'Alpha',
+        sourceState: 'unchanged',
+        currentExcerpt: excerpt,
+      },
+    ]);
+
+    const source = (await (await app.request('/api/note?path=notes/a.md')).json()) as {
+      backlinks: { srcPath: string }[];
+    };
+    expect(source.backlinks).toContainEqual(expect.objectContaining({ srcPath: result.path }));
+
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'notes/a.md',
+        content: sourceAfter.replace(excerpt, 'See [[Beta]] after the rollout.'),
+      }),
+    });
+    const edited = (await (await app.request('/api/tracked')).json()) as {
+      sourceState: string;
+      currentExcerpt: string;
+    }[];
+    expect(edited[0]).toMatchObject({
+      sourceState: 'edited',
+      currentExcerpt: 'See [[Beta]] after the rollout.',
+    });
+
+    const editedSource = readFileSync(join(root, 'notes', 'a.md'), 'utf8');
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'notes/a.md',
+        content: editedSource.replace('See [[Beta]] after the rollout.', ''),
+      }),
+    });
+    const removed = (await (await app.request('/api/tracked')).json()) as {
+      sourceState: string;
+      currentExcerpt: string;
+    }[];
+    expect(removed[0]).toMatchObject({ sourceState: 'removed', currentExcerpt: '' });
+
+    const emptySource = readFileSync(join(root, 'notes', 'a.md'), 'utf8');
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'notes/a.md',
+        content: emptySource
+          .replace(`<!-- cb-track:${result.trackId}:commitment -->`, '')
+          .replace(`<!-- /cb-track:${result.trackId} -->`, ''),
+      }),
+    });
+    const missing = (await (await app.request('/api/tracked')).json()) as {
+      sourceState: string;
+    }[];
+    expect(missing[0]?.sourceState).toBe('missing');
+  });
+
+  it('can attach a change trace to a legacy tracked item', async () => {
+    await app.request('/api/note', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'tracked/legacy.md', title: 'Legacy', type: 'risk' }),
+    });
+    await app.request('/api/note', {
+      method: 'PUT',
+      body: JSON.stringify({
+        path: 'tracked/legacy.md',
+        content:
+          '---\ntype: risk\ntitle: Legacy\nstatus: open\nsource_path: notes/a.md\nsource_line: 8\nexcerpt: todo\n---\n\n# Legacy\n',
+      }),
+    });
+    const before = (await (await app.request('/api/tracked')).json()) as {
+      path: string;
+      sourceState: string;
+    }[];
+    expect(before.find((item) => item.path === 'tracked/legacy.md')?.sourceState).toBe(
+      'unanchored',
+    );
+
+    const anchored = await app.request('/api/tracked/anchor', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'tracked/legacy.md' }),
+    });
+    expect(anchored.status).toBe(200);
+    expect(readFileSync(join(root, 'notes', 'a.md'), 'utf8')).toMatch(
+      /<!-- cb-track:[0-9A-Z]+:risk -->todo<!-- \/cb-track:[0-9A-Z]+ -->/,
+    );
+    const after = (await (await app.request('/api/tracked')).json()) as {
+      path: string;
+      sourceState: string;
+    }[];
+    expect(after.find((item) => item.path === 'tracked/legacy.md')?.sourceState).toBe('unchanged');
+  });
+
   it('creates a typed note from its template', async () => {
     await app.request('/api/note', {
       method: 'PUT',

@@ -32,7 +32,13 @@ function groupTasks(items: TaskItem[]): [string, TaskItem[]][] {
   ).filter(([, list]) => list.length > 0);
 }
 
-export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+export function TasksPage({
+  onOpenNote,
+  onNoteChanged,
+}: {
+  onOpenNote: (path: string) => void;
+  onNoteChanged: (path: string) => void;
+}) {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [showDone, setShowDone] = useState(false);
   const [newText, setNewText] = useState('');
@@ -55,18 +61,20 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
     api
       .daily()
       .then((d) => api.note(d.path))
-      .then((note) => {
+      .then(async (note) => {
         const sep = note.content.endsWith('\n') ? '' : '\n';
-        return api.save(note.path, `${note.content}${sep}${line}\n`);
+        await api.save(note.path, `${note.content}${sep}${line}\n`);
+        return note.path;
       })
-      .then(() => {
+      .then((path) => {
+        onNoteChanged(path);
         setNewText('');
         setNewDue('');
         setError(null);
         refresh();
       })
       .catch((e: Error) => setError(e.message));
-  }, [newText, newDue, newKind, refresh]);
+  }, [newText, newDue, newKind, onNoteChanged, refresh]);
 
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
@@ -76,6 +84,7 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
       api
         .toggleTask(t.path, t.line)
         .then(() => {
+          onNoteChanged(t.path);
           setError(null);
           refresh();
         })
@@ -85,7 +94,7 @@ export function TasksPage({ onOpenNote }: { onOpenNote: (path: string) => void }
           refresh();
         });
     },
-    [refresh],
+    [onNoteChanged, refresh],
   );
 
   const columns = useMemo(() => {

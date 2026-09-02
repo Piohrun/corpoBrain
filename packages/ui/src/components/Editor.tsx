@@ -2,11 +2,52 @@ import { Annotation, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { api, privateApi } from '../api.ts';
+import { api, privateApi, type TrackKind, trackedApi } from '../api.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
 import { encryptTableCells, findTables, pendingCells, splitCells } from '../editor/tables.ts';
 import { useDebouncedCallback } from '../hooks.ts';
+import { TrackDialog, type TrackDialogValue } from './TrackDialog.tsx';
+
+interface TrackSelection {
+  excerpt: string;
+  from: number;
+  to: number;
+  line: number;
+  left: number;
+  top: number;
+}
+
+const TRACK_RANGE =
+  /<!--\s*cb-track:([0-9A-Z]+):(commitment|decision|risk|assumption)\s*-->[\s\S]*?<!--\s*\/cb-track:\1\s*-->/gi;
+
+function selectedEvidence(view: EditorView): TrackSelection | null {
+  const selection = view.state.selection.main;
+  if (selection.empty) return null;
+  const raw = view.state.doc.sliceString(selection.from, selection.to);
+  const excerpt = raw.trim();
+  if (!excerpt || excerpt.length > 4_000) return null;
+  const leading = raw.length - raw.trimStart().length;
+  const trailing = raw.length - raw.trimEnd().length;
+  const from = selection.from + leading;
+  const to = selection.to - trailing;
+  const documentText = view.state.doc.toString();
+  TRACK_RANGE.lastIndex = 0;
+  for (let match = TRACK_RANGE.exec(documentText); match; match = TRACK_RANGE.exec(documentText)) {
+    if (from < match.index + match[0].length && to > match.index) return null;
+  }
+  const start = view.coordsAtPos(from);
+  const end = view.coordsAtPos(to);
+  if (!start || !end) return null;
+  return {
+    excerpt,
+    from,
+    to,
+    line: view.state.doc.lineAt(from).number,
+    left: Math.max(76, Math.min(window.innerWidth - 76, (start.left + end.right) / 2)),
+    top: Math.max(8, Math.min(start.top, end.top) - 42),
+  };
+}
 
 interface Props {
   path: string;
@@ -20,6 +61,8 @@ interface Props {
   /** save progress for `path` — the app ignores reports for a note that is no longer open */
   onSaveState: (path: string, state: 'saved' | 'saving' | 'error') => void;
   onSaved: () => void;
+  onTrackedCreated: (recordPath: string, sourcePath: string, sourceContent: string) => void;
+  onShowTracked: () => void;
   /**
    * Set to true right before unmounting when the note is being deleted:
    * a pending debounced save is dropped instead of flushed, so the file
@@ -40,9 +83,17 @@ export function Editor({
   onSnapshot,
   onSaveState,
   onSaved,
+  onTrackedCreated,
+  onShowTracked,
   discardRef,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  const [trackSelection, setTrackSelection] = useState<TrackSelection | null>(null);
+  const [trackDialogOpen, setTrackDialogOpen] = useState(false);
+  const [trackSaving, setTrackSaving] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
+  const [trackConfirmation, setTrackConfirmation] = useState<TrackKind | null>(null);
+  const trackToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** revealed inline secrets: cipher → plaintext (memory only, self-expiring) */
   const revealed = useRef(new Map<string, string>());
   const [passRequest, setPassRequest] = useState<{
@@ -327,6 +378,81 @@ export function Editor({
     void autoEncryptPending();
   }, 1200);
 
+  useEffect(
+    () => () => {
+      if (trackToastTimer.current) clearTimeout(trackToastTimer.current);
+    },
+    [],
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: changing notes clears transient selection UI
+  useEffect(() => {
+    setTrackSelection(null);
+    setTrackDialogOpen(false);
+    setTrackError(null);
+  }, [path]);
+
+  const submitTracked = async (value: TrackDialogValue) => {
+    const evidence = trackSelection;
+    const view = viewRef.current;
+    if (!evidence || !view) return;
+    setTrackSaving(true);
+    setTrackError(null);
+
+    // The tracked object must point at the exact version the user selected.
+    // Cancel the pending debounce and persist that version before creating it.
+    cancelSave();
+    latest.current.onSaveState(path, 'saving');
+    try {
+      await api.save(path, view.state.doc.toString());
+      latest.current.onSaveState(path, 'saved');
+      latest.current.onSaved();
+    } catch (e) {
+      latest.current.onSaveState(path, 'error');
+      setTrackError(e instanceof Error ? `Could not save the source: ${e.message}` : 'Save failed');
+      setTrackSaving(false);
+      return;
+    }
+
+    try {
+      const created = await trackedApi.create({
+        kind: value.kind,
+        statement: value.statement,
+        excerpt: evidence.excerpt,
+        sourcePath: path,
+        sourceLine: evidence.line,
+        sourceFrom: evidence.from,
+        sourceTo: evidence.to,
+        ...(value.owner ? { owner: value.owner } : {}),
+        ...(value.date ? { date: value.date } : {}),
+      });
+      if (!stillOpen(view)) return;
+      const closing = `<!-- /cb-track:${created.trackId} -->`;
+      const closingAt = created.sourceContent.indexOf(closing);
+      const head =
+        closingAt >= 0
+          ? closingAt + closing.length
+          : Math.min(evidence.to, created.sourceContent.length);
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: created.sourceContent },
+        selection: { anchor: head },
+        annotations: externalChange.of(true),
+      });
+      latest.current.onSnapshot(path, created.sourceContent);
+      onTrackedCreated(created.path, path, created.sourceContent);
+      setTrackDialogOpen(false);
+      setTrackSelection(null);
+      setTrackConfirmation(value.kind);
+      if (trackToastTimer.current) clearTimeout(trackToastTimer.current);
+      trackToastTimer.current = setTimeout(() => setTrackConfirmation(null), 4_000);
+      view.focus();
+    } catch (e) {
+      setTrackError(e instanceof Error ? e.message : 'Could not create tracked item');
+    } finally {
+      setTrackSaving(false);
+    }
+  };
+
   // (Re)create the editor whenever the note path changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: recreate only on path change; content is the initial doc, callbacks go through latest ref
   useEffect(() => {
@@ -345,6 +471,9 @@ export function Editor({
           completions: () => latest.current.completions(),
         }),
         EditorView.updateListener.of((u) => {
+          if (u.selectionSet || u.docChanged || u.viewportChanged) {
+            setTrackSelection(selectedEvidence(u.view));
+          }
           if (!u.docChanged) return;
           // content pushed in from the vault watcher is already on disk;
           // echoing it back would overwrite a newer external edit
@@ -395,6 +524,50 @@ export function Editor({
   return (
     <>
       <div className="editor-host" ref={host} />
+      {trackSelection && !trackDialogOpen && (
+        <button
+          type="button"
+          className="track-selection-button"
+          style={{ left: trackSelection.left, top: trackSelection.top }}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => {
+            setTrackError(null);
+            setTrackDialogOpen(true);
+          }}
+        >
+          ＋ Track as…
+        </button>
+      )}
+      {trackDialogOpen && trackSelection && (
+        <TrackDialog
+          excerpt={trackSelection.excerpt}
+          sourcePath={path}
+          sourceLine={trackSelection.line}
+          saving={trackSaving}
+          error={trackError}
+          onClose={() => {
+            if (!trackSaving) {
+              setTrackDialogOpen(false);
+              setTrackError(null);
+            }
+          }}
+          onSubmit={(value) => void submitTracked(value)}
+        />
+      )}
+      {trackConfirmation && (
+        <div className="track-toast" role="status">
+          <span>✓ Tracked as {trackConfirmation}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setTrackConfirmation(null);
+              onShowTracked();
+            }}
+          >
+            View tracked
+          </button>
+        </div>
+      )}
       {passRequest && (
         // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click cancels; Escape handled on the input
         <div

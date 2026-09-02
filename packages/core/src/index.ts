@@ -114,7 +114,7 @@ export { convertEffort, issueRiskFlags } from './planning.ts';
 export type { ProjectDef, ProjectIssue, ProjectRollup } from './projects.ts';
 export { addWorkingDays, projectOf, rollupProject, workingDaysBetween } from './projects.ts';
 export type { HeadingRef, LinkKind, LinkRef, ScanOptions, ScanResult, TaskRef } from './scan.ts';
-export { maskInlineCode, scanMarkdown } from './scan.ts';
+export { maskInlineCode, scanMarkdown, stripTrackMarkers } from './scan.ts';
 export { generateUlid } from './ulid.ts';
 export type { VaultFile } from './vault.ts';
 export { matchesGlob, toPosix, walkVault, writeFileAtomic } from './vault.ts';

@@ -65,6 +65,12 @@ const TASK_J_ALT = /^\s*[-*+] \[([jJ])\] (.*)$/;
 const BLOCK_ID = /\s\^([A-Za-z0-9-]+)\s*$/;
 const HEADING = /^(#{1,6}) (.*)$/;
 const DUE = /📅\s*(\d{4}-\d{2}-\d{2})|@due\((\d{4}-\d{2}-\d{2})\)/;
+const TRACK_MARKER = /<!--\s*\/?cb-track:[^>]*-->/gi;
+
+/** Remove corpoBrain's invisible tracking anchors from user-facing text. */
+export function stripTrackMarkers(text: string): string {
+  return text.replace(TRACK_MARKER, '');
+}
 
 /** Replace inline code spans with spaces of equal length so offsets hold. */
 export function maskInlineCode(line: string): string {
@@ -127,7 +133,9 @@ export function scanMarkdown(text: string, opts: ScanOptions = {}): ScanResult {
     if (heading) {
       result.headings.push({
         level: (heading[1] as string).length,
-        text: (heading[2] as string).replace(BLOCK_ID, '').trim(),
+        text: stripTrackMarkers(heading[2] as string)
+          .replace(BLOCK_ID, '')
+          .trim(),
         line: lineNo,
       });
     }
@@ -200,7 +208,11 @@ export function scanMarkdown(text: string, opts: ScanOptions = {}): ScanResult {
       const due = DUE.exec(rawText);
       result.tasks.push({
         line: lineNo,
-        text: rawText.replace(BLOCK_ID, '').replace(DUE, '').replace(/\s+/g, ' ').trim(),
+        text: stripTrackMarkers(rawText)
+          .replace(BLOCK_ID, '')
+          .replace(DUE, '')
+          .replace(/\s+/g, ' ')
+          .trim(),
         done: task ? task[2] !== ' ' : false,
         kind: task ? (task[1] ? 'jira' : 'task') : 'jira',
         blockId: blockId ? (blockId[1] as string) : null,

@@ -93,4 +93,15 @@ describe('jira task items', () => {
   it('does not treat other bracket letters as tasks', () => {
     expect(scanMarkdown('- k[ ] nope\n- [k] also nope\n').tasks).toEqual([]);
   });
+
+  it('keeps invisible tracking anchors out of task and heading text', () => {
+    const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    const open = `<!-- cb-track:${id}:commitment -->`;
+    const close = `<!-- /cb-track:${id} -->`;
+    const result = scanMarkdown(
+      `# ${open}Release decision${close}\n- [ ] ${open}Send update${close}\n`,
+    );
+    expect(result.headings).toMatchObject([{ text: 'Release decision' }]);
+    expect(result.tasks).toMatchObject([{ text: 'Send update' }]);
+  });
 });

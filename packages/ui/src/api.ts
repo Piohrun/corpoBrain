@@ -699,6 +699,60 @@ export const objectsApi = {
   list: (type: string) => req<ObjectRow[]>(`/api/objects/list?type=${encodeURIComponent(type)}`),
 };
 
+export type TrackKind = 'commitment' | 'decision' | 'risk' | 'assumption';
+export type TrackSourceState = 'unchanged' | 'edited' | 'removed' | 'missing' | 'unanchored';
+
+export interface TrackedItem {
+  path: string;
+  title: string;
+  kind: TrackKind;
+  mtime: number;
+  status: string;
+  owner: string | null;
+  due: string | null;
+  review: string | null;
+  created: string | null;
+  trackId: string | null;
+  sourcePath: string | null;
+  sourceTitle: string | null;
+  sourceLine: number | null;
+  currentLine: number | null;
+  sourceMtime: number | null;
+  sourceState: TrackSourceState;
+  excerpt: string;
+  currentExcerpt: string | null;
+}
+
+export interface CreateTrackedInput {
+  kind: TrackKind;
+  statement: string;
+  excerpt: string;
+  sourcePath: string;
+  sourceLine: number;
+  sourceFrom: number;
+  sourceTo: number;
+  owner?: string;
+  date?: string;
+}
+
+export const trackedApi = {
+  list: () => req<TrackedItem[]>('/api/tracked'),
+  create: (input: CreateTrackedInput) =>
+    req<{
+      path: string;
+      title: string;
+      kind: TrackKind;
+      status: string;
+      trackId: string;
+      sourceContent: string;
+    }>('/api/tracked', { method: 'POST', body: JSON.stringify(input) }),
+  anchor: (path: string) =>
+    req<{ sourcePath: string; sourceContent: string; trackId: string }>('/api/tracked/anchor', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
+};
+
 export interface PersonMention {
   srcPath: string;
   srcTitle: string;

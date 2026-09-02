@@ -46,6 +46,40 @@ const WIKILINK = /(!?)\[\[([^[\]|#]*)(#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
 const TAG = /(^|[\s(,;])#([A-Za-z0-9_/-]*[A-Za-z_/-][A-Za-z0-9_/-]*)/g;
 export const INLINE_SECRET = /`\u{1F512}([A-Za-z0-9+/=]{8,})`/gu;
 const CHECKBOX = /^(\s*[-*+] )([jJ]?)\[( |x|X)\] /;
+const TRACK_RANGE =
+  /<!--\s*cb-track:([0-9A-Z]+):(commitment|decision|risk|assumption)\s*-->([\s\S]*?)<!--\s*\/cb-track:\1\s*-->/gi;
+
+type TrackKind = 'commitment' | 'decision' | 'risk' | 'assumption';
+
+class TrackBadgeWidget extends WidgetType {
+  constructor(
+    readonly id: string,
+    readonly kind: TrackKind,
+  ) {
+    super();
+  }
+  override eq(other: TrackBadgeWidget) {
+    return other.id === this.id && other.kind === this.kind;
+  }
+  toDOM() {
+    const badge = document.createElement('span');
+    badge.className = `cm-cb-track-badge ${this.kind}`;
+    badge.textContent =
+      this.kind === 'commitment'
+        ? '✓'
+        : this.kind === 'decision'
+          ? '◆'
+          : this.kind === 'risk'
+            ? '▲'
+            : '≈';
+    badge.title = `Tracked ${this.kind}`;
+    badge.dataset.trackId = this.id;
+    return badge;
+  }
+  override ignoreEvent() {
+    return true;
+  }
+}
 
 class CheckboxWidget extends WidgetType {
   constructor(
@@ -426,6 +460,74 @@ const secretField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+function buildTrackDecorations(state: EditorState): DecorationSet {
+  const text = state.doc.toString();
+  const builder = new RangeSetBuilder<Decoration>();
+  TRACK_RANGE.lastIndex = 0;
+  for (let match = TRACK_RANGE.exec(text); match; match = TRACK_RANGE.exec(text)) {
+    const whole = match[0];
+    const id = match[1];
+    const kind = match[2] as TrackKind | undefined;
+    if (!whole || !id || !kind) continue;
+    const openTo = match.index + whole.indexOf('-->') + 3;
+    const closeFrom = match.index + whole.lastIndexOf('<!--');
+    const to = match.index + whole.length;
+    builder.add(
+      match.index,
+      openTo,
+      Decoration.replace({ widget: new TrackBadgeWidget(id, kind) }),
+    );
+    if (openTo < closeFrom) {
+      builder.add(
+        openTo,
+        closeFrom,
+        Decoration.mark({
+          class: `cm-cb-tracked ${kind}`,
+          attributes: { 'data-track-id': id },
+        }),
+      );
+    }
+    builder.add(closeFrom, to, Decoration.replace({}));
+  }
+  return builder.finish();
+}
+
+const trackField = StateField.define<DecorationSet>({
+  create: buildTrackDecorations,
+  update(value, transaction) {
+    return transaction.docChanged
+      ? buildTrackDecorations(transaction.state)
+      : value.map(transaction.changes);
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+function buildTrackAtomicRanges(state: EditorState): DecorationSet {
+  const text = state.doc.toString();
+  const builder = new RangeSetBuilder<Decoration>();
+  TRACK_RANGE.lastIndex = 0;
+  for (let match = TRACK_RANGE.exec(text); match; match = TRACK_RANGE.exec(text)) {
+    const whole = match[0];
+    if (!whole) continue;
+    const openTo = match.index + whole.indexOf('-->') + 3;
+    const closeFrom = match.index + whole.lastIndexOf('<!--');
+    const to = match.index + whole.length;
+    builder.add(match.index, openTo, Decoration.mark({}));
+    builder.add(closeFrom, to, Decoration.mark({}));
+  }
+  return builder.finish();
+}
+
+const trackAtomicField = StateField.define<DecorationSet>({
+  create: buildTrackAtomicRanges,
+  update(value, transaction) {
+    return transaction.docChanged
+      ? buildTrackAtomicRanges(transaction.state)
+      : value.map(transaction.changes);
+  },
+  provide: (field) => EditorView.atomicRanges.of((view) => view.state.field(field)),
+});
+
 const plugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet;
@@ -460,6 +562,8 @@ export function livePreview(config: LivePreviewConfig): Extension {
   return [
     livePreviewConfig.of(config),
     plugin,
+    trackField,
+    trackAtomicField,
     secretField,
     tablesField,
     // mousedown so the editor does not move the cursor first

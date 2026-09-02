@@ -10,6 +10,7 @@ import { personRoutes } from './person-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { privateRoutes } from './private-routes.ts';
 import { projectRoutes } from './project-routes.ts';
+import { trackedRoutes } from './tracked-routes.ts';
 import { treeRoutes } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -232,6 +233,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/private', privateRoutes(v).app);
   app.route('/api/tree', treeRoutes(v));
   app.route('/api/task', taskRoutes(v));
+  app.route('/api/tracked', trackedRoutes(v));
   app.route('/api/flow', flowRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.

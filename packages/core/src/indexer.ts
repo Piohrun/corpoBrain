@@ -6,7 +6,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { VaultConfig } from './config.ts';
 import { parseFrontmatter, setFrontmatterKey } from './frontmatter.ts';
 import { normalizeHistory } from './jira/render.ts';
-import { scanMarkdown } from './scan.ts';
+import { scanMarkdown, stripTrackMarkers } from './scan.ts';
 import { generateUlid } from './ulid.ts';
 import { type VaultFile, vaultFileInfo, walkVault, writeFileAtomic } from './vault.ts';
 
@@ -279,7 +279,7 @@ export class Indexer {
     // FTS over title + body (generated Jira region included on purpose)
     this.db
       .prepare('INSERT INTO notes_fts(path, title, body) VALUES (?, ?, ?)')
-      .run(f.path, title, text.slice(parsed.bodyOffset));
+      .run(f.path, title, stripTrackMarkers(text.slice(parsed.bodyOffset)));
 
     // body scan
     const scan = scanMarkdown(text, {

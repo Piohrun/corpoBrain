@@ -50,6 +50,25 @@ describe('inline secret tokens', () => {
   });
 });
 
+describe('tracked evidence decorations', () => {
+  const OPEN = '<!-- cb-track:01ARZ3NDEKTSV4RRFFQ69G5FAV:commitment -->';
+  const CLOSE = '<!-- /cb-track:01ARZ3NDEKTSV4RRFFQ69G5FAV -->';
+
+  it('constructs and updates around an anchored passage without changing Markdown', () => {
+    const doc = `Before ${OPEN}send the update${CLOSE} after`;
+    const state = stateWith(doc);
+    expect(state.doc.toString()).toBe(doc);
+    const from = doc.indexOf('send the update');
+    const tr = state.update({ changes: { from, to: from + 4, insert: 'share' } });
+    expect(tr.state.doc.toString()).toContain(`${OPEN}share the update${CLOSE}`);
+  });
+
+  it('keeps an empty anchored passage valid so removal can be traced', () => {
+    const state = stateWith(`${OPEN}${CLOSE}`);
+    expect(state.doc.toString()).toBe(`${OPEN}${CLOSE}`);
+  });
+});
+
 describe('table rendering field', () => {
   const TDOC =
     '# Team\n\n| Name | Pay |\n| :--- | ---: |\n| [[Anna]] | `🔒Q0JWMWFiY2RlZmdo` |\n| Bob | 100 |\n\nafter\n';
