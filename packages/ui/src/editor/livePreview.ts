@@ -8,9 +8,11 @@ import {
   type EditorState,
   type Extension,
   Facet,
+  type Line,
   RangeSetBuilder,
   StateEffect,
   StateField,
+  type Text,
 } from '@codemirror/state';
 import {
   Decoration,
@@ -227,10 +229,12 @@ function buildDecorations(view: EditorView): DecorationSet {
   }
 
   // Emit decorations line by line to keep RangeSetBuilder ordering valid.
-  for (const { from, to } of view.visibleRanges) {
-    let pos = from;
-    while (pos <= to) {
-      const line = doc.lineAt(pos);
+  // A line is processed once even when it shows up in several visible
+  // ranges: replaced content in the middle of a line (a hidden tracking
+  // marker) splits the visible ranges, and processing the line twice would
+  // add its inline decorations a second time, out of order.
+  for (const line of visibleLines(doc, view.visibleRanges)) {
+    {
       const ctx: LineCtx = {
         cursorTouches: cursor >= line.from && cursor <= line.to,
         inCodeBlock: codeLines.has(line.number),
@@ -279,11 +283,28 @@ function buildDecorations(view: EditorView): DecorationSet {
         builder.add(d.from, d.to, d.deco);
         if (d.to > last) last = d.to;
       }
+    }
+  }
+  return builder.finish();
+}
+
+/** Every document line touched by the given ranges, once each, in order. */
+export function visibleLines(doc: Text, ranges: readonly { from: number; to: number }[]): Line[] {
+  const out: Line[] = [];
+  let lastNumber = 0;
+  for (const { from, to } of ranges) {
+    let pos = from;
+    while (pos <= to) {
+      const line = doc.lineAt(pos);
+      if (line.number > lastNumber) {
+        out.push(line);
+        lastNumber = line.number;
+      }
       if (line.to + 1 > to) break;
       pos = line.to + 1;
     }
   }
-  return builder.finish();
+  return out;
 }
 
 export function collectInline(

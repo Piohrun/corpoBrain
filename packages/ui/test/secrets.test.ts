@@ -233,3 +233,28 @@ describe('table paste conversion', () => {
     expect(htmlTableToMarkdown('<table><tr><td>one</td></tr></table>')).toBeNull();
   });
 });
+
+describe('visibleLines', () => {
+  it('yields each line once even when hidden content splits it across visible ranges', async () => {
+    const { Text } = await import('@codemirror/state');
+    const { visibleLines } = await import('../src/editor/livePreview.ts');
+    const doc = Text.of([
+      '# Title',
+      '',
+      '<!-- cb-track:01ARZ3NDEKTSV4RRFFQ69G5FAV:commitment -->Meet [[Anna]] soon<!-- /cb-track:01ARZ3NDEKTSV4RRFFQ69G5FAV -->',
+      'after',
+    ]);
+    const line3 = doc.line(3);
+    // the way CodeMirror reports the viewport around two replaced markers on line 3
+    const ranges = [
+      { from: 0, to: line3.from },
+      { from: line3.from + 55, to: line3.from + 77 },
+      { from: line3.to, to: doc.length },
+    ];
+    const seen = visibleLines(doc, ranges).map((l) => l.number);
+    expect(seen).toEqual([1, 2, 3, 4]);
+    expect(visibleLines(doc, [{ from: 0, to: doc.length }]).map((l) => l.number)).toEqual([
+      1, 2, 3, 4,
+    ]);
+  });
+});
