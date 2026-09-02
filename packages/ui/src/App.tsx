@@ -223,7 +223,15 @@ function AppShell() {
     if (noteHistoryIndex.current < noteHistoryMax.current) window.history.forward();
   }, []);
 
-  /** Alt+↑/↓: open the note above/below the current one in the sidebar's visible order. */
+  /** Alt+↑/↓: the panel above/below in the left rail, from anywhere. */
+  const stepView = useCallback((dir: 1 | -1) => {
+    const order = VIEW_KEYS.map((v) => v.view);
+    const at = order.indexOf(viewRef.current);
+    const next = order[(at + dir + order.length) % order.length];
+    if (next) setView(next);
+  }, []);
+
+  /** Alt+Shift+↑/↓: open the note above/below the current one in the sidebar's visible order. */
   const openNeighbour = useCallback(
     (dir: 1 | -1) => {
       const rows = [
@@ -348,37 +356,57 @@ function AppShell() {
         id: 'back',
         keys: isMac ? 'Mod+[' : 'Alt+ArrowLeft',
         label: 'Back to the previous note',
-        scope: 'notes',
+        scope: 'global',
         inInputs: true,
         when: () => canGoBack,
-        run: () => goBack(),
+        run: () => {
+          setView('notes');
+          goBack();
+        },
       },
       {
         id: 'forward',
         keys: isMac ? 'Mod+]' : 'Alt+ArrowRight',
         label: 'Forward again',
-        scope: 'notes',
+        scope: 'global',
         inInputs: true,
         when: () => canGoForward,
-        run: () => goForward(),
+        run: () => {
+          setView('notes');
+          goForward();
+        },
+      },
+      {
+        id: 'prev-view',
+        keys: 'Alt+ArrowUp',
+        label: 'Previous panel in the left rail',
+        scope: 'global',
+        inInputs: true,
+        run: () => stepView(-1),
+      },
+      {
+        id: 'next-view',
+        keys: 'Alt+ArrowDown',
+        label: 'Next panel in the left rail',
+        scope: 'global',
+        inInputs: true,
+        run: () => stepView(1),
       },
       {
         id: 'prev-note',
-        keys: 'Alt+ArrowUp',
+        keys: 'Alt+Shift+ArrowUp',
         label: 'Open the note above in the sidebar',
         scope: 'notes',
         inInputs: true,
-        when: () => viewRef.current === 'notes',
-        run: () => openNeighbour(-1),
+        run: () => (viewRef.current === 'notes' ? openNeighbour(-1) : setView('notes')),
       },
       {
         id: 'next-note',
-        keys: 'Alt+ArrowDown',
+        keys: 'Alt+Shift+ArrowDown',
         label: 'Open the note below in the sidebar',
         scope: 'notes',
         inInputs: true,
-        when: () => viewRef.current === 'notes',
-        run: () => openNeighbour(1),
+        run: () => (viewRef.current === 'notes' ? openNeighbour(1) : setView('notes')),
       },
       {
         id: 'help',
@@ -423,13 +451,6 @@ function AppShell() {
         id: 'ed-next',
         keys: 'F3',
         label: 'Next match of the last find',
-        scope: 'editor',
-        passive: true,
-      },
-      {
-        id: 'ed-moveline',
-        keys: 'Alt+Shift+ArrowUp / ArrowDown',
-        label: 'Move the line up / down',
         scope: 'editor',
         passive: true,
       },
@@ -491,7 +512,17 @@ function AppShell() {
         passive: true,
       },
     ],
-    [finder, canGoBack, canGoForward, goBack, goForward, openNeighbour, openDaily, helpOpen],
+    [
+      finder,
+      canGoBack,
+      canGoForward,
+      goBack,
+      goForward,
+      openNeighbour,
+      stepView,
+      openDaily,
+      helpOpen,
+    ],
   );
   const shortcutsRef = useRef(shortcuts);
   shortcutsRef.current = shortcuts;
@@ -854,7 +885,7 @@ function AppShell() {
                     type="button"
                     className="note-back"
                     disabled={!canGoBack}
-                    title={`Back to previous note (${/Mac|iPhone|iPad|iPod/.test(navigator.platform) ? '⌘[' : 'Alt+←'})`}
+                    title={`Back to previous note (${isMac ? '⌘[' : 'Alt+←'})`}
                     aria-label="Back to previous note"
                     onClick={goBack}
                   >

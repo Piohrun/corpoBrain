@@ -8,14 +8,7 @@ import {
   completionKeymap,
   pickedCompletion,
 } from '@codemirror/autocomplete';
-import {
-  defaultKeymap,
-  history,
-  historyKeymap,
-  indentWithTab,
-  moveLineDown,
-  moveLineUp,
-} from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { findNext, findPrevious, highlightSelectionMatches } from '@codemirror/search';
@@ -137,7 +130,9 @@ export function editorExtensions(cfg: EditorConfig): Extension {
         },
       },
       ...closeBracketsKeymap,
-      ...defaultKeymap,
+      // Alt+↑/↓ (panels) and Alt+Shift+↑/↓ (notes) are app-wide keys: the
+      // editor's move/copy-line bindings on them are dropped, not shadowed
+      ...defaultKeymap.filter((b) => !/^(Shift-)?Alt-Arrow(Up|Down)$/.test(b.key ?? '')),
       ...historyKeymap,
       // Mod-F belongs to the Finder; F3 / Mod-G walk the current query
       {
@@ -148,9 +143,6 @@ export function editorExtensions(cfg: EditorConfig): Extension {
         },
       },
       { key: 'F3', run: findNext, shift: findPrevious, preventDefault: true },
-      // Alt+↑/↓ belong to the app (previous/next note); line moves shift over
-      { key: 'Alt-Shift-ArrowUp', run: moveLineUp, preventDefault: true },
-      { key: 'Alt-Shift-ArrowDown', run: moveLineDown, preventDefault: true },
       { key: 'Mod-g', run: findNext, shift: findPrevious, preventDefault: true },
       ...completionKeymap,
       indentWithTab,

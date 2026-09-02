@@ -74,11 +74,11 @@ export function matchesChord(e: KeyboardEvent, chord: string): boolean {
   };
   const mod = isMac ? e.metaKey : e.ctrlKey;
   if (mod !== want.mod || e.altKey !== want.alt) return false;
-  // Shift is significant for letters; for symbols like '?' it is part of the key itself
-  if (key.length === 1 && /[a-z]/i.test(key)) {
-    if (e.shiftKey !== want.shift) return false;
-    return e.key.toLowerCase() === key.toLowerCase();
-  }
+  // Shift is part of the key itself only for typed symbols like '?' or '/';
+  // for letters and named keys (ArrowDown, F3, Escape) it is a modifier
+  const symbol = key.length === 1 && !/[a-z0-9]/i.test(key);
+  if (!symbol && e.shiftKey !== want.shift) return false;
+  if (key.length === 1) return e.key.toLowerCase() === key.toLowerCase();
   return e.key === key || e.key === key.replace('Arrow', '');
 }
 
