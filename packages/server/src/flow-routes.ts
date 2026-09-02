@@ -34,7 +34,7 @@ interface IssueFlow {
   assigneeName: string | null;
   sprint: string;
   created: string | null;
-  bands: StatusBand[];
+  bands: (StatusBand & { category: StatusCategory | null })[];
   times: FlowTimes;
 }
 
@@ -129,7 +129,7 @@ function issueFlows(v: VaultService, board: BoardModel, now: Date): IssueFlow[] 
       assigneeName: nameOf(i.effectiveAssignee),
       sprint: i.effectiveSprint,
       created: created.get(i.key) ?? null,
-      bands,
+      bands: bands.map((b) => ({ ...b, category: categoryOf(b.status) })),
       times: flowTimes(bands, categoryOf, now),
     };
   });
@@ -181,9 +181,13 @@ export function flowRoutes(v: VaultService): Hono {
     );
     const cycles = recent.map((f) => f.times.cycleDays).filter((x): x is number => x !== null);
     const leads = recent.map((f) => f.times.leadDays).filter((x): x is number => x !== null);
+    // where the time goes: statuses on the way to done; time *in* a done
+    // status is just the age of the record and would dominate the chart
+    const categoryOf = categoryLookup(v);
     const perStatus: Record<string, { days: number; n: number }> = {};
     for (const f of recent) {
       for (const [status, days] of Object.entries(f.times.perStatus)) {
+        if (categoryOf(status) === 'done') continue;
         const cur = perStatus[status] ?? { days: 0, n: 0 };
         cur.days += days;
         cur.n++;

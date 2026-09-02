@@ -11,6 +11,7 @@ import { useJiraSync, useVaultEvents } from '../hooks.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { BandwidthGrid } from './BandwidthGrid.tsx';
 import { ChangesPanel } from './ChangesPanel.tsx';
+import { FlowPanel } from './FlowPanel.tsx';
 import type { GroupBy } from './planningShared.ts';
 import { SprintHealth } from './SprintHealth.tsx';
 import { SprintTable } from './SprintTable.tsx';
@@ -33,9 +34,9 @@ export function PlanningPage({ onOpenNote }: Props) {
     () => lsGet('cb.plan.groupBy', 'region') as GroupBy,
   );
   const [horizon, setHorizon] = useState<number>(() => Number(lsGet('cb.plan.horizon', '3')));
-  const [bottom, setBottom] = useState<'health' | 'issues'>(() => {
+  const [bottom, setBottom] = useState<'health' | 'issues' | 'flow'>(() => {
     const stored = lsGet('cb.plan.bottom', 'health');
-    return stored === 'issues' ? 'issues' : 'health'; // 'availability' moved to its own page
+    return stored === 'issues' || stored === 'flow' ? stored : 'health'; // 'availability' moved to its own page
   });
   const [healthSprint, setHealthSprint] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -255,13 +256,34 @@ export function PlanningPage({ onOpenNote }: Props) {
           </button>
           <button
             type="button"
+            className={`tab${bottom === 'flow' ? ' active' : ''}`}
+            onClick={() => setBottom('flow')}
+            title="Cycle time, aging work and scope churn from the Jira changelog"
+          >
+            ⏱ Flow
+          </button>
+          <button
+            type="button"
             className={`tab${bottom === 'issues' ? ' active' : ''}`}
             onClick={() => setBottom('issues')}
           >
             ☰ All issues ({issues.length})
           </button>
         </div>
-        {bottom === 'health' ? (
+        {bottom === 'flow' ? (
+          <FlowPanel
+            sprints={board.sprints.map((s) => s.name)}
+            sprint={
+              healthSprint ||
+              (board.sprints.find((s) => s.state === 'active')?.name ??
+                board.sprints[0]?.name ??
+                '')
+            }
+            onSprint={setHealthSprint}
+            onOpenNote={onOpenNote}
+            reloadKey={reloadKey}
+          />
+        ) : bottom === 'health' ? (
           <SprintHealth
             sprints={board.sprints.map((s) => s.name)}
             sprint={

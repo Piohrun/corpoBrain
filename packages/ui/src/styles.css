@@ -2604,3 +2604,94 @@ tr.wb-conflict td {
 .bw-cell.support-only .cap-edit {
   margin-top: 16px;
 }
+
+/* ---- flow panel ---- */
+.flow-h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 14px 0 6px;
+}
+.flow-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.flow-row {
+  display: grid;
+  grid-template-columns: 90px minmax(160px, 1.2fr) minmax(160px, 2fr) 120px minmax(140px, auto);
+  gap: 10px;
+  align-items: center;
+  font-size: 12.5px;
+  min-height: 22px;
+}
+.flow-key {
+  font-family: var(--mono, ui-monospace, monospace);
+  text-align: left;
+}
+.flow-sum {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flow-bar-wrap {
+  position: relative;
+  height: 12px;
+  background: color-mix(in srgb, var(--fg-muted) 10%, transparent);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.flow-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--st-progress);
+  border-radius: 3px;
+}
+.flow-bar.warn {
+  background: #d9a300;
+}
+.flow-bar.late {
+  background: var(--danger);
+}
+.flow-bar.status {
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.flow-mark {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  background: var(--fg-muted);
+  opacity: 0.7;
+  z-index: 1;
+}
+.flow-mark.p85 {
+  background: var(--danger);
+}
+.flow-strip {
+  display: flex;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  gap: 1px;
+}
+.flow-seg {
+  display: block;
+  background: color-mix(in srgb, var(--fg-muted) 28%, transparent);
+}
+.flow-seg.indeterminate {
+  background: var(--st-progress);
+}
+.flow-seg.done {
+  background: var(--st-done);
+}
+.flow-right {
+  white-space: nowrap;
+  text-align: right;
+}
+.flow-churn {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

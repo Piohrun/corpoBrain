@@ -468,6 +468,77 @@ export interface ProjectRules {
   keys?: string[];
 }
 
+export interface FlowBand {
+  status: string;
+  from: string;
+  to: string | null;
+  category: 'new' | 'indeterminate' | 'done' | null;
+}
+export interface FlowTimes {
+  startedAt: string | null;
+  doneAt: string | null;
+  cycleDays: number | null;
+  leadDays: number | null;
+  ageDays: number | null;
+  inStatusDays: number;
+  perStatus: Record<string, number>;
+}
+export interface FlowIssue {
+  key: string;
+  path: string;
+  summary: string | null;
+  issueType: string | null;
+  status: string | null;
+  statusCategory: string | null;
+  assignee: string | null;
+  assigneeName: string | null;
+  sprint: string;
+  created: string | null;
+  bands: FlowBand[];
+  times: FlowTimes;
+}
+export interface FlowPercentiles {
+  n: number;
+  p50: number | null;
+  p85: number | null;
+  max: number | null;
+}
+export interface FlowSprint {
+  sprint: { name: string; state: string; start: string | null; end: string | null };
+  windowDays: number;
+  reference: {
+    cycle: FlowPercentiles;
+    lead: FlowPercentiles;
+    timeInStatus: { status: string; avgDays: number; n: number }[];
+  };
+  open: FlowIssue[];
+  done: FlowIssue[];
+  churn: {
+    added: { key: string; at: string; by: string | null }[];
+    removed: { key: string; at: string; by: string | null; to: string | null }[];
+    reestimated: {
+      key: string;
+      at: string;
+      by: string | null;
+      from: string | null;
+      to: string | null;
+    }[];
+  };
+  people: { assignee: string; name: string; done: number; cycle: FlowPercentiles }[] | null;
+}
+
+export const flowApi = {
+  sprint: (name: string | undefined, opts: { days?: number; byPerson?: boolean } = {}) => {
+    const q = new URLSearchParams();
+    if (name) q.set('name', name);
+    if (opts.days) q.set('days', String(opts.days));
+    if (opts.byPerson) q.set('byPerson', '1');
+    return req<FlowSprint>(`/api/flow/sprint?${q}`);
+  },
+  issue: (key: string) =>
+    req<FlowIssue & { transitions: unknown[] }>(`/api/flow/issue?key=${encodeURIComponent(key)}`),
+};
+
 export const digestApi = {
   get: (range: string) => req<DigestResponse>(`/api/digest?range=${encodeURIComponent(range)}`),
 };
