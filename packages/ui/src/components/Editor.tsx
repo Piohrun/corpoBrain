@@ -3,6 +3,7 @@ import { EditorView } from '@codemirror/view';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { api, privateApi, type TrackKind, trackedApi } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { clearFind, type FindMatch, findMatches, selectMatch, setFind } from '../editor/find.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
@@ -108,6 +109,7 @@ export function Editor({
   apiRef,
   onFind,
 }: Props) {
+  const dlg = useDialogs();
   const host = useRef<HTMLDivElement>(null);
   const [trackSelection, setTrackSelection] = useState<TrackSelection | null>(null);
   const [trackDialogOpen, setTrackDialogOpen] = useState(false);
@@ -145,7 +147,7 @@ export function Editor({
     const st = await privateApi.status();
     if (st.unlocked) return true;
     if (!st.initialized) {
-      window.alert(
+      dlg.alert(
         'Set up protected notes first (\u{1F512} page) — inline secrets share that passphrase.',
       );
       return false;
@@ -156,7 +158,7 @@ export function Editor({
       await privateApi.unlock(pass);
       return true;
     } catch {
-      window.alert('Wrong passphrase.');
+      dlg.alert('Wrong passphrase.');
       return false;
     }
   };
@@ -176,7 +178,7 @@ export function Editor({
       );
       refreshDecorations();
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'decrypt failed');
+      dlg.alert(e instanceof Error ? e.message : 'decrypt failed');
     }
   };
 
@@ -207,7 +209,7 @@ export function Editor({
           );
         });
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : 'decrypt failed');
+        dlg.alert(e instanceof Error ? e.message : 'decrypt failed');
         return;
       }
     }
@@ -236,7 +238,7 @@ export function Editor({
         view.dispatch({ changes: { from: table.from, to: table.to, insert: lines.join('\n') } });
       }
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'encrypt failed');
+      dlg.alert(e instanceof Error ? e.message : 'encrypt failed');
     }
   };
 
@@ -295,13 +297,13 @@ export function Editor({
       // cursor inside a table → offer column/row encryption
       const table = findTables(view.state).find((t) => sel.head >= t.from && sel.head <= t.to);
       if (!table) {
-        window.alert(
+        dlg.alert(
           'Select the text to encrypt first (then Ctrl+Shift+E) — or put the cursor inside a table to encrypt a column/row.',
         );
         return;
       }
       const header = splitCells(table.lines[0] ?? '');
-      const answer = window.prompt(
+      const answer = await dlg.prompt(
         `Encrypt table cells — enter a column (1-${header.length} or a header name: ${header.join(', ')}) or "row" for the current row:`,
       );
       if (!answer?.trim()) return;
@@ -311,7 +313,7 @@ export function Editor({
       if (answer.trim().toLowerCase() === 'row') {
         const rowIndex = doc.lineAt(sel.head).number - firstLine - 2;
         if (rowIndex < 0 || rowIndex >= table.lines.length - 2) {
-          window.alert('Put the cursor on a data row (not the header) to encrypt a row.');
+          dlg.alert('Put the cursor on a data row (not the header) to encrypt a row.');
           return;
         }
         target = { kind: 'row', rowIndex };
@@ -321,7 +323,7 @@ export function Editor({
           ? byNumber - 1
           : header.findIndex((h) => h.toLowerCase() === answer.trim().toLowerCase());
         if (index < 0 || index >= header.length) {
-          window.alert(`No such column: ${answer.trim()}`);
+          dlg.alert(`No such column: ${answer.trim()}`);
           return;
         }
         target = { kind: 'column', index };
@@ -335,14 +337,14 @@ export function Editor({
         });
         if (!stillOpen(view)) return;
         if (encrypted === 0) {
-          window.alert('Nothing to encrypt there (cells empty or already encrypted).');
+          dlg.alert('Nothing to encrypt there (cells empty or already encrypted).');
           return;
         }
         view.dispatch({
           changes: { from: table.from, to: table.to, insert: lines.join('\n') },
         });
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : 'encrypt failed');
+        dlg.alert(e instanceof Error ? e.message : 'encrypt failed');
       }
       return;
     }
@@ -359,7 +361,7 @@ export function Editor({
         changes: { from: sel.from, to: sel.to, insert },
       });
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'encrypt failed');
+      dlg.alert(e instanceof Error ? e.message : 'encrypt failed');
     }
   };
 

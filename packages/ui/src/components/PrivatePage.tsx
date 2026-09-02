@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type PrivateStatus, privateApi } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 
 export function PrivatePage() {
+  const dlg = useDialogs();
   const [status, setStatus] = useState<PrivateStatus | null>(null);
   const [notes, setNotes] = useState<{ file: string; title: string }[]>([]);
   const [current, setCurrent] = useState<{ file: string; content: string } | null>(null);
@@ -184,8 +186,8 @@ export function PrivatePage() {
                 <button
                   type="button"
                   className="key-link"
-                  onClick={() => {
-                    if (window.confirm('Delete this protected note permanently?'))
+                  onClick={async () => {
+                    if (await dlg.confirm('Delete this protected note permanently?'))
                       act(async () => {
                         await privateApi.remove(current.file);
                         setCurrent(null);

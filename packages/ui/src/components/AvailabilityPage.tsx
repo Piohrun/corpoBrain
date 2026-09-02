@@ -7,6 +7,7 @@ import {
   planApi,
 } from '../api.ts';
 import { localISODate, monthsAgo } from '../dates.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -27,6 +28,7 @@ const archiveCutoff = (): string => monthsAgo(ARCHIVE_MONTHS);
  * does to each sprint's bandwidth.
  */
 export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+  const dlg = useDialogs();
   const [data, setData] = useState<AvailabilityResponse | null>(null);
   const [draft, setDraft] = useState<DraftEntry[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -180,12 +182,12 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
       .catch((e: Error) => setError(e.message));
   };
 
-  const seed = () => {
+  const seed = async () => {
     if (
       holidaysDirty &&
-      !window.confirm(
+      !(await dlg.confirm(
         'Seeding reloads the holiday table and discards your unsaved edits. Continue?',
-      )
+      ))
     )
       return;
     availabilityApi
@@ -204,10 +206,10 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
     return (data?.entries ?? []).filter((e) => e.to < cutoff).length;
   }, [data]);
 
-  const archive = () => {
+  const archive = async () => {
     if (
       dirty &&
-      !window.confirm('Archiving reloads the table and discards your unsaved edits. Continue?')
+      !(await dlg.confirm('Archiving reloads the table and discards your unsaved edits. Continue?'))
     )
       return;
     availabilityApi

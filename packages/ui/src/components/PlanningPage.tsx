@@ -7,6 +7,7 @@ import {
   type SavedView,
   viewApi,
 } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function PlanningPage({ onOpenNote }: Props) {
+  const dlg = useDialogs();
   const [board, setBoard] = useState<BoardModel | null>(null);
   const [status, setStatus] = useState<JiraStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -368,8 +370,8 @@ export function PlanningPage({ onOpenNote }: Props) {
           <button
             type="button"
             className="risk-chip"
-            onClick={() => {
-              const title = window.prompt('Save current filter as view:');
+            onClick={async () => {
+              const title = await dlg.prompt('Save current filter as view:');
               if (!title) return;
               viewApi
                 .save(title, {

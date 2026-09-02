@@ -1,4 +1,5 @@
 import type { BoardModel, PlanPatch } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { personName } from './planningShared.ts';
 
 export function ChangesPanel({
@@ -10,6 +11,7 @@ export function ChangesPanel({
   onPatch: (key: string, p: PlanPatch) => void;
   onOpenNote: (path: string) => void;
 }) {
+  const dlg = useDialogs();
   const changes = board.issues.filter(
     (i) =>
       i.statusCategory !== 'done' &&
@@ -24,8 +26,8 @@ export function ChangesPanel({
         <button
           type="button"
           className="risk-chip clear"
-          onClick={() => {
-            if (window.confirm(`Revert all ${changes.length} local changes?`)) {
+          onClick={async () => {
+            if (await dlg.confirm(`Revert all ${changes.length} local changes?`)) {
               for (const i of changes)
                 onPatch(i.key, { sprint: null, assignee: null, effort: null });
             }

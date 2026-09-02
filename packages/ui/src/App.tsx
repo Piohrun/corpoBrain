@@ -8,7 +8,6 @@ import {
   treeApi,
 } from './api.ts';
 import { AvailabilityPage } from './components/AvailabilityPage.tsx';
-
 import { DigestPage } from './components/DigestPage.tsx';
 import { Editor, type EditorApi } from './components/Editor.tsx';
 import { JiraPage } from './components/JiraPage.tsx';
@@ -23,6 +22,7 @@ import { ShortcutHelp } from './components/ShortcutHelp.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
 import { TrackedPage } from './components/TrackedPage.tsx';
+import { DialogProvider, useDialogs } from './dialogs.tsx';
 import { Finder } from './finder/Finder.tsx';
 import { rankBy } from './finder/match.ts';
 import { FinderProvider, useFinder, useFinderSections } from './finder/registry.tsx';
@@ -80,9 +80,11 @@ function listsAffected(prev: NoteResponse, fresh: NoteResponse): boolean {
 
 export function App() {
   return (
-    <FinderProvider>
-      <AppShell />
-    </FinderProvider>
+    <DialogProvider>
+      <FinderProvider>
+        <AppShell />
+      </FinderProvider>
+    </DialogProvider>
   );
 }
 
@@ -116,6 +118,7 @@ const VIEW_KEYS: { key: string; view: View; label: string }[] = [
 
 function AppShell() {
   const finder = useFinder();
+  const dlg = useDialogs();
   const [helpOpen, setHelpOpen] = useState(false);
   const [chord, setChord] = useState<string | null>(null);
   const editorApi = useRef<EditorApi | null>(null);
@@ -953,10 +956,10 @@ function AppShell() {
                     type="button"
                     className="note-delete"
                     title="Delete note (moved to .trash inside the vault)"
-                    onClick={() => {
+                    onClick={async () => {
                       const current = noteRef.current;
                       if (!current) return;
-                      if (!window.confirm(`Delete "${current.meta?.title ?? current.path}"?`))
+                      if (!(await dlg.confirm(`Delete "${current.meta?.title ?? current.path}"?`)))
                         return;
                       // the editor's debounced save must not resurrect the file
                       discardRef.current = true;
@@ -975,7 +978,7 @@ function AppShell() {
                           );
                           refreshLists();
                         })
-                        .catch((e: Error) => window.alert(`Delete failed: ${e.message}`))
+                        .catch((e: Error) => dlg.alert(`Delete failed: ${e.message}`))
                         .finally(() => {
                           discardRef.current = false;
                         });

@@ -6,6 +6,7 @@ import {
   type WriteApplyReport,
   writebackApi,
 } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { useVaultEvents } from '../hooks.ts';
 
 export function WritebackSection({
@@ -15,6 +16,7 @@ export function WritebackSection({
   config: JiraConfig;
   onChanged: () => void;
 }) {
+  const dlg = useDialogs();
   const [staged, setStaged] = useState<StagedChange[]>([]);
   const [preview, setPreview] = useState<PreviewRow[] | null>(null);
   const [report, setReport] = useState<WriteApplyReport | null>(null);
@@ -57,7 +59,7 @@ export function WritebackSection({
       .finally(() => setBusy(false));
   };
 
-  const doApply = () => {
+  const doApply = async () => {
     if (!preview) return;
     const items = preview
       .filter((r) => !r.conflict)
@@ -65,7 +67,7 @@ export function WritebackSection({
     if (!items.length) return;
     if (
       mode === 'on' &&
-      !window.confirm(`Send ${items.length} change(s) to Jira? This modifies real tickets.`)
+      !(await dlg.confirm(`Send ${items.length} change(s) to Jira? This modifies real tickets.`))
     )
       return;
     setBusy(true);
@@ -90,7 +92,7 @@ export function WritebackSection({
     setRowStatus((m) => ({ ...m, [id]: 'checking…' }));
     writebackApi
       .preview([staged.key])
-      .then((rows) => {
+      .then(async (rows) => {
         const row = rows.find((r) => r.key === staged.key && r.field === staged.field);
         if (!row) throw new Error('no longer staged — refresh');
         if (row.conflict) {
@@ -102,7 +104,7 @@ export function WritebackSection({
         }
         if (
           mode === 'on' &&
-          !window.confirm(`Push ${staged.key} ${staged.field} → "${staged.to}" to Jira?`)
+          !(await dlg.confirm(`Push ${staged.key} ${staged.field} → "${staged.to}" to Jira?`))
         ) {
           setRowStatus((m) => ({ ...m, [id]: '' }));
           return null;
@@ -130,12 +132,12 @@ export function WritebackSection({
     const batchId = lastRealBatch.batchId as string;
     writebackApi
       .undo(batchId)
-      .then(({ items }) => {
+      .then(async ({ items }) => {
         if (!items.length) return;
         if (
-          !window.confirm(
+          !(await dlg.confirm(
             `Revert batch ${batchId}: re-apply ${items.length} previous value(s) to Jira?`,
-          )
+          ))
         )
           return;
         setBusy(true);

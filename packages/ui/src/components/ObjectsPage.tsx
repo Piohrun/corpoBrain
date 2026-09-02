@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type ObjectRow, objectsApi, type TypeCount } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { useVaultEvents } from '../hooks.ts';
 
 const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
 
 export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+  const dlg = useDialogs();
   const [types, setTypes] = useState<TypeCount[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [rows, setRows] = useState<ObjectRow[]>([]);
@@ -98,14 +100,16 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
           type="button"
           className="risk-chip"
           title="Create a category: the first note of a new type"
-          onClick={() => {
-            const type = window.prompt('New category (type) name, e.g. retro, vendor, incident:');
+          onClick={async () => {
+            const type = await dlg.prompt(
+              'New category (type) name, e.g. retro, vendor, incident:',
+            );
             if (!type?.trim()) return;
             const t = type
               .trim()
               .toLowerCase()
               .replace(/[^a-z0-9-]+/g, '-');
-            const title = window.prompt(`Title of the first ${t} note:`);
+            const title = await dlg.prompt(`Title of the first ${t} note:`);
             if (!title?.trim()) return;
             create(t, title.trim(), () => {
               setSelected(t);
@@ -119,8 +123,8 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
           <button
             type="button"
             className="risk-chip"
-            onClick={() => {
-              const title = window.prompt(`Title of the new ${selected} note:`);
+            onClick={async () => {
+              const title = await dlg.prompt(`Title of the new ${selected} note:`);
               if (!title?.trim()) return;
               create(selected, title.trim(), refresh);
             }}

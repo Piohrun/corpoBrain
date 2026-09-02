@@ -3762,3 +3762,119 @@ tr.wb-conflict td {
 .flash {
   animation: cb-flash 1.6s ease-out;
 }
+
+/* ---- in-app dialogs and toasts ---- */
+.dialog-backdrop {
+  align-items: center;
+  padding-top: 0;
+  z-index: 50;
+}
+.dialog {
+  width: min(440px, 92vw);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dialog-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.dialog-message {
+  font-size: 13.5px;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+.dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.dialog-field input {
+  font: inherit;
+  font-size: 14px;
+  color: var(--fg);
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.plan-btn.ghost {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+.plan-btn.danger {
+  background: var(--danger);
+  color: #fff;
+}
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(420px, 90vw);
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  animation: toast-in 160ms ease-out;
+}
+.toast.error {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+}
+.toast.success {
+  border-color: color-mix(in srgb, var(--st-done) 50%, var(--border));
+}
+.toast > span {
+  flex: 1;
+}
+.toast-action {
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.toast-close {
+  font: inherit;
+  color: var(--fg-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+@keyframes toast-in {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}

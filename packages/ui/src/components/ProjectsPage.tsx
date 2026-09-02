@@ -7,6 +7,7 @@ import {
   planApi,
   projectApi,
 } from '../api.ts';
+import { useDialogs } from '../dialogs.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinder, useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -30,6 +31,7 @@ const shortDate = (iso: string | null): string =>
 
 /** Projects: rollup cards on the left, the day-grid calendar on the right. */
 export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+  const dlg = useDialogs();
   const finder = useFinder();
   const [board, setBoard] = useState<BoardModel | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -279,8 +281,8 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
       .catch((e: Error) => setError(e.message));
   };
 
-  const createProject = () => {
-    const title = window.prompt('Project name');
+  const createProject = async () => {
+    const title = await dlg.prompt('Project name');
     if (!title?.trim()) return;
     projectApi
       .create(title.trim())
@@ -292,12 +294,12 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
       .catch((e: Error) => setError(e.message));
   };
 
-  const arrange = () => {
+  const arrange = async () => {
     if (!model || !selected) return;
     if (
-      !window.confirm(
+      !(await dlg.confirm(
         'Auto-arrange writes a start day into every scheduled issue of this project (vault only, nothing goes to Jira). Continue?',
-      )
+      ))
     )
       return;
     projectApi
