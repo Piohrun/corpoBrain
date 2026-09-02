@@ -4050,3 +4050,27 @@ button.prop-chip {
 .outline-item:hover {
   background: var(--bg-hover);
 }
+
+/* ---- unlinked mentions ---- */
+.backlink.mention {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mention-open {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--fg);
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.mention-open .muted {
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

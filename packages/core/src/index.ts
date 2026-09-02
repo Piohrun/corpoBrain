@@ -109,6 +109,8 @@ export {
 } from './jira/render.ts';
 export type { AdapterLike, SyncProgress, SyncReport } from './jira/sync.ts';
 export { JiraSync, jqlDate } from './jira/sync.ts';
+export type { Mention } from './mentions.ts';
+export { findMentions, linkMention } from './mentions.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';
 export { convertEffort, issueRiskFlags } from './planning.ts';
 export type { ProjectDef, ProjectIssue, ProjectRollup } from './projects.ts';

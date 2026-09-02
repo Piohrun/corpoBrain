@@ -5,6 +5,7 @@ import { digestRoutes } from './digest-routes.ts';
 import { flowRoutes } from './flow-routes.ts';
 import { gitFor } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
+import { mentionsRoutes } from './mentions-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
 import { personRoutes } from './person-routes.ts';
 import { planRoutes } from './plan-routes.ts';
@@ -242,6 +243,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/task', taskRoutes(v));
   app.route('/api/tracked', trackedRoutes(v));
   app.route('/api/flow', flowRoutes(v));
+  app.route('/api/mentions', mentionsRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.
   app.get('/api/events', () => {

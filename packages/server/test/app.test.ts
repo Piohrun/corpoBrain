@@ -470,6 +470,40 @@ describe('jira task items', () => {
   });
 });
 
+describe('unlinked mentions', () => {
+  it('lists plain-text mentions of a title or alias and links one on request', async () => {
+    writeFileSync(
+      join(root, 'notes', 'c.md'),
+      '---\nid: C\ntitle: Gamma\naliases: [Gam]\n---\nbody\n',
+    );
+    writeFileSync(
+      join(root, 'notes', 'd.md'),
+      '---\nid: D\n---\nTalk to gamma about it. [[Gamma]] already linked here.\n',
+    );
+    writeFileSync(join(root, 'notes', 'e.md'), '---\nid: E\n---\nThe Gam plan.\n');
+    writeFileSync(join(root, 'notes', 'f.md'), '---\nid: F\n---\nnothing here\n');
+    vault.indexer.update();
+    const res = await app.request('/api/mentions?path=notes/c.md');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { mentions: { path: string; name: string; line: number }[] };
+    // d.md links already (excluded); e.md mentions the alias
+    expect(body.mentions).toEqual([
+      expect.objectContaining({ path: 'notes/e.md', name: 'Gam', line: 4 }),
+    ]);
+    const link = await app.request('/api/mentions/link', {
+      method: 'POST',
+      body: JSON.stringify({ source: 'notes/e.md', target: 'notes/c.md' }),
+    });
+    expect(link.status).toBe(200);
+    expect(readFileSync(join(root, 'notes', 'e.md'), 'utf8')).toContain('The [[Gamma|Gam]] plan.');
+    // now e.md links here, so nothing is left
+    const after = (await (await app.request('/api/mentions?path=notes/c.md')).json()) as {
+      mentions: unknown[];
+    };
+    expect(after.mentions).toEqual([]);
+  });
+});
+
 describe('local-only guard', () => {
   const body = JSON.stringify({ path: 'notes/csrf.md', title: 'x' });
   it('accepts same-origin loopback requests', async () => {

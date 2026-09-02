@@ -541,6 +541,25 @@ export const flowApi = {
     req<FlowIssue & { transitions: unknown[] }>(`/api/flow/issue?key=${encodeURIComponent(key)}`),
 };
 
+export interface UnlinkedMention {
+  path: string;
+  title: string;
+  line: number;
+  snippet: string;
+  name: string;
+}
+export const mentionsApi = {
+  list: (path: string) =>
+    req<{ title: string; names: string[]; mentions: UnlinkedMention[] }>(
+      `/api/mentions?path=${encodeURIComponent(path)}`,
+    ),
+  link: (source: string, target: string) =>
+    req<{ ok: boolean; path: string; line: number }>('/api/mentions/link', {
+      method: 'POST',
+      body: JSON.stringify({ source, target }),
+    }),
+};
+
 export const digestApi = {
   get: (range: string) => req<DigestResponse>(`/api/digest?range=${encodeURIComponent(range)}`),
 };

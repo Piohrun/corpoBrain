@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   type CategoryField,
   fieldsApi,
+  mentionsApi,
   type NoteListItem,
   type NoteResponse,
   treeApi,
+  type UnlinkedMention,
 } from '../api.ts';
 
 interface Props {
@@ -19,6 +21,24 @@ interface Props {
 
 export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump }: Props) {
   const outline = useMemo(() => (note ? headingsOf(note.content) : []), [note]);
+  const [mentions, setMentions] = useState<UnlinkedMention[]>([]);
+  const [mentionsSeq, setMentionsSeq] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mentionsSeq is the manual refetch trigger after linking
+  useEffect(() => {
+    if (!note) return;
+    let cancelled = false;
+    mentionsApi
+      .list(note.path)
+      .then((r) => {
+        if (!cancelled) setMentions(r.mentions);
+      })
+      .catch(() => {
+        if (!cancelled) setMentions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [note, mentionsSeq]);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<CategoryField[]>([]);
   const [sprintOverrides, setSprintOverrides] = useState<string[] | null>(null);
@@ -259,6 +279,35 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump }
           </div>
         </button>
       ))}
+      {mentions.length > 0 && (
+        <>
+          <h3>Unlinked mentions ({mentions.length})</h3>
+          {mentions.map((m) => (
+            <div key={m.path} className="backlink mention">
+              <button type="button" className="mention-open" onClick={() => onOpen(m.path)}>
+                {m.title}
+                <div className="muted">{m.snippet}</div>
+              </button>
+              <button
+                type="button"
+                className="plan-btn small"
+                title={`Turn “${m.name}” into a [[link]] in ${m.title}`}
+                onClick={() =>
+                  mentionsApi
+                    .link(m.path, note.path)
+                    .then(() => {
+                      setMentionsSeq((n) => n + 1);
+                      onMetaChanged();
+                    })
+                    .catch((e: Error) => setError(e.message))
+                }
+              >
+                link
+              </button>
+            </div>
+          ))}
+        </>
+      )}
       {props.length > 0 && (
         <>
           <h3>Properties</h3>
