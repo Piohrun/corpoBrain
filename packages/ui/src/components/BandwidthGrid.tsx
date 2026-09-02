@@ -23,11 +23,14 @@ export function BandwidthGrid({
   onPatch,
   onPatchPerson,
   onOpenNote,
+  showSummaries = false,
 }: {
   board: BoardModel;
   issues: BoardIssue[];
   columns: string[];
   groupBy: GroupBy;
+  /** show issue summaries on the chips (one chip per line) */
+  showSummaries?: boolean;
   onPatch: (key: string, p: PlanPatch) => void;
   onPatchPerson: (body: {
     path: string;
@@ -561,7 +564,7 @@ export function BandwidthGrid({
                   </div>
                 )
               ) : (
-                <div className="chips">
+                <div className={`chips${showSummaries ? ' wide' : ''}`}>
                   {cellCards.map((i) => {
                     const moved = i.overridden.sprint || i.overridden.assignee;
                     return (
@@ -584,6 +587,9 @@ export function BandwidthGrid({
                           style={{ background: statusColor(i.status, i.statusCategory) }}
                         />
                         {i.key}
+                        {showSummaries && i.summary && (
+                          <span className="chip-sum">{i.summary}</span>
+                        )}
                         {i.effectiveEffort !== null && (
                           <span className="chip-effort">{i.effectiveEffort}</span>
                         )}

@@ -4170,3 +4170,41 @@ button.prop-chip {
 .cal-today-btn:hover {
   color: var(--fg);
 }
+
+/* ---- chip summaries + capacity nudge ---- */
+.chips.wide {
+  flex-direction: column;
+  align-items: stretch;
+}
+.chips.wide .chip {
+  width: 100%;
+  justify-content: flex-start;
+}
+.chip-sum {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: inherit;
+  font-weight: 400;
+  color: var(--fg-muted);
+  margin-left: 6px;
+}
+.nudge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: var(--accent-soft);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+.nudge > span:first-child {
+  flex: 1;
+}
+.nudge-input {
+  width: 64px;
+}

@@ -46,6 +46,12 @@ export function PlanningPage({ onOpenNote }: Props) {
   const [healthSprint, setHealthSprint] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
 
+  const [showSummaries, setShowSummaries] = useState(
+    () => lsGet('cb.plan.summaries', 'no') === 'yes',
+  );
+  useEffect(() => lsSet('cb.plan.summaries', showSummaries ? 'yes' : 'no'), [showSummaries]);
+  const [nudgeOff, setNudgeOff] = useState(() => lsGet('cb.plan.nudge', '') === 'off');
+  const [nudgeValue, setNudgeValue] = useState('8');
   useEffect(() => lsSet('cb.plan.groupBy', groupBy), [groupBy]);
   useEffect(() => lsSet('cb.plan.horizon', String(horizon)), [horizon]);
   useEffect(() => lsSet('cb.plan.bottom', bottom), [bottom]);
@@ -313,7 +319,67 @@ export function PlanningPage({ onOpenNote }: Props) {
       </div>
       <SyncProgressBar status={syncStatus} />
 
+      {board &&
+        !nudgeOff &&
+        board.defaultCapacity === null &&
+        (() => {
+          const people = board.people.filter((p) => p.active);
+          const missing = people.filter((p) => p.capacity === null);
+          if (people.length === 0 || missing.length < Math.max(3, people.length / 2)) return null;
+          return (
+            <div className="nudge">
+              <span>
+                {missing.length} of {people.length} people have no bandwidth set, so their sprints
+                show “—”. Set a default per sprint and override per person where it differs.
+              </span>
+              <input
+                type="number"
+                className="cell-input nudge-input"
+                min={0.5}
+                step={0.5}
+                value={nudgeValue}
+                onChange={(e) => setNudgeValue(e.target.value)}
+                aria-label="default bandwidth per sprint"
+              />
+              <span className="muted small">{board.unit}/sprint</span>
+              <button
+                type="button"
+                className="plan-btn small"
+                onClick={() => {
+                  const n = Number(nudgeValue);
+                  if (!(n > 0)) return;
+                  planApi
+                    .saveCapacityConfig({ defaultCapacity: n })
+                    .then(refresh)
+                    .catch((e: Error) => setError(e.message));
+                }}
+              >
+                apply
+              </button>
+              <button
+                type="button"
+                className="props-toggle"
+                onClick={() => {
+                  setNudgeOff(true);
+                  lsSet('cb.plan.nudge', 'off');
+                }}
+                title="Hide this hint"
+              >
+                dismiss
+              </button>
+            </div>
+          );
+        })()}
+
       <div className="views-bar">
+        <label className="muted small">
+          <input
+            type="checkbox"
+            checked={showSummaries}
+            onChange={(e) => setShowSummaries(e.target.checked)}
+          />{' '}
+          titles on cards
+        </label>
         <label className="muted small">
           group{' '}
           <select
@@ -405,6 +471,7 @@ export function PlanningPage({ onOpenNote }: Props) {
           issues={issues}
           columns={visibleColumns}
           groupBy={groupBy}
+          showSummaries={showSummaries}
           onPatch={patch}
           onPatchPerson={patchPerson}
           onOpenNote={onOpenNote}
