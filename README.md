@@ -64,6 +64,40 @@ in the same settings (or set `HTTPS_PROXY`). If TLS fails behind interception,
 (option B). Your vault is untouched by updates; the index rebuilds itself when
 the schema changes.
 
+## Using it
+
+The left rail is the set of panels: Notes, Planning, Projects, Availability, Digest,
+Tasks, Tracked, Objects, Jira, Settings, Protected notes. Two things work the same
+everywhere:
+
+**Find (Ctrl+F, also Ctrl+P / Ctrl+K).** One overlay whose sections depend on the
+panel you are on. Type, ↑↓ to move, Tab to jump between sections, Enter for the
+first action, → for the others, Space to select several where a section allows it,
+Esc to back out. Prefixes: `/` this note only, `#` tags, `>` commands.
+
+| Panel | What Find offers |
+|---|---|
+| Notes | matches in this note (highlighted live), notes by title then body text, create a note, insert a `[[link]]` or wrap the selection, commands |
+| Projects | Jira issues to add in bulk (clicking an empty calendar day opens it aimed at that day), epics and labels as project rules, people for the roster |
+| Planning | issues with *move to sprint…* / *assign to…* follow-ups, people (jump to row), sprints (filter) |
+| Availability | people: jump to their row, add time off or support for today |
+| Tracked | items: open the record or its source, filter the list |
+
+**Keys.** `?` (or Ctrl+/) shows the full list, generated from the same registry the
+bindings come from. The ones worth knowing:
+
+| Keys | Does |
+|---|---|
+| Alt+↑ / Alt+↓ | previous / next panel in the rail |
+| Alt+Shift+↑ / ↓ | open the note above / below in the sidebar |
+| Alt+← / Alt+→ | back / forward through panels and notes (⌘[ / ⌘] on a Mac) |
+| Ctrl+D | today's daily note |
+| g then n / p / j / a / t / k … | go to Notes / Planning / Projects / Availability / Tasks / Tracked…; g e focuses the editor |
+| F3 | next match of the last find, inside the editor |
+
+Bare keys and `g` sequences only fire when you are not typing; modifier chords work
+everywhere, including inside the editor.
+
 ## Develop
 
 ```sh
