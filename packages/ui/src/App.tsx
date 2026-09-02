@@ -16,6 +16,7 @@ import { PersonPanel } from './components/PersonPanel.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { PrivatePage } from './components/PrivatePage.tsx';
 import { ProjectsPage } from './components/ProjectsPage.tsx';
+import { PropertiesBar } from './components/PropertiesBar.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { SettingsPage } from './components/SettingsPage.tsx';
 import { ShortcutHelp } from './components/ShortcutHelp.tsx';
@@ -29,6 +30,7 @@ import { FinderProvider, useFinder, useFinderSections } from './finder/registry.
 import { type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
 import { installShortcuts, isMac, type Shortcut } from './shortcuts.ts';
+import { lsGet, lsSet } from './storage.ts';
 
 /** `#/<note path>` — the Notes panel with that note open. */
 function hashPath(): string {
@@ -120,6 +122,8 @@ function AppShell() {
   const finder = useFinder();
   const dlg = useDialogs();
   const [helpOpen, setHelpOpen] = useState(false);
+  const [foldFrontmatter, setFoldFrontmatter] = useState(() => lsGet('cb.fm.fold', 'yes') !== 'no');
+  useEffect(() => lsSet('cb.fm.fold', foldFrontmatter ? 'yes' : 'no'), [foldFrontmatter]);
   const [chord, setChord] = useState<string | null>(null);
   const editorApi = useRef<EditorApi | null>(null);
   const [notes, setNotes] = useState<NoteListItem[]>([]);
@@ -1010,6 +1014,19 @@ function AppShell() {
                         : '⚠ save failed'}
                   </span>
                 </div>
+                <PropertiesBar
+                  note={note}
+                  folded={foldFrontmatter}
+                  onToggleFold={() => setFoldFrontmatter((f) => !f)}
+                  onEdit={() => {
+                    // reveal by putting the cursor on the first property line
+                    const text = editorApi.current?.text() ?? note.content;
+                    const secondLine = text.indexOf('\n') + 1;
+                    editorApi.current?.goTo({ from: secondLine, to: secondLine });
+                  }}
+                  onTag={openTag}
+                  onNavigate={navigate}
+                />
                 {note.path.startsWith('people/') && (
                   <PersonPanel path={note.path} onOpen={openPath} />
                 )}
@@ -1032,6 +1049,7 @@ function AppShell() {
                   discardRef={discardRef}
                   apiRef={editorApi}
                   onFind={() => finder.open()}
+                  foldFrontmatter={foldFrontmatter}
                 />
                 {note.tags.length > 0 && (
                   <div className="tag-footer">

@@ -74,6 +74,8 @@ interface Props {
   /** imperative access for the Finder: in-note find, insert/wrap, focus */
   apiRef?: React.RefObject<EditorApi | null>;
   onFind?: () => void;
+  /** hide the frontmatter block (shown as a properties bar by the app) */
+  foldFrontmatter?: boolean;
 }
 
 export interface EditorApi {
@@ -108,6 +110,7 @@ export function Editor({
   discardRef,
   apiRef,
   onFind,
+  foldFrontmatter = false,
 }: Props) {
   const dlg = useDialogs();
   const host = useRef<HTMLDivElement>(null);
@@ -384,6 +387,7 @@ export function Editor({
     onSaveState,
     onSaved,
     onFind,
+    foldFrontmatter,
   });
   latest.current = {
     path,
@@ -394,7 +398,13 @@ export function Editor({
     onSaveState,
     onSaved,
     onFind,
+    foldFrontmatter,
   };
+  // the fold flag is read through the ref at decoration time; nudge a rebuild when it flips
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refreshDecorations reads refs only
+  useEffect(() => {
+    refreshDecorations();
+  }, [foldFrontmatter]);
 
   const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, text: string) => {
     latest.current.onSaveState(p, 'saving');
@@ -490,12 +500,18 @@ export function Editor({
   // biome-ignore lint/correctness/useExhaustiveDependencies: recreate only on path change; content is the initial doc, callbacks go through latest ref
   useEffect(() => {
     if (!host.current) return;
+    // open with the cursor on the first body line, not inside the frontmatter
+    // (which would keep the folded block open)
+    const fmMatch = /^---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(content);
+    const bodyStart = Math.min(fmMatch ? fmMatch[0].length : 0, content.length);
     const state = EditorState.create({
       doc: content,
+      selection: { anchor: bodyStart },
       extensions: [
         editorExtensions({
           onNavigate: (t) => latest.current.onNavigate(t),
           onFind: () => latest.current.onFind?.(),
+          foldFrontmatter: () => latest.current.foldFrontmatter,
           isResolved: (t) => latest.current.resolveMap.get(t.toLowerCase()),
           getSecret: (cipher) => revealed.current.get(cipher) ?? null,
           onSecretClick: (cipher) => void onSecretClick(cipher),

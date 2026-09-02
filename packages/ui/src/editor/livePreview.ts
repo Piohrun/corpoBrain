@@ -27,6 +27,11 @@ import { tablesField } from './tables.ts';
 
 export interface LivePreviewConfig {
   onNavigate: (target: string) => void;
+  /**
+   * Hide the frontmatter block (the app shows it as a properties bar).
+   * It unfolds while the cursor is inside it, so it stays editable.
+   */
+  foldFrontmatter?: () => boolean;
   onOpenExternal?: (href: string) => void;
   /** revealed plaintext for an inline secret, or null while hidden */
   getSecret?: (cipher: string) => string | null;
@@ -247,12 +252,17 @@ function buildDecorations(view: EditorView): DecorationSet {
     });
   }
 
+  // Folded frontmatter is a block decoration and therefore lives in a
+  // StateField (frontmatterFoldField); here we only skip the hidden lines.
+  const foldedTo = foldedFrontmatter(state)?.to ?? -1;
+
   // Emit decorations line by line to keep RangeSetBuilder ordering valid.
   // A line is processed once even when it shows up in several visible
   // ranges: replaced content in the middle of a line (a hidden tracking
   // marker) splits the visible ranges, and processing the line twice would
   // add its inline decorations a second time, out of order.
   for (const line of visibleLines(doc, view.visibleRanges)) {
+    if (line.to <= foldedTo) continue;
     {
       const ctx: LineCtx = {
         cursorTouches: cursor >= line.from && cursor <= line.to,
@@ -650,9 +660,48 @@ const clickHandler = (view: EditorView, event: MouseEvent): boolean => {
   return true;
 };
 
+/** The frontmatter block's range, or null when the note has none. */
+export function frontmatterRange(doc: Text): { from: number; to: number } | null {
+  if (doc.lines < 2 || doc.line(1).text.trim() !== '---') return null;
+  for (let i = 2; i <= Math.min(doc.lines, 100); i++) {
+    const t = doc.line(i).text.trim();
+    if (t === '---' || t === '...') return { from: 0, to: doc.line(i).to };
+  }
+  return null;
+}
+
+/** The range to hide: folding is on, a block exists, and the cursor is not in it. */
+function foldedFrontmatter(state: EditorState): { from: number; to: number } | null {
+  if (!state.facet(livePreviewConfig).foldFrontmatter?.()) return null;
+  const r = frontmatterRange(state.doc);
+  if (!r) return null;
+  const c = state.selection.main.head;
+  return c >= r.from && c <= r.to ? null : r;
+}
+
+function buildFrontmatterFold(state: EditorState): DecorationSet {
+  const r = foldedFrontmatter(state);
+  if (!r) return Decoration.none;
+  const b = new RangeSetBuilder<Decoration>();
+  b.add(r.from, r.to, Decoration.replace({ block: true }));
+  return b.finish();
+}
+
+// Block decorations must come from a state field, not a view plugin.
+const frontmatterFoldField = StateField.define<DecorationSet>({
+  create: buildFrontmatterFold,
+  update(value, tr) {
+    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(linksUpdated)))
+      return buildFrontmatterFold(tr.state);
+    return value.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
 export function livePreview(config: LivePreviewConfig): Extension {
   return [
     livePreviewConfig.of(config),
+    frontmatterFoldField,
     plugin,
     trackField,
     trackAtomicField,

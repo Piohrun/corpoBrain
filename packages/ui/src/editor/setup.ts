@@ -23,6 +23,7 @@ export interface EditorConfig {
   onNavigate: (target: string) => void;
   /** Mod-F inside the editor: open the app's Finder (in-note matches first) */
   onFind: () => void;
+  foldFrontmatter?: () => boolean;
   isResolved: (target: string) => boolean | undefined;
   getSecret: (cipher: string) => string | null;
   onSecretClick: (cipher: string) => void;
@@ -114,6 +115,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     EditorView.domEventHandlers({ paste: (e, v) => tablePaste(e, v) }),
     livePreview({
       onNavigate: cfg.onNavigate,
+      foldFrontmatter: cfg.foldFrontmatter,
       onOpenExternal: (href) => window.open(href, '_blank', 'noopener,noreferrer'),
       isResolved: cfg.isResolved,
       getSecret: cfg.getSecret,
