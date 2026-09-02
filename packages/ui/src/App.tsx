@@ -30,8 +30,16 @@ import { type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
 import { installShortcuts, isMac, type Shortcut } from './shortcuts.ts';
 
+/** `#/<note path>` — the Notes panel with that note open. */
 function hashPath(): string {
-  return decodeURIComponent(window.location.hash.replace(/^#\//, ''));
+  const h = window.location.hash;
+  return h.startsWith('#/') ? decodeURIComponent(h.slice(2)) : '';
+}
+
+/** `#view=<panel>` — any other panel. */
+function hashView(): string | null {
+  const m = /^#view=([a-z]+)$/.exec(window.location.hash);
+  return m ? (m[1] as string) : null;
 }
 
 type NoteHistoryMode = 'push' | 'replace' | 'none';
@@ -40,6 +48,8 @@ interface NoteHistoryState {
   corpoBrainNote: true;
   index: number;
   path: string | null;
+  /** the panel this entry shows; absent in entries written before panels joined the history */
+  view?: string;
 }
 
 function noteHistoryState(value: unknown): NoteHistoryState | null {
@@ -54,6 +64,11 @@ function noteHistoryState(value: unknown): NoteHistoryState | null {
 
 function noteHash(path: string): string {
   return `#/${encodeURIComponent(path)}`;
+}
+
+function locationHash(view: string, path: string | null): string {
+  if (view !== 'notes') return `#view=${view}`;
+  return path ? noteHash(path) : `${window.location.pathname}${window.location.search}`;
 }
 
 /** Does the sidebar (note list, tags, tree) need refetching after this save? */
@@ -161,7 +176,7 @@ function AppShell() {
           setCanGoBack(true);
           setCanGoForward(false);
           window.history.pushState(
-            { corpoBrainNote: true, index, path } satisfies NoteHistoryState,
+            { corpoBrainNote: true, index, path, view: 'notes' } satisfies NoteHistoryState,
             '',
             noteHash(path),
           );
@@ -175,6 +190,7 @@ function AppShell() {
             corpoBrainNote: true,
             index: noteHistoryIndex.current,
             path,
+            view: 'notes',
           } satisfies NoteHistoryState,
           '',
           noteHash(path),
@@ -187,15 +203,22 @@ function AppShell() {
   // history as the in-app Back button.
   useEffect(() => {
     const fromHash = hashPath();
+    const startView = (hashView() ?? 'notes') as View;
     const existing = noteHistoryState(window.history.state);
     const index = existing && existing.path === (fromHash || null) ? existing.index : 0;
     noteHistoryIndex.current = index;
     noteHistoryMax.current = index;
     setCanGoBack(index > 0);
     window.history.replaceState(
-      { corpoBrainNote: true, index, path: fromHash || null } satisfies NoteHistoryState,
+      {
+        corpoBrainNote: true,
+        index,
+        path: fromHash || null,
+        view: startView,
+      } satisfies NoteHistoryState,
       '',
     );
+    if (VIEW_KEYS.some((v) => v.view === startView)) setView(startView);
     if (fromHash) openPath(fromHash, 'none');
 
     const onPopState = (event: PopStateEvent) => {
@@ -205,6 +228,10 @@ function AppShell() {
         noteHistoryMax.current = noteHistoryIndex.current;
       setCanGoBack(noteHistoryIndex.current > 0);
       setCanGoForward(noteHistoryIndex.current < noteHistoryMax.current);
+      // panels are history entries too: restore the one this entry shows
+      const v = (entry?.view ?? hashView() ?? 'notes') as View;
+      if (VIEW_KEYS.some((x) => x.view === v)) setView(v);
+      if (v !== 'notes') return;
       const p = hashPath();
       if (p && p !== noteRef.current?.path) openPath(p, 'none');
       else if (!p) {
@@ -223,13 +250,33 @@ function AppShell() {
     if (noteHistoryIndex.current < noteHistoryMax.current) window.history.forward();
   }, []);
 
-  /** Alt+↑/↓: the panel above/below in the left rail, from anywhere. */
-  const stepView = useCallback((dir: 1 | -1) => {
-    const order = VIEW_KEYS.map((v) => v.view);
-    const at = order.indexOf(viewRef.current);
-    const next = order[(at + dir + order.length) % order.length];
-    if (next) setView(next);
+  /** Switch panels through the history, so Back returns to the panel you came from. */
+  const goView = useCallback((next: View) => {
+    if (next === viewRef.current) return;
+    const index = noteHistoryIndex.current + 1;
+    noteHistoryIndex.current = index;
+    noteHistoryMax.current = index;
+    setCanGoBack(true);
+    setCanGoForward(false);
+    const path = noteRef.current?.path ?? null;
+    window.history.pushState(
+      { corpoBrainNote: true, index, path, view: next } satisfies NoteHistoryState,
+      '',
+      locationHash(next, path),
+    );
+    setView(next);
   }, []);
+
+  /** Alt+↑/↓: the panel above/below in the left rail, from anywhere. */
+  const stepView = useCallback(
+    (dir: 1 | -1) => {
+      const order = VIEW_KEYS.map((v) => v.view);
+      const at = order.indexOf(viewRef.current);
+      const next = order[(at + dir + order.length) % order.length];
+      if (next) goView(next);
+    },
+    [goView],
+  );
 
   /** Alt+Shift+↑/↓: open the note above/below the current one in the sidebar's visible order. */
   const openNeighbour = useCallback(
@@ -359,10 +406,7 @@ function AppShell() {
         scope: 'global',
         inInputs: true,
         when: () => canGoBack,
-        run: () => {
-          setView('notes');
-          goBack();
-        },
+        run: () => goBack(),
       },
       {
         id: 'forward',
@@ -371,10 +415,7 @@ function AppShell() {
         scope: 'global',
         inInputs: true,
         when: () => canGoForward,
-        run: () => {
-          setView('notes');
-          goForward();
-        },
+        run: () => goForward(),
       },
       {
         id: 'prev-view',
@@ -398,7 +439,7 @@ function AppShell() {
         label: 'Open the note above in the sidebar',
         scope: 'notes',
         inInputs: true,
-        run: () => (viewRef.current === 'notes' ? openNeighbour(-1) : setView('notes')),
+        run: () => (viewRef.current === 'notes' ? openNeighbour(-1) : goView('notes')),
       },
       {
         id: 'next-note',
@@ -406,7 +447,7 @@ function AppShell() {
         label: 'Open the note below in the sidebar',
         scope: 'notes',
         inInputs: true,
-        run: () => (viewRef.current === 'notes' ? openNeighbour(1) : setView('notes')),
+        run: () => (viewRef.current === 'notes' ? openNeighbour(1) : goView('notes')),
       },
       {
         id: 'help',
@@ -437,7 +478,7 @@ function AppShell() {
         keys: `g ${v.key}`,
         label: v.label,
         scope: 'navigate',
-        run: () => setView(v.view),
+        run: () => goView(v.view),
       })),
       {
         id: 'go-editor',
@@ -520,6 +561,7 @@ function AppShell() {
       goForward,
       openNeighbour,
       stepView,
+      goView,
       openDaily,
       helpOpen,
     ],
@@ -623,7 +665,7 @@ function AppShell() {
             ctx.close();
             if (!item) return;
             const d = item.data as NoteListItem | { create: string };
-            if (viewRef.current !== 'notes') setView('notes');
+            if (viewRef.current !== 'notes') goView('notes');
             if ('create' in d) createNote(d.create);
             else openPath(d.path);
           },
@@ -663,7 +705,7 @@ function AppShell() {
             id: `go-${v.view}`,
             label: `Go to ${v.label}`,
             hint: `g ${v.key}`,
-            run: () => setView(v.view),
+            run: () => goView(v.view),
           })),
         ];
         return rankBy(all, q, (c) => [c.label]).map(({ row, score }) => ({
@@ -689,7 +731,7 @@ function AppShell() {
     return view === 'notes'
       ? [section(inNote), section(noteSection), section(commands)]
       : [section(noteSection), section(commands)];
-  }, [notes, view, openPath, createNote, openDaily, refreshLists]);
+  }, [notes, view, openPath, createNote, openDaily, refreshLists, goView]);
   useFinderSections('app', notesSections);
 
   const completions = useCallback(
@@ -697,10 +739,13 @@ function AppShell() {
     [notes],
   );
 
-  const openTag = useCallback((tag: string | null) => {
-    setTagFilter(tag);
-    if (tag) setView('notes');
-  }, []);
+  const openTag = useCallback(
+    (tag: string | null) => {
+      setTagFilter(tag);
+      if (tag) goView('notes');
+    },
+    [goView],
+  );
 
   const resolveMap = useMemo(() => {
     const m = new Map<string, boolean>();
@@ -710,10 +755,10 @@ function AppShell() {
 
   const openFromPlanning = useCallback(
     (path: string) => {
-      setView('notes');
+      goView('notes');
       openPath(path);
     },
-    [openPath],
+    [goView, openPath],
   );
 
   // Pages that edit notes while the editor is unmounted must refresh the
@@ -747,7 +792,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'notes' ? 'active' : ''}
-          onClick={() => setView('notes')}
+          onClick={() => goView('notes')}
           title="Notes"
         >
           ✎
@@ -755,7 +800,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'planning' ? 'active' : ''}
-          onClick={() => setView('planning')}
+          onClick={() => goView('planning')}
           title="Planning"
         >
           ▦
@@ -763,7 +808,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'projects' ? 'active' : ''}
-          onClick={() => setView('projects')}
+          onClick={() => goView('projects')}
           title="Projects: timeline, forecast and dependencies"
         >
           ◈
@@ -771,7 +816,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'availability' ? 'active' : ''}
-          onClick={() => setView('availability')}
+          onClick={() => goView('availability')}
           title="Availability: who is out when — feeds sprint bandwidth"
         >
           ✈
@@ -779,7 +824,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'digest' ? 'active' : ''}
-          onClick={() => setView('digest')}
+          onClick={() => goView('digest')}
           title="What changed in Jira since the last refresh"
         >
           ⟳
@@ -787,7 +832,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'tasks' ? 'active' : ''}
-          onClick={() => setView('tasks')}
+          onClick={() => goView('tasks')}
           title="Tasks"
         >
           ☑
@@ -795,7 +840,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'tracked' ? 'active' : ''}
-          onClick={() => setView('tracked')}
+          onClick={() => goView('tracked')}
           title="Tracked: commitments, decisions, risks and assumptions"
         >
           ◎
@@ -803,7 +848,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'objects' ? 'active' : ''}
-          onClick={() => setView('objects')}
+          onClick={() => goView('objects')}
           title="Objects"
         >
           ▤
@@ -811,7 +856,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'jira' ? 'active' : ''}
-          onClick={() => setView('jira')}
+          onClick={() => goView('jira')}
           title="Jira: settings, sprints, issues"
         >
           ⚙
@@ -819,7 +864,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'settings' ? 'active' : ''}
-          onClick={() => setView('settings')}
+          onClick={() => goView('settings')}
           title="Settings: appearance, vault history"
         >
           ◐
@@ -827,7 +872,7 @@ function AppShell() {
         <button
           type="button"
           className={view === 'private' ? 'active' : ''}
-          onClick={() => setView('private')}
+          onClick={() => goView('private')}
           title="Protected notes"
         >
           🔒
@@ -964,7 +1009,7 @@ function AppShell() {
                   }}
                   onSaved={onSaved}
                   onTrackedCreated={trackedCreated}
-                  onShowTracked={() => setView('tracked')}
+                  onShowTracked={() => goView('tracked')}
                   discardRef={discardRef}
                   apiRef={editorApi}
                   onFind={() => finder.open()}
