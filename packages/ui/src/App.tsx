@@ -1204,6 +1204,7 @@ function AppShell() {
             notes={notes}
             onOpen={openPath}
             onTag={openTag}
+            onJump={(pos) => editorApi.current?.goTo({ from: pos, to: pos })}
             onMetaChanged={(newPath) => {
               refreshLists();
               const current = noteRef.current;

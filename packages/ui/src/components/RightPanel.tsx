@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   type CategoryField,
   fieldsApi,
@@ -13,9 +13,12 @@ interface Props {
   onOpen: (path: string) => void;
   onTag: (tag: string) => void;
   onMetaChanged: (newPath?: string) => void;
+  /** move the editor cursor to a document offset (outline clicks) */
+  onJump?: (pos: number) => void;
 }
 
-export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props) {
+export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump }: Props) {
+  const outline = useMemo(() => (note ? headingsOf(note.content) : []), [note]);
   const [error, setError] = useState<string | null>(null);
   const [fields, setFields] = useState<CategoryField[]>([]);
   const [sprintOverrides, setSprintOverrides] = useState<string[] | null>(null);
@@ -222,6 +225,25 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged }: Props)
           </div>
         </>
       )}
+      {outline.length >= 2 && (
+        <>
+          <h3>Outline</h3>
+          <div className="outline">
+            {outline.map((h) => (
+              <button
+                type="button"
+                key={`${h.pos}`}
+                className="outline-item"
+                style={{ paddingLeft: 8 + (h.level - 1) * 12 }}
+                onClick={() => onJump?.(h.pos)}
+                title={`line ${h.line}`}
+              >
+                {h.text}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <h3>Backlinks ({note.backlinks.length})</h3>
       {note.backlinks.length === 0 && <div className="backlink muted">Nothing links here yet</div>}
       {note.backlinks.map((b) => (
@@ -327,4 +349,35 @@ function FieldEditor({
       />
     </label>
   );
+}
+
+/** ATX headings outside code fences and the frontmatter, with their offsets. */
+export function headingsOf(
+  text: string,
+): { level: number; text: string; pos: number; line: number }[] {
+  const out: { level: number; text: string; pos: number; line: number }[] = [];
+  let pos = 0;
+  let inFence = false;
+  let inFrontmatter = false;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i] as string;
+    if (i === 0 && /^\ufeff?---\s*$/.test(raw)) inFrontmatter = true;
+    else if (inFrontmatter && /^(---|\.\.\.)\s*$/.test(raw)) inFrontmatter = false;
+    else if (!inFrontmatter) {
+      if (/^\s*(```|~~~)/.test(raw)) inFence = !inFence;
+      else if (!inFence) {
+        const m = /^(#{1,6})\s+(.+?)\s*#*\s*$/.exec(raw);
+        if (m)
+          out.push({
+            level: (m[1] as string).length,
+            text: (m[2] as string).replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1'),
+            pos,
+            line: i + 1,
+          });
+      }
+    }
+    pos += raw.length + 1;
+  }
+  return out;
 }

@@ -78,3 +78,18 @@ describe('shortcuts', () => {
     expect(keyLabel('Mod+/')).toMatch(/\/$/);
   });
 });
+
+describe('headingsOf', () => {
+  it('lists ATX headings with levels and offsets, skipping frontmatter and fences', async () => {
+    const { headingsOf } = await import('../src/components/RightPanel.tsx');
+    const doc =
+      '---\ntitle: X\n---\n# One\n\ntext\n```\n# not a heading\n```\n## Two [[Link|alias]]\n';
+    const h = headingsOf(doc);
+    expect(h.map((x) => [x.level, x.text])).toEqual([
+      [1, 'One'],
+      [2, 'Two Link'],
+    ]);
+    expect(doc.slice(h[0]?.pos)).toMatch(/^# One/);
+    expect(doc.slice(h[1]?.pos)).toMatch(/^## Two/);
+  });
+});
