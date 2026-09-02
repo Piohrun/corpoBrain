@@ -122,6 +122,9 @@ function AppShell() {
   /** Browser-history position owned by note navigation in this app session. */
   const noteHistoryIndex = useRef(0);
   const [canGoBack, setCanGoBack] = useState(false);
+  /** highest history index this session has pushed — forward exists below it */
+  const noteHistoryMax = useRef(0);
+  const [canGoForward, setCanGoForward] = useState(false);
 
   const refreshLists = useCallback(() => {
     api
@@ -154,7 +157,9 @@ function AppShell() {
         if (historyMode === 'push' && previousPath && previousPath !== path) {
           const index = noteHistoryIndex.current + 1;
           noteHistoryIndex.current = index;
+          noteHistoryMax.current = index; // a new push discards any forward entries
           setCanGoBack(true);
+          setCanGoForward(false);
           window.history.pushState(
             { corpoBrainNote: true, index, path } satisfies NoteHistoryState,
             '',
@@ -185,6 +190,7 @@ function AppShell() {
     const existing = noteHistoryState(window.history.state);
     const index = existing && existing.path === (fromHash || null) ? existing.index : 0;
     noteHistoryIndex.current = index;
+    noteHistoryMax.current = index;
     setCanGoBack(index > 0);
     window.history.replaceState(
       { corpoBrainNote: true, index, path: fromHash || null } satisfies NoteHistoryState,
@@ -195,7 +201,10 @@ function AppShell() {
     const onPopState = (event: PopStateEvent) => {
       const entry = noteHistoryState(event.state);
       noteHistoryIndex.current = entry?.index ?? 0;
+      if (noteHistoryIndex.current > noteHistoryMax.current)
+        noteHistoryMax.current = noteHistoryIndex.current;
       setCanGoBack(noteHistoryIndex.current > 0);
+      setCanGoForward(noteHistoryIndex.current < noteHistoryMax.current);
       const p = hashPath();
       if (p && p !== noteRef.current?.path) openPath(p, 'none');
       else if (!p) {
@@ -210,6 +219,27 @@ function AppShell() {
   const goBack = useCallback(() => {
     if (noteHistoryIndex.current > 0) window.history.back();
   }, []);
+  const goForward = useCallback(() => {
+    if (noteHistoryIndex.current < noteHistoryMax.current) window.history.forward();
+  }, []);
+
+  /** Alt+↑/↓: open the note above/below the current one in the sidebar's visible order. */
+  const openNeighbour = useCallback(
+    (dir: 1 | -1) => {
+      const rows = [
+        ...document.querySelectorAll<HTMLElement>('.sidebar-scroll button[data-path]'),
+      ].filter((b) => b.offsetParent !== null);
+      if (!rows.length) return;
+      const current = noteRef.current?.path ?? null;
+      const at = rows.findIndex((b) => b.dataset.path === current);
+      const next = rows[at < 0 ? (dir === 1 ? 0 : rows.length - 1) : at + dir];
+      const path = next?.dataset.path;
+      if (!path) return;
+      next?.scrollIntoView({ block: 'nearest' });
+      openPath(path);
+    },
+    [openPath],
+  );
 
   // live updates from the vault watcher
   useVaultEvents((paths) => {
@@ -324,6 +354,33 @@ function AppShell() {
         run: () => goBack(),
       },
       {
+        id: 'forward',
+        keys: isMac ? 'Mod+]' : 'Alt+ArrowRight',
+        label: 'Forward again',
+        scope: 'notes',
+        inInputs: true,
+        when: () => canGoForward,
+        run: () => goForward(),
+      },
+      {
+        id: 'prev-note',
+        keys: 'Alt+ArrowUp',
+        label: 'Open the note above in the sidebar',
+        scope: 'notes',
+        inInputs: true,
+        when: () => viewRef.current === 'notes',
+        run: () => openNeighbour(-1),
+      },
+      {
+        id: 'next-note',
+        keys: 'Alt+ArrowDown',
+        label: 'Open the note below in the sidebar',
+        scope: 'notes',
+        inInputs: true,
+        when: () => viewRef.current === 'notes',
+        run: () => openNeighbour(1),
+      },
+      {
         id: 'help',
         keys: 'Mod+/',
         label: 'Keyboard shortcuts',
@@ -366,6 +423,13 @@ function AppShell() {
         id: 'ed-next',
         keys: 'F3',
         label: 'Next match of the last find',
+        scope: 'editor',
+        passive: true,
+      },
+      {
+        id: 'ed-moveline',
+        keys: 'Alt+Shift+ArrowUp / ArrowDown',
+        label: 'Move the line up / down',
         scope: 'editor',
         passive: true,
       },
@@ -427,7 +491,7 @@ function AppShell() {
         passive: true,
       },
     ],
-    [finder, canGoBack, goBack, openDaily, helpOpen],
+    [finder, canGoBack, canGoForward, goBack, goForward, openNeighbour, openDaily, helpOpen],
   );
   const shortcutsRef = useRef(shortcuts);
   shortcutsRef.current = shortcuts;
@@ -795,6 +859,16 @@ function AppShell() {
                     onClick={goBack}
                   >
                     ←
+                  </button>
+                  <button
+                    type="button"
+                    className="note-back"
+                    disabled={!canGoForward}
+                    title={`Forward again (${isMac ? '⌘]' : 'Alt+→'})`}
+                    aria-label="Forward to the next note"
+                    onClick={goForward}
+                  >
+                    →
                   </button>
                   <span className="title">{note.meta?.title ?? note.path}</span>
                   <span>{note.path}</span>

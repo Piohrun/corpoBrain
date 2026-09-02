@@ -84,6 +84,7 @@ export function Sidebar({
                 type="button"
                 key={n.path}
                 className={`tree-item${n.path === currentPath ? ' active' : ''}`}
+                data-path={n.path}
                 onClick={() => onOpen(n.path)}
                 title={n.path}
               >

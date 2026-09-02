@@ -143,6 +143,7 @@ export function NoteTree({ tree, currentPath, onOpen, onChanged, onError }: Prop
           <button
             type="button"
             className="tree-label"
+            data-path={node.path}
             onClick={() => onOpen(node.path)}
             title={`${node.path}${node.type !== 'note' ? ` · ${node.type}` : ''}`}
           >
