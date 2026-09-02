@@ -11,15 +11,18 @@ import {
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
-import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
+import { findNext, findPrevious, highlightSelectionMatches } from '@codemirror/search';
 import type { EditorState, Extension } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
+import { findExtension } from './find.ts';
 import { livePreview } from './livePreview.ts';
 import { findTables, htmlTableToMarkdown, tsvToMarkdownTable } from './tables.ts';
 
 export interface EditorConfig {
   onNavigate: (target: string) => void;
+  /** Mod-F inside the editor: open the app's Finder (in-note matches first) */
+  onFind: () => void;
   isResolved: (target: string) => boolean | undefined;
   getSecret: (cipher: string) => string | null;
   onSecretClick: (cipher: string) => void;
@@ -105,6 +108,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     markdown({ base: markdownLanguage }),
     syntaxHighlighting(mdHighlight),
     highlightSelectionMatches(),
+    findExtension(),
     closeBrackets(),
     autocompletion({ override: [wikilinkCompletions(cfg)], icons: false }),
     EditorView.domEventHandlers({ paste: (e, v) => tablePaste(e, v) }),
@@ -128,7 +132,16 @@ export function editorExtensions(cfg: EditorConfig): Extension {
       ...closeBracketsKeymap,
       ...defaultKeymap,
       ...historyKeymap,
-      ...searchKeymap,
+      // Mod-F belongs to the Finder; F3 / Mod-G walk the current query
+      {
+        key: 'Mod-f',
+        run: () => {
+          cfg.onFind();
+          return true;
+        },
+      },
+      { key: 'F3', run: findNext, shift: findPrevious, preventDefault: true },
+      { key: 'Mod-g', run: findNext, shift: findPrevious, preventDefault: true },
       ...completionKeymap,
       indentWithTab,
     ]),

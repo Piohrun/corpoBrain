@@ -7,6 +7,9 @@ import {
   type SavedView,
   viewApi,
 } from '../api.ts';
+import { rankBy } from '../finder/match.ts';
+import { useFinderSections } from '../finder/registry.tsx';
+import { type FinderSection, section } from '../finder/types.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { BandwidthGrid } from './BandwidthGrid.tsx';
@@ -93,6 +96,165 @@ export function PlanningPage({ onOpenNote }: Props) {
     const sprints = board.columns.filter((c) => c !== 'Backlog').slice(0, horizon);
     return [...sprints, 'Backlog'];
   }, [board, horizon]);
+
+  // ---- what Ctrl+F offers here: issues (multi, move/assign), people, sprints ----
+  const finderSections = useMemo<FinderSection[]>(() => {
+    if (!board) return [];
+    const jump = (id: string) => {
+      const el = document.querySelector<HTMLElement>(`[data-person-id="${CSS.escape(id)}"]`);
+      el?.scrollIntoView({ block: 'center' });
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 1600);
+    };
+    const sprints = section<{ name: string }>({
+      id: 'plan-sprints',
+      title: 'Sprints',
+      order: 30,
+      limit: 6,
+      search: (q) =>
+        rankBy(
+          [
+            ...board.sprints.map((s) => ({ name: s.name, state: s.state })),
+            { name: 'Backlog', state: '' },
+          ],
+          q,
+          (s) => [s.name],
+        ).map(({ row, score }) => ({
+          id: row.name,
+          label: row.name,
+          hint: row.state,
+          icon: '⟳',
+          data: row,
+          score,
+        })),
+      actions: [
+        {
+          id: 'only',
+          label: 'show only this sprint',
+          run: ([s], ctx) => {
+            ctx.close();
+            setSprintFilter(s?.data.name ?? null);
+          },
+        },
+        {
+          id: 'all',
+          label: 'show all sprints',
+          run: (_, ctx) => {
+            ctx.close();
+            setSprintFilter(null);
+          },
+        },
+      ],
+    });
+    const people = section<BoardModel['people'][number]>({
+      id: 'plan-people',
+      title: 'People',
+      order: 20,
+      limit: 6,
+      search: (q) =>
+        rankBy(
+          board.people.filter((p) => p.active),
+          q,
+          (p) => [p.name, p.team, p.region],
+        ).map(({ row, score }) => ({
+          id: row.path,
+          label: row.name,
+          detail: [row.region, row.team].filter(Boolean).join(' · '),
+          icon: '👤',
+          data: row,
+          score,
+        })),
+      actions: [
+        {
+          id: 'jump',
+          label: 'jump to row',
+          run: ([p], ctx) => {
+            ctx.close();
+            if (p) jump(p.data.path);
+          },
+        },
+        {
+          id: 'open',
+          label: 'open person',
+          run: ([p], ctx) => {
+            ctx.close();
+            if (p) onOpenNote(p.data.path);
+          },
+        },
+      ],
+    });
+    const open = board.issues.filter((i) => i.statusCategory !== 'done');
+    const issueSection = section<BoardModel['issues'][number]>({
+      id: 'plan-issues',
+      title: 'Issues',
+      order: 10,
+      multi: true,
+      limit: 8,
+      search: (q) =>
+        rankBy(open, q, (i) => [i.key, i.summary, i.epic], 60).map(({ row, score }) => ({
+          id: row.key,
+          label: `${row.key} ${row.summary ?? ''}`,
+          detail: `${row.effectiveSprint} · ${row.status ?? ''}`,
+          icon: '◈',
+          data: row,
+          score,
+        })),
+      actions: [
+        {
+          id: 'open',
+          label: 'open note',
+          when: (items) => items.length === 1,
+          run: ([i], ctx) => {
+            ctx.close();
+            if (i) onOpenNote(i.data.path);
+          },
+        },
+        {
+          id: 'move',
+          label: 'move to sprint…',
+          run: (items) => ({
+            pick: {
+              title: `Move ${items.length} issue${items.length === 1 ? '' : 's'} to`,
+              section: sprints,
+              onPick: (picked) => {
+                for (const i of items)
+                  patch(i.data.key, { sprint: (picked.data as { name: string }).name });
+              },
+            },
+          }),
+        },
+        {
+          id: 'assign',
+          label: 'assign to…',
+          run: (items) => ({
+            pick: {
+              title: `Assign ${items.length} issue${items.length === 1 ? '' : 's'} to`,
+              section: people,
+              onPick: (picked) => {
+                const person = picked.data as BoardModel['people'][number];
+                const id = person.jiraIds[0];
+                if (!id) {
+                  setError(`${person.name} has no Jira id on their person note`);
+                  return;
+                }
+                for (const i of items) patch(i.data.key, { assignee: id });
+              },
+            },
+          }),
+        },
+        {
+          id: 'filter',
+          label: 'filter the grid to this',
+          run: (_, ctx) => {
+            ctx.close();
+            setFilter(ctx.query);
+          },
+        },
+      ],
+    });
+    return [issueSection, people, sprints];
+  }, [board, patch, onOpenNote]);
+  useFinderSections('planning', finderSections);
 
   const issues = useMemo(() => {
     if (!board) return [];

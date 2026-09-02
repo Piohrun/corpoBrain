@@ -7,6 +7,9 @@ import {
   planApi,
 } from '../api.ts';
 import { localISODate, monthsAgo } from '../dates.ts';
+import { rankBy } from '../finder/match.ts';
+import { useFinderSections } from '../finder/registry.tsx';
+import { type FinderSection, section } from '../finder/types.ts';
 
 /** rows keep a stable client id so editing and deleting do not shuffle inputs */
 type DraftEntry = AvailabilityEntry & { rowId: string };
@@ -90,6 +93,85 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
     setDraft(next);
     persist(next);
   };
+  const addEntryRef = useRef(addEntry);
+  addEntryRef.current = addEntry;
+
+  // ---- Ctrl+F here: people → jump to their row or add an entry for today ----
+  const finderSections = useMemo<FinderSection[]>(() => {
+    const people = data?.people ?? [];
+    const jump = (path: string) => {
+      const el = document.querySelector<HTMLElement>(`.av-row[data-path="${CSS.escape(path)}"]`);
+      el?.scrollIntoView({ block: 'center' });
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 1600);
+    };
+    const today = localISODate();
+    return [
+      section<(typeof people)[number]>({
+        id: 'av-people',
+        title: 'People',
+        order: 10,
+        limit: 8,
+        search: (q) =>
+          rankBy(people, q, (p) => [p.name, p.path]).map(({ row, score }) => ({
+            id: row.path,
+            label: row.name,
+            icon: '👤',
+            data: row,
+            score,
+          })),
+        actions: [
+          {
+            id: 'jump',
+            label: 'jump to row',
+            run: ([p], ctx) => {
+              ctx.close();
+              if (p) jump(p.data.path);
+            },
+          },
+          {
+            id: 'ooo',
+            label: 'add time off today',
+            run: ([p], ctx) => {
+              ctx.close();
+              if (p)
+                addEntryRef.current({
+                  person: p.data.name,
+                  from: today,
+                  to: today,
+                  kind: 'ooo',
+                  note: '',
+                });
+            },
+          },
+          {
+            id: 'support',
+            label: 'add support rota today',
+            run: ([p], ctx) => {
+              ctx.close();
+              if (p)
+                addEntryRef.current({
+                  person: p.data.name,
+                  from: today,
+                  to: today,
+                  kind: 'support',
+                  note: '',
+                });
+            },
+          },
+          {
+            id: 'open',
+            label: 'open person',
+            run: ([p], ctx) => {
+              ctx.close();
+              if (p) onOpenNote(p.data.path);
+            },
+          },
+        ],
+      }),
+    ];
+  }, [data, onOpenNote]);
+  useFinderSections('availability', finderSections);
 
   const saveHolidays = () => {
     availabilityApi
@@ -708,7 +790,7 @@ function MonthGrid({
             ))}
           </div>
           {people.map((p) => (
-            <div className="av-row" key={p.path}>
+            <div className="av-row" key={p.path} data-path={p.path}>
               <span className="av-name">
                 <button type="button" className="key-link" onClick={() => onOpenNote(p.path)}>
                   {p.name}

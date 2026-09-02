@@ -8,9 +8,9 @@ import {
   treeApi,
 } from './api.ts';
 import { AvailabilityPage } from './components/AvailabilityPage.tsx';
-import { CommandPalette, type PaletteCommand } from './components/CommandPalette.tsx';
+
 import { DigestPage } from './components/DigestPage.tsx';
-import { Editor } from './components/Editor.tsx';
+import { Editor, type EditorApi } from './components/Editor.tsx';
 import { JiraPage } from './components/JiraPage.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
 import { PersonPanel } from './components/PersonPanel.tsx';
@@ -19,10 +19,16 @@ import { PrivatePage } from './components/PrivatePage.tsx';
 import { ProjectsPage } from './components/ProjectsPage.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { SettingsPage } from './components/SettingsPage.tsx';
+import { ShortcutHelp } from './components/ShortcutHelp.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
 import { TrackedPage } from './components/TrackedPage.tsx';
+import { Finder } from './finder/Finder.tsx';
+import { rankBy } from './finder/match.ts';
+import { FinderProvider, useFinder, useFinderSections } from './finder/registry.tsx';
+import { type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
+import { installShortcuts, isMac, type Shortcut } from './shortcuts.ts';
 
 function hashPath(): string {
   return decodeURIComponent(window.location.hash.replace(/^#\//, ''));
@@ -58,26 +64,55 @@ function listsAffected(prev: NoteResponse, fresh: NoteResponse): boolean {
 }
 
 export function App() {
+  return (
+    <FinderProvider>
+      <AppShell />
+    </FinderProvider>
+  );
+}
+
+type View =
+  | 'notes'
+  | 'planning'
+  | 'projects'
+  | 'availability'
+  | 'digest'
+  | 'tasks'
+  | 'tracked'
+  | 'objects'
+  | 'jira'
+  | 'private'
+  | 'settings';
+
+/** `g` then this letter jumps to the view */
+const VIEW_KEYS: { key: string; view: View; label: string }[] = [
+  { key: 'n', view: 'notes', label: 'Notes' },
+  { key: 'p', view: 'planning', label: 'Planning' },
+  { key: 'j', view: 'projects', label: 'Projects' },
+  { key: 'a', view: 'availability', label: 'Availability' },
+  { key: 'd', view: 'digest', label: 'Digest (what changed in Jira)' },
+  { key: 't', view: 'tasks', label: 'Tasks' },
+  { key: 'k', view: 'tracked', label: 'Tracked commitments, decisions, risks' },
+  { key: 'o', view: 'objects', label: 'Objects' },
+  { key: 'i', view: 'jira', label: 'Jira settings and sync' },
+  { key: 's', view: 'settings', label: 'Settings' },
+  { key: 'l', view: 'private', label: 'Protected notes' },
+];
+
+function AppShell() {
+  const finder = useFinder();
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [chord, setChord] = useState<string | null>(null);
+  const editorApi = useRef<EditorApi | null>(null);
   const [notes, setNotes] = useState<NoteListItem[]>([]);
   const [tree, setTree] = useState<TreeModel | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [view, setView] = useState<
-    | 'notes'
-    | 'planning'
-    | 'projects'
-    | 'availability'
-    | 'digest'
-    | 'tasks'
-    | 'tracked'
-    | 'objects'
-    | 'jira'
-    | 'private'
-    | 'settings'
-  >('notes');
+  const [view, setView] = useState<View>('notes');
+  const viewRef = useRef<View>('notes');
+  viewRef.current = view;
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
   /** true while a delete is in flight, so the editor drops its pending save */
@@ -243,35 +278,324 @@ export function App() {
       .catch(() => refreshLists());
   }, [refreshLists]);
 
-  // global shortcuts
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
-      const backShortcut = mac ? e.metaKey && e.key === '[' : e.altKey && e.key === 'ArrowLeft';
-      if (backShortcut && canGoBack) {
-        e.preventDefault();
-        e.stopPropagation();
-        goBack();
-      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'p' || e.key === 'k')) {
-        e.preventDefault();
-        setPaletteOpen((v) => !v);
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-        e.preventDefault();
-        openDaily();
-      }
-    };
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [canGoBack, goBack, openDaily]);
+  // ---- one keyboard model: the list below is also the help overlay ----
+  const shortcuts = useMemo<Shortcut[]>(
+    () => [
+      {
+        id: 'finder',
+        keys: 'Mod+F',
+        label: 'Find: in this note, notes, Jira, commands — or what the page offers',
+        scope: 'global',
+        inInputs: true,
+        run: () => finder.open(),
+      },
+      {
+        id: 'finder-alt',
+        keys: 'Mod+P',
+        label: 'Find (same as Ctrl+F)',
+        scope: 'global',
+        inInputs: true,
+        run: () => finder.open(),
+      },
+      {
+        id: 'finder-alt2',
+        keys: 'Mod+K',
+        label: 'Find (same as Ctrl+F)',
+        scope: 'global',
+        inInputs: true,
+        passive: false,
+        run: () => finder.open(),
+      },
+      {
+        id: 'daily',
+        keys: 'Mod+D',
+        label: 'Open today’s daily note',
+        scope: 'global',
+        inInputs: true,
+        run: () => openDaily(),
+      },
+      {
+        id: 'back',
+        keys: isMac ? 'Mod+[' : 'Alt+ArrowLeft',
+        label: 'Back to the previous note',
+        scope: 'notes',
+        inInputs: true,
+        when: () => canGoBack,
+        run: () => goBack(),
+      },
+      {
+        id: 'help',
+        keys: 'Mod+/',
+        label: 'Keyboard shortcuts',
+        scope: 'global',
+        inInputs: true,
+        run: () => setHelpOpen((v) => !v),
+      },
+      {
+        id: 'help2',
+        keys: '?',
+        label: 'Keyboard shortcuts',
+        scope: 'global',
+        run: () => setHelpOpen((v) => !v),
+      },
+      {
+        id: 'escape',
+        keys: 'Escape',
+        label: 'Close the open overlay',
+        scope: 'global',
+        inInputs: true,
+        when: () => helpOpen,
+        run: () => setHelpOpen(false),
+      },
+      ...VIEW_KEYS.map<Shortcut>((v) => ({
+        id: `go-${v.view}`,
+        keys: `g ${v.key}`,
+        label: v.label,
+        scope: 'navigate',
+        run: () => setView(v.view),
+      })),
+      {
+        id: 'go-editor',
+        keys: 'g e',
+        label: 'Focus the editor',
+        scope: 'navigate',
+        run: () => editorApi.current?.focus(),
+      },
+      // documented here, handled by the editor / lists themselves
+      {
+        id: 'ed-next',
+        keys: 'F3',
+        label: 'Next match of the last find',
+        scope: 'editor',
+        passive: true,
+      },
+      {
+        id: 'ed-wiki',
+        keys: '[[',
+        label: 'Link to a note (autocomplete)',
+        scope: 'editor',
+        passive: true,
+      },
+      {
+        id: 'ed-enc',
+        keys: 'Mod+Shift+E',
+        label: 'Encrypt the selection',
+        scope: 'editor',
+        passive: true,
+      },
+      {
+        id: 'ed-track',
+        keys: 'select text',
+        label: '“Track as…” a commitment, decision, risk or assumption',
+        scope: 'editor',
+        passive: true,
+      },
+      {
+        id: 'ls-move',
+        keys: 'ArrowUp / ArrowDown',
+        label: 'Move between rows',
+        scope: 'lists',
+        passive: true,
+      },
+      { id: 'ls-open', keys: 'Enter', label: 'Open the row', scope: 'lists', passive: true },
+      {
+        id: 'fi-sections',
+        keys: 'Tab',
+        label: 'Jump to the next section',
+        scope: 'finder',
+        passive: true,
+      },
+      {
+        id: 'fi-actions',
+        keys: 'ArrowRight',
+        label: 'Other actions for the row',
+        scope: 'finder',
+        passive: true,
+      },
+      {
+        id: 'fi-select',
+        keys: 'Space',
+        label: 'Select several (multi sections)',
+        scope: 'finder',
+        passive: true,
+      },
+      {
+        id: 'fi-prefix',
+        keys: '/ # > @',
+        label: 'Prefixes: this note · tags · commands · people',
+        scope: 'finder',
+        passive: true,
+      },
+    ],
+    [finder, canGoBack, goBack, openDaily, helpOpen],
+  );
+  const shortcutsRef = useRef(shortcuts);
+  shortcutsRef.current = shortcuts;
+  useEffect(() => installShortcuts(() => shortcutsRef.current, setChord), []);
 
-  const commands: PaletteCommand[] = [
-    { id: 'daily', label: 'Open today’s daily note', hint: 'Ctrl+D', run: openDaily },
-    {
-      id: 'reload',
-      label: 'Reload note lists',
-      run: refreshLists,
-    },
-  ];
+  // in-note find highlights go away with the Finder
+  useEffect(() => {
+    if (!finder.isOpen) editorApi.current?.clearFind();
+  }, [finder.isOpen]);
+
+  // ---- Finder sections the shell owns: this note, notes, commands ----
+  const notesSections = useMemo<FinderSection[]>(() => {
+    const inNote: FinderSection<{ from: number; to: number }> = {
+      id: 'in-note',
+      title: 'In this note',
+      order: 10,
+      prefix: '/',
+      limit: 6,
+      showEmpty: false,
+      search: (q) => {
+        const ed = editorApi.current;
+        if (!ed || !q.trim()) return [];
+        return ed.find(q).map((m) => ({
+          id: `${m.from}`,
+          label: m.text.trim(),
+          detail: `line ${m.line}`,
+          icon: '¶',
+          data: { from: m.from, to: m.to },
+        }));
+      },
+      actions: [
+        {
+          id: 'jump',
+          label: 'go to match',
+          run: ([m], ctx) => {
+            ctx.close();
+            if (m) editorApi.current?.goTo(m.data);
+          },
+        },
+      ],
+    };
+    const linkable = notes.filter((n) => !n.protected);
+    const noteSection: FinderSection<NoteListItem | { create: string }> = {
+      id: 'notes',
+      title: 'Notes',
+      order: 20,
+      limit: 8,
+      async: true,
+      search: async (q) => {
+        const titleHits = rankBy(linkable, q, (n) => [n.title, n.path], 40).map(
+          ({ row, score }) => ({
+            id: row.path,
+            label: row.title,
+            detail: row.path,
+            icon: row.type === 'jira' ? '◈' : row.type === 'person' ? '👤' : '📄',
+            data: row,
+            score,
+          }),
+        );
+        const trimmed = q.trim();
+        let bodyHits: typeof titleHits = [];
+        if (trimmed.length >= 2) {
+          try {
+            const seen = new Set(titleHits.map((t) => t.id));
+            const byPath = new Map(linkable.map((n) => [n.path, n]));
+            bodyHits = (await api.search(trimmed, 12))
+              .filter((h) => !seen.has(h.path) && byPath.has(h.path))
+              .map((h) => ({
+                id: h.path,
+                label: h.title,
+                detail: h.snippet.replace(/<<|>>/g, '').replace(/\s+/g, ' ').slice(0, 80),
+                icon: '¶',
+                data: byPath.get(h.path) as NoteListItem,
+                score: 5,
+              }));
+          } catch {
+            bodyHits = [];
+          }
+        }
+        const items: (typeof titleHits)[number][] = [...titleHits, ...bodyHits];
+        if (trimmed && !linkable.some((n) => n.title.toLowerCase() === trimmed.toLowerCase())) {
+          items.push({
+            id: '::create::',
+            label: `Create “${trimmed}”`,
+            detail: 'new note',
+            icon: '＋',
+            data: { create: trimmed } as unknown as NoteListItem,
+            score: 99,
+          });
+        }
+        return items;
+      },
+      actions: [
+        {
+          id: 'open',
+          label: 'open',
+          run: ([item], ctx) => {
+            ctx.close();
+            if (!item) return;
+            const d = item.data as NoteListItem | { create: string };
+            if (viewRef.current !== 'notes') setView('notes');
+            if ('create' in d) createNote(d.create);
+            else openPath(d.path);
+          },
+        },
+        {
+          id: 'link',
+          label: 'insert [[link]] here',
+          keys: 'Mod+L',
+          when: (items) =>
+            viewRef.current === 'notes' &&
+            editorApi.current !== null &&
+            !items.some((i) => 'create' in (i.data as object)),
+          run: (items, ctx) => {
+            ctx.close();
+            const ed = editorApi.current;
+            if (!ed) return;
+            const titles = items.map((i) => (i.data as NoteListItem).title);
+            const sel = ed.selection();
+            if (sel && titles.length === 1) ed.wrap(`[[${titles[0]}|`, ']]');
+            else ed.insert(titles.map((t) => `[[${t}]]`).join(' '));
+          },
+        },
+      ],
+    };
+    const commands: FinderSection<() => void> = {
+      id: 'commands',
+      title: 'Commands',
+      order: 90,
+      prefix: '>',
+      limit: 6,
+      search: (q) => {
+        const all: { id: string; label: string; hint?: string; run: () => void }[] = [
+          { id: 'daily', label: 'Open today’s daily note', hint: 'Ctrl+D', run: openDaily },
+          { id: 'help', label: 'Keyboard shortcuts', hint: '?', run: () => setHelpOpen(true) },
+          { id: 'reload', label: 'Reload note lists', run: refreshLists },
+          ...VIEW_KEYS.map((v) => ({
+            id: `go-${v.view}`,
+            label: `Go to ${v.label}`,
+            hint: `g ${v.key}`,
+            run: () => setView(v.view),
+          })),
+        ];
+        return rankBy(all, q, (c) => [c.label]).map(({ row, score }) => ({
+          id: row.id,
+          label: row.label,
+          hint: row.hint,
+          icon: '›',
+          data: row.run,
+          score,
+        }));
+      },
+      actions: [
+        {
+          id: 'run',
+          label: 'run',
+          run: ([c], ctx) => {
+            ctx.close();
+            c?.data();
+          },
+        },
+      ],
+    };
+    return view === 'notes'
+      ? [section(inNote), section(noteSection), section(commands)]
+      : [section(noteSection), section(commands)];
+  }, [notes, view, openPath, createNote, openDaily, refreshLists]);
+  useFinderSections('app', notesSections);
 
   const completions = useCallback(
     () => notes.filter((n) => !n.protected).map((n) => ({ title: n.title, path: n.path })),
@@ -444,8 +768,8 @@ export function App() {
             currentPath={note?.path ?? null}
             onOpen={openPath}
             onDaily={openDaily}
-            onNew={() => setPaletteOpen(true)}
-            onPalette={() => setPaletteOpen(true)}
+            onNew={() => finder.open({ section: 'notes' })}
+            onFind={() => finder.open()}
             onTreeChanged={(moved) => {
               refreshLists();
               const current = noteRef.current;
@@ -537,6 +861,8 @@ export function App() {
                   onTrackedCreated={trackedCreated}
                   onShowTracked={() => setView('tracked')}
                   discardRef={discardRef}
+                  apiRef={editorApi}
+                  onFind={() => finder.open()}
                 />
                 {note.tags.length > 0 && (
                   <div className="tag-footer">
@@ -559,7 +885,9 @@ export function App() {
                   <p>
                     <strong>corpoBrain</strong>
                   </p>
-                  <p>Ctrl+P to open or create a note · Ctrl+D for today’s daily note</p>
+                  <p>
+                    Ctrl+F finds anything · Ctrl+D opens today’s daily note · ? lists the shortcuts
+                  </p>
                 </div>
               </div>
             )}
@@ -583,14 +911,9 @@ export function App() {
           />
         </>
       )}
-      <CommandPalette
-        open={paletteOpen}
-        notes={notes}
-        commands={commands}
-        onOpen={openPath}
-        onClose={() => setPaletteOpen(false)}
-        onCreate={createNote}
-      />
+      <Finder />
+      {helpOpen && <ShortcutHelp shortcuts={shortcuts} onClose={() => setHelpOpen(false)} />}
+      {chord && <div className="chord-pending">{chord} … then a letter (? for the list)</div>}
     </div>
   );
 }

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   type BoardModel,
   type CalendarModel,
@@ -8,6 +7,9 @@ import {
   planApi,
   projectApi,
 } from '../api.ts';
+import { rankBy } from '../finder/match.ts';
+import { useFinder, useFinderSections } from '../finder/registry.tsx';
+import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { ProjectNotes } from './ProjectNotes.tsx';
@@ -28,6 +30,8 @@ const shortDate = (iso: string | null): string =>
 
 /** Projects: rollup cards on the left, the day-grid calendar on the right. */
 export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+  const finder = useFinder();
+  const [board, setBoard] = useState<BoardModel | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [untagged, setUntagged] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
@@ -65,11 +69,19 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
       .catch((e: Error) => setError(e.message));
   }, [selected, horizon]);
 
+  const loadBoard = useCallback(() => {
+    planApi
+      .board()
+      .then(setBoard)
+      .catch(() => {});
+  }, []);
   useEffect(loadList, [loadList]);
   useEffect(loadTimeline, [loadTimeline]);
+  useEffect(loadBoard, [loadBoard]);
   useVaultEvents(() => {
     loadList();
     loadTimeline();
+    loadBoard();
   });
 
   const refresh = useCallback(() => {
@@ -86,6 +98,186 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
     },
     [refresh],
   );
+
+  // ---- what Ctrl+F offers on this page: issues (multi), epics/labels, people ----
+  const sections = useMemo<FinderSection[]>(() => {
+    if (!model || !board) return [];
+    const inProject = new Set([...model.blocks.map((b) => b.key), ...model.rail.map((r) => r.key)]);
+    const candidates = board.issues.filter(
+      (i) => i.statusCategory !== 'done' && !inProject.has(i.key),
+    );
+    const issues = section<BoardModel['issues'][number]>({
+      id: 'proj-issues',
+      title: `Jira issues — add to ${model.project.title}`,
+      order: 10,
+      multi: true,
+      limit: 10,
+      search: (q) =>
+        rankBy(candidates, q, (i) => [i.key, i.summary, i.epic], 60).map(({ row, score }) => ({
+          id: row.key,
+          label: `${row.key} ${row.summary ?? ''}`,
+          detail: `${row.status ?? ''}${row.effectiveEffort !== null ? ` · ${row.effectiveEffort}${model.unit}` : ' · no estimate'}${row.epic ? ` · ${row.epic}` : ''}`,
+          icon: '◈',
+          data: row,
+          score,
+        })),
+      actions: [
+        {
+          id: 'add',
+          label: 'add to project',
+          run: async (items, ctx) => {
+            ctx.close();
+            const day = typeof ctx.context.day === 'string' ? ctx.context.day : null;
+            const row = ctx.context.row as CalendarModel['rows'][number] | undefined;
+            const sprint = typeof ctx.context.sprint === 'string' ? ctx.context.sprint : null;
+            for (const i of items) {
+              const body: PlanPatch = {};
+              if (i.data.plan.project !== model.project.title) body.project = model.project.title;
+              if (day) body.start = day;
+              if (row?.jiraId) body.assignee = row.jiraId;
+              else if (row?.assignee === '(unassigned)') body.assignee = null;
+              if (sprint) body.sprint = sprint;
+              await planApi.patchIssue(i.data.key, body).catch((e: Error) => setError(e.message));
+            }
+            refresh();
+          },
+        },
+        {
+          id: 'open',
+          label: 'open note',
+          run: ([i], ctx) => {
+            ctx.close();
+            if (i) onOpenNote(i.data.path);
+          },
+        },
+      ],
+    });
+    const epics = new Map<string, { summary: string | null; open: number; total: number }>();
+    const labels = new Map<string, { open: number; total: number }>();
+    for (const i of board.issues) {
+      const isOpen = i.statusCategory !== 'done';
+      if (i.epic && !model.rules.epics.includes(i.epic)) {
+        const e = epics.get(i.epic) ?? { summary: null, open: 0, total: 0 };
+        e.total++;
+        if (isOpen) e.open++;
+        epics.set(i.epic, e);
+      }
+      for (const l of i.labels) {
+        if (model.rules.labels.includes(l)) continue;
+        const e = labels.get(l) ?? { open: 0, total: 0 };
+        e.total++;
+        if (isOpen) e.open++;
+        labels.set(l, e);
+      }
+    }
+    for (const i of board.issues) {
+      const e = epics.get(i.key);
+      if (e) e.summary = i.summary;
+    }
+    type Rule = {
+      kind: 'epics' | 'labels';
+      value: string;
+      text: string;
+      open: number;
+      total: number;
+    };
+    const rules: Rule[] = [
+      ...[...epics.entries()].map(([k, e]) => ({
+        kind: 'epics' as const,
+        value: k,
+        text: `${k} ${e.summary ?? ''}`,
+        open: e.open,
+        total: e.total,
+      })),
+      ...[...labels.entries()].map(([l, e]) => ({
+        kind: 'labels' as const,
+        value: l,
+        text: `#${l}`,
+        open: e.open,
+        total: e.total,
+      })),
+    ];
+    const rulesSection = section<Rule>({
+      id: 'proj-rules',
+      title: 'Epics and labels — every matching issue joins',
+      order: 20,
+      limit: 6,
+      search: (q) =>
+        rankBy(rules, q, (r) => [r.text], 40).map(({ row, score }) => ({
+          id: `${row.kind}:${row.value}`,
+          label: row.text,
+          hint: `${row.open} open / ${row.total}`,
+          icon: row.kind === 'epics' ? '◆' : '#',
+          data: row,
+          score,
+        })),
+      actions: [
+        {
+          id: 'rule',
+          label: 'add as a project rule',
+          run: async ([r], ctx) => {
+            ctx.close();
+            if (!r) return;
+            await projectApi
+              .rules(model.project.path, { add: { [r.data.kind]: [r.data.value] } })
+              .then(refresh)
+              .catch((e: Error) => setError(e.message));
+          },
+        },
+      ],
+    });
+    const rosterNames = model.rows.filter((r) => r.inRoster).map((r) => r.name);
+    const people = board.people.filter(
+      (p) => p.active && !model.rows.some((r) => r.path === p.path),
+    );
+    const peopleSection = section<BoardModel['people'][number]>({
+      id: 'proj-people',
+      title: 'People — add to the roster',
+      order: 30,
+      multi: true,
+      limit: 8,
+      search: (q) =>
+        rankBy(people, q, (p) => [p.name, p.team, p.region], 40).map(({ row, score }) => ({
+          id: row.path,
+          label: row.name,
+          detail: [row.region, row.team].filter(Boolean).join(' · '),
+          icon: '👤',
+          data: row,
+          score,
+        })),
+      actions: [
+        {
+          id: 'roster',
+          label: 'add to roster',
+          run: async (items, ctx) => {
+            ctx.close();
+            await projectApi
+              .roster(model.project.path, [...rosterNames, ...items.map((i) => i.data.name)])
+              .then(refresh)
+              .catch((e: Error) => setError(e.message));
+          },
+        },
+        {
+          id: 'open',
+          label: 'open person',
+          run: ([p], ctx) => {
+            ctx.close();
+            if (p) onOpenNote(p.data.path);
+          },
+        },
+      ],
+    });
+    return [issues, rulesSection, peopleSection];
+  }, [model, board, refresh, onOpenNote]);
+  useFinderSections('projects', sections);
+
+  const removeRule = (kind: 'epics' | 'labels' | 'keys', value: string) => {
+    if (!model) return;
+    projectApi
+      .rules(model.project.path, { remove: { [kind]: [value] } })
+      .then(refresh)
+      .catch((e: Error) => setError(e.message));
+  };
 
   const createProject = () => {
     const title = window.prompt('Project name');
@@ -227,8 +419,22 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                   +
                 </button>
               </span>
-              <BulkAddButton model={model} onSaved={refresh} onError={setError} />
-              <RosterButton model={model} onSaved={refresh} onError={setError} />
+              <button
+                type="button"
+                className="plan-btn"
+                onClick={() => finder.open({ section: 'proj-issues' })}
+                title="Find Jira issues, epics or labels to add to this project (Ctrl+F)"
+              >
+                + issues
+              </button>
+              <button
+                type="button"
+                className="plan-btn"
+                onClick={() => finder.open({ section: 'proj-people' })}
+                title="Add people to this project so they have a row before any issues are assigned"
+              >
+                + person
+              </button>
               <button
                 type="button"
                 className="plan-btn"
@@ -246,6 +452,47 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
               </button>
             </div>
 
+            {(model.rules.epics.length > 0 ||
+              model.rules.labels.length > 0 ||
+              model.rules.keys.length > 0) && (
+              <div className="proj-rules">
+                <span className="muted small">rules:</span>
+                {model.rules.epics.map((k) => (
+                  <button
+                    type="button"
+                    key={`e${k}`}
+                    className="digest-chip"
+                    title="Remove this rule"
+                    onClick={() => removeRule('epics', k)}
+                  >
+                    epic {k} ✕
+                  </button>
+                ))}
+                {model.rules.labels.map((l) => (
+                  <button
+                    type="button"
+                    key={`l${l}`}
+                    className="digest-chip"
+                    title="Remove this rule"
+                    onClick={() => removeRule('labels', l)}
+                  >
+                    label {l} ✕
+                  </button>
+                ))}
+                {model.rules.keys.map((k) => (
+                  <button
+                    type="button"
+                    key={`k${k}`}
+                    className="digest-chip"
+                    title="Remove this rule"
+                    onClick={() => removeRule('keys', k)}
+                  >
+                    {k} ✕
+                  </button>
+                ))}
+              </div>
+            )}
+
             {model.warnings.length > 0 && (
               <div className="proj-warnings">
                 {model.warnings.map((w) => (
@@ -258,7 +505,18 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
 
             <ProjectNotes path={model.project.path} onOpenNote={onOpenNote} />
 
-            <Calendar model={model} day={day} onOpenNote={onOpenNote} onPatch={patch} />
+            <Calendar
+              model={model}
+              day={day}
+              onOpenNote={onOpenNote}
+              onPatch={patch}
+              onPickDay={(dayIdx, rowIdx, sprint) =>
+                finder.open({
+                  section: 'proj-issues',
+                  context: { day: model.days[dayIdx], row: model.rows[rowIdx], sprint },
+                })
+              }
+            />
           </>
         )}
       </div>
@@ -286,22 +544,19 @@ function Calendar({
   day: DAY,
   onOpenNote,
   onPatch,
+  onPickDay,
 }: {
   model: CalendarModel;
   day: number;
   onOpenNote: (path: string) => void;
   onPatch: (key: string, body: PlanPatch) => void;
+  /** an empty day was clicked: let the Finder add an issue there */
+  onPickDay: (day: number, row: number, sprint: string | null) => void;
 }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   dragRef.current = drag;
-  const [search, setSearch] = useState<{
-    day: number;
-    row: number;
-    cx: number;
-    cy: number;
-  } | null>(null);
 
   const width = model.days.length * DAY;
   const height = Math.max(model.rows.length, 8) * ROW;
@@ -416,12 +671,7 @@ function Calendar({
     if ((e.target as HTMLElement).closest('.cal-block')) return;
     const { day, row } = pointToCell(e);
     if (day < 0 || day >= model.days.length || row < 0) return;
-    setSearch({
-      day,
-      row: Math.min(row, model.rows.length - 1),
-      cx: e.clientX,
-      cy: e.clientY,
-    });
+    onPickDay(day, Math.min(row, model.rows.length - 1), sprintAt(day));
   };
 
   const ghostW = (d: Drag) =>
@@ -655,20 +905,6 @@ function Calendar({
 
       <ComingUp model={model} onOpenNote={onOpenNote} />
 
-      {search &&
-        createPortal(
-          <IssueSearch
-            model={model}
-            at={search}
-            onClose={() => setSearch(null)}
-            onPick={(key, body) => {
-              setSearch(null);
-              onPatch(key, body);
-            }}
-          />,
-          document.body,
-        )}
-
       {model.rail.length > 0 && (
         <section>
           <h2 className="plan-h2">Not on the calendar ({model.rail.length})</h2>
@@ -703,384 +939,6 @@ function Calendar({
         </section>
       )}
     </div>
-  );
-}
-
-// -------------------------------------------------- click-a-day issue search
-
-function IssueSearch({
-  model,
-  at,
-  onClose,
-  onPick,
-}: {
-  model: CalendarModel;
-  at: { day: number; row: number; cx: number; cy: number };
-  onClose: () => void;
-  onPick: (key: string, body: PlanPatch) => void;
-}) {
-  const [board, setBoard] = useState<BoardModel | null>(null);
-  const [q, setQ] = useState('');
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    planApi
-      .board()
-      .then(setBoard)
-      .catch(() => {});
-    inputRef.current?.focus();
-  }, []);
-
-  const inProject = useMemo(() => new Set(model.blocks.map((b) => b.key)), [model.blocks]);
-  const matches = useMemo(() => {
-    if (!board) return [];
-    const needle = q.trim().toLowerCase();
-    return board.issues
-      .filter((i) => i.statusCategory !== 'done' && !inProject.has(i.key))
-      .filter(
-        (i) =>
-          !needle ||
-          i.key.toLowerCase().includes(needle) ||
-          (i.summary ?? '').toLowerCase().includes(needle) ||
-          (i.epic ?? '').toLowerCase().includes(needle),
-      )
-      .slice(0, 25);
-  }, [board, q, inProject]);
-
-  const row = model.rows[at.row];
-  const day = model.days[at.day];
-  const span = model.sprints.find((s) => at.day >= s.from && at.day < s.from + s.span);
-  const sprint = span && span.state !== 'projected' ? span.name : undefined;
-  const sprintLabel = span
-    ? span.state === 'projected'
-      ? `≈ ${span.name}`
-      : span.name
-    : undefined;
-
-  const pick = (key: string, alreadyInProject: boolean) => {
-    const body: PlanPatch = { start: day ?? null };
-    if (!alreadyInProject) body.project = model.project.title;
-    if (row?.jiraId) body.assignee = row.jiraId;
-    if (sprint) body.sprint = sprint;
-    onPick(key, body);
-  };
-
-  const left = Math.max(8, Math.min(at.cx, window.innerWidth - 344));
-  const top = Math.max(8, Math.min(at.cy + 6, window.innerHeight - 380));
-
-  return (
-    <>
-      <div className="cal-search-backdrop" onPointerDown={onClose} />
-      <div
-        className="cal-search floating"
-        style={{ left, top }}
-        onPointerUp={(e) => e.stopPropagation()}
-      >
-        <div className="cal-search-head">
-          <b>{row?.name}</b> · {shortDate(day ?? null)}
-          {sprintLabel ? ` · ${sprintLabel}` : ''}
-          <span className="spacer" />
-          <button type="button" className="row-del" onClick={onClose}>
-            ✕
-          </button>
-        </div>
-        <input
-          ref={inputRef}
-          className="plan-filter"
-          placeholder="find a jira by key or text…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose();
-            if (e.key === 'Enter' && matches[0]) {
-              const first = matches[0];
-              pick(first.key, first.plan.project === model.project.title);
-            }
-          }}
-        />
-        <div className="proj-add-list">
-          {matches.map((i) => (
-            <button
-              type="button"
-              key={i.key}
-              className="proj-add-row"
-              onClick={() => pick(i.key, i.plan.project === model.project.title)}
-            >
-              <b>{i.key}</b> {i.summary}
-              <span className="muted small">
-                {i.effectiveEffort !== null ? ` · ${i.effectiveEffort}d` : ' · no estimate'}
-                {i.epic ? ` · ${i.epic}` : ''}
-              </span>
-            </button>
-          ))}
-          {board && matches.length === 0 && <span className="muted small">no matches</span>}
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ------------------------------------------------------- bulk add by epic/label
-
-/**
- * Membership rules live on the project note (epics / labels / keys). Adding an
- * epic or a label here pulls every matching issue in at once; the chips show
- * what is in force and remove a rule with one click.
- */
-function BulkAddButton({
-  model,
-  onSaved,
-  onError,
-}: {
-  model: CalendarModel;
-  onSaved: () => void;
-  onError: (e: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [board, setBoard] = useState<BoardModel | null>(null);
-  const [q, setQ] = useState('');
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    planApi
-      .board()
-      .then(setBoard)
-      .catch(() => {});
-    inputRef.current?.focus();
-  }, [open]);
-
-  const { epics, labels } = useMemo(() => {
-    const epics = new Map<string, { summary: string | null; open: number; total: number }>();
-    const labels = new Map<string, { open: number; total: number }>();
-    for (const i of board?.issues ?? []) {
-      const isOpen = i.statusCategory !== 'done';
-      if (i.epic) {
-        const e = epics.get(i.epic) ?? { summary: null, open: 0, total: 0 };
-        e.total++;
-        if (isOpen) e.open++;
-        epics.set(i.epic, e);
-      }
-      for (const l of i.labels) {
-        const e = labels.get(l) ?? { open: 0, total: 0 };
-        e.total++;
-        if (isOpen) e.open++;
-        labels.set(l, e);
-      }
-    }
-    // the epic's own mirrored issue gives it a name
-    for (const i of board?.issues ?? []) {
-      const e = epics.get(i.key);
-      if (e) e.summary = i.summary;
-    }
-    const needle = q.trim().toLowerCase();
-    const hit = (...parts: (string | null)[]) =>
-      !needle || parts.some((p) => p?.toLowerCase().includes(needle));
-    return {
-      epics: [...epics.entries()]
-        .filter(([k, e]) => !model.rules.epics.includes(k) && hit(k, e.summary))
-        .sort((a, b) => b[1].open - a[1].open || a[0].localeCompare(b[0])),
-      labels: [...labels.entries()]
-        .filter(([l]) => !model.rules.labels.includes(l) && hit(l))
-        .sort((a, b) => b[1].open - a[1].open || a[0].localeCompare(b[0])),
-    };
-  }, [board, q, model.rules]);
-
-  const change = (body: Parameters<typeof projectApi.rules>[1]) => {
-    projectApi
-      .rules(model.project.path, body)
-      .then(() => onSaved())
-      .catch((e: Error) => onError(e.message));
-  };
-
-  const ruleChips = [
-    ...model.rules.epics.map((k) => ({ kind: 'epics' as const, value: k, label: `epic ${k}` })),
-    ...model.rules.labels.map((l) => ({ kind: 'labels' as const, value: l, label: `label ${l}` })),
-    ...model.rules.keys.map((k) => ({ kind: 'keys' as const, value: k, label: k })),
-  ];
-
-  return (
-    <span className="cal-roster">
-      <button
-        type="button"
-        className="plan-btn"
-        onClick={() => setOpen((o) => !o)}
-        title="Add every issue of an epic or with a label to this project in one go"
-      >
-        + issues
-      </button>
-      {open && (
-        <div className="cal-search cal-roster-pop bulk-pop">
-          <div className="cal-search-head">
-            <b>Add to {model.project.title} by epic or label</b>
-            <span className="spacer" />
-            <button type="button" className="row-del" onClick={() => setOpen(false)}>
-              ✕
-            </button>
-          </div>
-          <input
-            ref={inputRef}
-            className="plan-filter"
-            placeholder="filter epics and labels…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') setOpen(false);
-            }}
-          />
-          <div className="proj-add-list">
-            {epics.length > 0 && <div className="bulk-section">Epics</div>}
-            {epics.map(([key, e]) => (
-              <button
-                type="button"
-                key={`e:${key}`}
-                className="proj-add-row"
-                onClick={() => change({ add: { epics: [key] } })}
-                title={`Add all ${e.total} issues of ${key}`}
-              >
-                <b>{key}</b> {e.summary ?? ''}
-                <span className="muted small">
-                  {' '}
-                  · {e.open} open / {e.total}
-                </span>
-              </button>
-            ))}
-            {labels.length > 0 && <div className="bulk-section">Labels</div>}
-            {labels.map(([label, e]) => (
-              <button
-                type="button"
-                key={`l:${label}`}
-                className="proj-add-row"
-                onClick={() => change({ add: { labels: [label] } })}
-                title={`Add all ${e.total} issues labelled ${label}`}
-              >
-                <b>#{label}</b>
-                <span className="muted small">
-                  {' '}
-                  · {e.open} open / {e.total}
-                </span>
-              </button>
-            ))}
-            {board && epics.length === 0 && labels.length === 0 && (
-              <span className="muted small">nothing left to add</span>
-            )}
-            {!board && <span className="muted small">loading…</span>}
-          </div>
-          {ruleChips.length > 0 && (
-            <div className="cal-roster-current">
-              {ruleChips.map((r) => (
-                <button
-                  type="button"
-                  key={`${r.kind}:${r.value}`}
-                  className="digest-chip"
-                  title="Remove this rule (issues tagged by hand stay)"
-                  onClick={() => change({ remove: { [r.kind]: [r.value] } })}
-                >
-                  {r.label} ✕
-                </button>
-              ))}
-            </div>
-          )}
-          <p className="muted small bulk-hint">
-            Single issues: click an empty day on the calendar and search.
-          </p>
-        </div>
-      )}
-    </span>
-  );
-}
-
-// ------------------------------------------------------------------- roster
-
-function RosterButton({
-  model,
-  onSaved,
-  onError,
-}: {
-  model: CalendarModel;
-  onSaved: () => void;
-  onError: (e: string | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [board, setBoard] = useState<BoardModel | null>(null);
-
-  useEffect(() => {
-    if (!open || board) return;
-    planApi
-      .board()
-      .then(setBoard)
-      .catch(() => {});
-  }, [open, board]);
-
-  const rosterNames = model.rows.filter((r) => r.inRoster).map((r) => r.name);
-  const candidates = (board?.people ?? []).filter(
-    (p) => p.active && !model.rows.some((r) => r.path === p.path),
-  );
-
-  const save = (names: string[]) => {
-    projectApi
-      .roster(model.project.path, names)
-      .then(() => {
-        setOpen(false);
-        onSaved();
-      })
-      .catch((e: Error) => onError(e.message));
-  };
-
-  return (
-    <span className="cal-roster">
-      <button
-        type="button"
-        className="plan-btn"
-        onClick={() => setOpen((o) => !o)}
-        title="Add people to this project so they have a row before any issues are assigned"
-      >
-        + person
-      </button>
-      {open && (
-        <div className="cal-search cal-roster-pop">
-          <div className="cal-search-head">
-            <b>Add to {model.project.title}</b>
-            <span className="spacer" />
-            <button type="button" className="row-del" onClick={() => setOpen(false)}>
-              ✕
-            </button>
-          </div>
-          <div className="proj-add-list">
-            {candidates.map((p) => (
-              <button
-                type="button"
-                key={p.path}
-                className="proj-add-row"
-                onClick={() => save([...rosterNames, p.name])}
-              >
-                {p.name}
-                <span className="muted small">
-                  {p.region ? ` · ${p.region}` : ''}
-                  {p.team ? ` · ${p.team}` : ''}
-                </span>
-              </button>
-            ))}
-            {candidates.length === 0 && <span className="muted small">everyone is here</span>}
-          </div>
-          {rosterNames.length > 0 && (
-            <div className="cal-roster-current">
-              {rosterNames.map((n) => (
-                <button
-                  type="button"
-                  key={n}
-                  className="digest-chip"
-                  title="Remove from the roster (their scheduled issues keep the row)"
-                  onClick={() => save(rosterNames.filter((x) => x !== n))}
-                >
-                  {n} ✕
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </span>
   );
 }
 

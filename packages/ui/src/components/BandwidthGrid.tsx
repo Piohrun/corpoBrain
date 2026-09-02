@@ -405,7 +405,11 @@ export function BandwidthGrid({
       .join(' ');
 
     return (
-      <tr key={row.id} className={`bw-person-row ${personClasses}`}>
+      <tr
+        key={row.id}
+        className={`bw-person-row ${personClasses}`}
+        data-person-id={row.path ?? row.id}
+      >
         <td
           className={`person-cell ${personClasses}`}
           title={

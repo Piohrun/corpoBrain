@@ -1,5 +1,7 @@
+import type React from 'react';
 import { useEffect, useState } from 'react';
-import { api, type SearchHit, type TagCount, type TreeModel } from '../api.ts';
+import { api, type TagCount, type TreeModel } from '../api.ts';
+import { isMac } from '../shortcuts.ts';
 import { NoteTree } from './NoteTree.tsx';
 
 interface Props {
@@ -11,7 +13,7 @@ interface Props {
   onOpen: (path: string) => void;
   onDaily: () => void;
   onNew: () => void;
-  onPalette: () => void;
+  onFind: () => void;
   onTreeChanged: (moved?: { from: string; to: string }) => void;
 }
 
@@ -26,11 +28,9 @@ export function Sidebar({
   onOpen,
   onDaily,
   onNew,
-  onPalette,
+  onFind,
   onTreeChanged,
 }: Props) {
-  const [query, setQuery] = useState('');
-  const [hits, setHits] = useState<SearchHit[]>([]);
   const [tagged, setTagged] = useState<{ path: string; title: string }[]>([]);
   const [treeError, setTreeError] = useState<string | null>(null);
   useEffect(() => {
@@ -50,28 +50,6 @@ export function Sidebar({
       .catch(() => setTagged([]));
   }, [tagFilter]);
 
-  useEffect(() => {
-    if (!query.trim()) {
-      setHits([]);
-      return;
-    }
-    let cancelled = false;
-    const t = setTimeout(() => {
-      api
-        .search(query)
-        .then((h) => {
-          if (!cancelled) setHits(h);
-        })
-        .catch(() => {
-          if (!cancelled) setHits([]);
-        });
-    }, 150);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [query]);
-
   return (
     <div className="sidebar">
       <div className="sidebar-actions">
@@ -81,23 +59,19 @@ export function Sidebar({
         <button type="button" onClick={onNew} title="Create a note">
           + Note
         </button>
-        <button type="button" onClick={onPalette} title="Ctrl+P">
+        <button type="button" onClick={onFind} title={isMac ? '⌘F' : 'Ctrl+F'}>
           Go to…
         </button>
       </div>
       <div className="sidebar-search">
-        <input
-          placeholder="Search…"
-          aria-label="Search notes"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setQuery('');
-          }}
-        />
+        <button type="button" className="finder-trigger" onClick={onFind}>
+          <span>Find anything…</span>
+          <kbd>{isMac ? '⌘F' : 'Ctrl+F'}</kbd>
+        </button>
       </div>
-      <div className="sidebar-scroll">
-        {tagFilter && !query.trim() ? (
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move focus between the tree's own buttons */}
+      <div className="sidebar-scroll" onKeyDown={moveBetweenRows}>
+        {tagFilter ? (
           <>
             <h3>
               #{tagFilter} ({tagged.length}){' '}
@@ -117,26 +91,6 @@ export function Sidebar({
               </button>
             ))}
             {tagged.length === 0 && <div className="tree-item muted">No notes with this tag</div>}
-          </>
-        ) : query.trim() ? (
-          <>
-            <h3>Results</h3>
-            {hits.map((h) => (
-              <button
-                type="button"
-                key={h.path}
-                className="search-hit"
-                onClick={() => onOpen(h.path)}
-              >
-                <div className="hit-title">{h.title}</div>
-                <div
-                  className="hit-snippet"
-                  // biome-ignore lint/security/noDangerouslySetInnerHtml: escaped in renderSnippet
-                  dangerouslySetInnerHTML={{ __html: renderSnippet(h.snippet) }}
-                />
-              </button>
-            ))}
-            {hits.length === 0 && <div className="tree-item muted">No matches</div>}
           </>
         ) : (
           <>
@@ -175,12 +129,18 @@ export function Sidebar({
   );
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-function renderSnippet(snippet: string): string {
-  return escapeHtml(snippet)
-    .replace(/&lt;&lt;/g, '<mark>')
-    .replace(/&gt;&gt;/g, '</mark>');
+/** ↑/↓ walk the focusable rows of a list or tree; Enter is the button's own click. */
+export function moveBetweenRows(e: React.KeyboardEvent<HTMLElement>): void {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  const target = e.target as HTMLElement;
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
+  const rows = [...e.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled])')].filter(
+    (b) => b.offsetParent !== null,
+  );
+  const at = rows.indexOf(target);
+  if (at < 0) return;
+  e.preventDefault();
+  const next = rows[at + (e.key === 'ArrowDown' ? 1 : -1)];
+  next?.focus();
+  next?.scrollIntoView({ block: 'nearest' });
 }

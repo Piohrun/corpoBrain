@@ -3,6 +3,7 @@ import { EditorView } from '@codemirror/view';
 import type React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { api, privateApi, type TrackKind, trackedApi } from '../api.ts';
+import { clearFind, type FindMatch, findMatches, selectMatch, setFind } from '../editor/find.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
 import { encryptTableCells, findTables, pendingCells, splitCells } from '../editor/tables.ts';
@@ -69,6 +70,24 @@ interface Props {
    * is not written back after the delete.
    */
   discardRef?: React.RefObject<boolean>;
+  /** imperative access for the Finder: in-note find, insert/wrap, focus */
+  apiRef?: React.RefObject<EditorApi | null>;
+  onFind?: () => void;
+}
+
+export interface EditorApi {
+  /** current text of the open note (unsaved edits included) */
+  text: () => string;
+  /** every match with line context; also highlights them in the editor */
+  find: (query: string) => FindMatch[];
+  clearFind: () => void;
+  goTo: (m: { from: number; to: number }) => void;
+  selection: () => string;
+  /** insert at the cursor (replacing a selection) and focus */
+  insert: (text: string) => void;
+  /** wrap the selection (or insert when empty) */
+  wrap: (before: string, after: string) => void;
+  focus: () => void;
 }
 
 /** marks a doc replacement that came FROM the server (SSE), so it is not saved back */
@@ -86,6 +105,8 @@ export function Editor({
   onTrackedCreated,
   onShowTracked,
   discardRef,
+  apiRef,
+  onFind,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const [trackSelection, setTrackSelection] = useState<TrackSelection | null>(null);
@@ -360,8 +381,18 @@ export function Editor({
     resolveMap,
     onSaveState,
     onSaved,
+    onFind,
   });
-  latest.current = { path, onNavigate, onSnapshot, completions, resolveMap, onSaveState, onSaved };
+  latest.current = {
+    path,
+    onNavigate,
+    onSnapshot,
+    completions,
+    resolveMap,
+    onSaveState,
+    onSaved,
+    onFind,
+  };
 
   const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, text: string) => {
     latest.current.onSaveState(p, 'saving');
@@ -462,6 +493,7 @@ export function Editor({
       extensions: [
         editorExtensions({
           onNavigate: (t) => latest.current.onNavigate(t),
+          onFind: () => latest.current.onFind?.(),
           isResolved: (t) => latest.current.resolveMap.get(t.toLowerCase()),
           getSecret: (cipher) => revealed.current.get(cipher) ?? null,
           onSecretClick: (cipher) => void onSecretClick(cipher),
@@ -485,6 +517,42 @@ export function Editor({
     });
     const view = new EditorView({ state, parent: host.current });
     viewRef.current = view;
+    if (apiRef) {
+      apiRef.current = {
+        text: () => view.state.doc.toString(),
+        find: (q) => {
+          setFind(view, q);
+          return findMatches(view, q);
+        },
+        clearFind: () => clearFind(view),
+        goTo: (m) => selectMatch(view, m),
+        selection: () => {
+          const sel = view.state.selection.main;
+          return view.state.doc.sliceString(sel.from, sel.to);
+        },
+        insert: (text) => {
+          const sel = view.state.selection.main;
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: text },
+            selection: { anchor: sel.from + text.length },
+            scrollIntoView: true,
+          });
+          view.focus();
+        },
+        wrap: (before, after) => {
+          const sel = view.state.selection.main;
+          const inner = view.state.doc.sliceString(sel.from, sel.to);
+          const text = `${before}${inner}${after}`;
+          view.dispatch({
+            changes: { from: sel.from, to: sel.to, insert: text },
+            selection: { anchor: sel.from + text.length },
+            scrollIntoView: true,
+          });
+          view.focus();
+        },
+        focus: () => view.focus(),
+      };
+    }
     view.focus();
     return () => {
       // hand the final text back before unmount so a remount shows what was
@@ -497,6 +565,7 @@ export function Editor({
       else flushSave();
       view.destroy();
       viewRef.current = null;
+      if (apiRef) apiRef.current = null;
     };
   }, [path]);
 
