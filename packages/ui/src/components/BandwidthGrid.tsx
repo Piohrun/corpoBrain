@@ -610,7 +610,7 @@ export function BandwidthGrid({
           </button>
         )}
       </div>
-      <div className="grid-wrap" ref={gridWrapRef}>
+      <div className="grid-wrap bw-wrap" ref={gridWrapRef}>
         <table className="bw-grid resizable-grid" style={{ width: tableWidth }}>
           <colgroup>
             <col style={{ width: personColumnWidth }} />

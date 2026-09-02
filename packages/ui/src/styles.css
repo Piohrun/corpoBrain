@@ -4123,3 +4123,50 @@ button.prop-chip {
 .status-item.save-saving {
   color: var(--fg-muted);
 }
+
+/* ---- sticky bandwidth grid header + person column ---- */
+.bw-wrap {
+  overflow: auto;
+  max-height: calc(100vh - 250px);
+}
+.bw-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+.bw-grid thead th:first-child {
+  left: 0;
+  z-index: 5;
+}
+.bw-grid .person-cell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+.bw-grid .group-row td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--bg-panel);
+}
+/* ---- calendar: jump to today ---- */
+.cal {
+  position: relative;
+}
+.cal-today-btn {
+  position: absolute;
+  right: 8px;
+  top: 6px;
+  z-index: 4;
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.cal-today-btn:hover {
+  color: var(--fg);
+}

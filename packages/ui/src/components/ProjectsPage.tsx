@@ -556,6 +556,22 @@ function Calendar({
   onPickDay: (day: number, row: number, sprint: string | null) => void;
 }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  /** put today about a third of the way in, so the recent past stays visible */
+  const scrollToToday = useCallback(() => {
+    const track = trackRef.current;
+    if (!track || model.today === null) return;
+    track.scrollTo({
+      left: Math.max(0, model.today * DAY - track.clientWidth * 0.3),
+      behavior: 'smooth',
+    });
+  }, [model.today, DAY]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: open scrolled to today once per project, not on every model refresh
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track || model.today === null) return;
+    track.scrollLeft = Math.max(0, model.today * DAY - track.clientWidth * 0.3);
+  }, [model.project.path]);
   const [drag, setDrag] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
   dragRef.current = drag;
@@ -682,6 +698,16 @@ function Calendar({
   return (
     <div className="planning-scroll">
       <div className="cal">
+        {model.today !== null && (
+          <button
+            type="button"
+            className="cal-today-btn"
+            onClick={scrollToToday}
+            title="Scroll the calendar to today"
+          >
+            ⌖ today
+          </button>
+        )}
         <div className="cal-side" style={{ paddingTop: HEAD }}>
           {model.rows.map((r) => (
             <div className="cal-row-head" key={r.assignee} style={{ height: ROW }}>
@@ -711,7 +737,7 @@ function Calendar({
           ))}
         </div>
 
-        <div className="cal-track">
+        <div className="cal-track" ref={trackRef}>
           <div className="cal-head" style={{ width }}>
             <div className="cal-months">
               {model.months.map((m) => (
