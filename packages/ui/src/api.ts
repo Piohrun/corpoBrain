@@ -787,6 +787,17 @@ export const jiraApi = {
     req<{ ok: boolean; deployment: string; version: string }>('/api/jira/probe', {
       method: 'POST',
     }),
+  /** is a GitHub/Bitbucket development integration installed on this Jira? */
+  devProbe: (key?: string) =>
+    req<
+      | {
+          ok: true;
+          key: string;
+          counts: { pullrequest: number; repository: number; branch: number };
+          instances: string[];
+        }
+      | { ok: false; key: string; reason: string }
+    >('/api/jira/devstatus/probe', { method: 'POST', body: JSON.stringify({ key }) }),
   issues: () => req<JiraIssueRow[]>('/api/jira/issues'),
   sprints: () => req<SprintRow[]>('/api/jira/sprints'),
   boards: (project?: string) =>

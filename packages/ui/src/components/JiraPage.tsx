@@ -185,6 +185,23 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
       });
   };
 
+  const [devProbe, setDevProbe] = useState<{ text: string; ok: boolean } | null>(null);
+  const testDevIntegration = () => {
+    setDevProbe({ text: 'probing…', ok: true });
+    jiraApi
+      .devProbe()
+      .then((r) => {
+        if (r.ok) {
+          const c = r.counts;
+          setDevProbe({
+            ok: true,
+            text: `development panel available${r.instances.length ? ` (${r.instances.join(', ')})` : ''}: ${r.key} has ${c.pullrequest} PR${c.pullrequest === 1 ? '' : 's'}, ${c.branch} branch${c.branch === 1 ? '' : 'es'}, ${c.repository} repo${c.repository === 1 ? '' : 's'} — commit and PR history can be pulled through Jira`,
+          });
+        } else setDevProbe({ ok: false, text: r.reason });
+      })
+      .catch((e: Error) => setDevProbe({ ok: false, text: e.message }));
+  };
+
   const setProfile = (rowId: string, patch: Partial<DraftProfile>) => {
     setProfiles((rows) => rows.map((p) => (p.rowId === rowId ? { ...p, ...patch } : p)));
     setDirty(true);
@@ -389,6 +406,19 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               Test connection
             </button>
             {probe && <span className={`probe-result ${probeOk ? 'ok' : 'err'}`}>{probe}</span>}
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="risk-chip"
+              onClick={testDevIntegration}
+              title="Check whether this Jira exposes branches, commits and pull requests per issue (GitHub / Bitbucket integration)"
+            >
+              Test dev integration
+            </button>
+            {devProbe && (
+              <span className={`probe-result ${devProbe.ok ? 'ok' : 'err'}`}>{devProbe.text}</span>
+            )}
           </div>
           <p className="muted small">
             The token is stored in <code>.corpobrain/secrets.json</code> (gitignored), never in

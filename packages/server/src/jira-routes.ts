@@ -1,6 +1,7 @@
 /** Jira + planning API routes (read side; plan writes arrive in Phase 4). */
 import {
   createJiraAdapter,
+  JiraError,
   JiraSync,
   loadJiraAuth,
   type SyncProgress,
@@ -135,6 +136,37 @@ export function jiraRoutes(v: VaultService): Hono {
       return c.json({ ok: true, ...info });
     } catch (e) {
       throw new HttpError(502, e instanceof Error ? e.message : 'probe failed');
+    }
+  });
+
+  /**
+   * Does this Jira expose the development panel (GitHub/Bitbucket/GitLab
+   * integration)? Probed on one mirrored issue — the most recently updated,
+   * or the key given — so the answer reflects the real instance.
+   */
+  app.post('/devstatus/probe', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { key?: string };
+    const key =
+      body.key?.trim() ||
+      (
+        v.indexer.db.prepare('SELECT key FROM jira ORDER BY updated DESC LIMIT 1').get() as
+          | { key: string }
+          | undefined
+      )?.key;
+    if (!key) throw new HttpError(400, 'no mirrored issue to probe with — sync first');
+    try {
+      const adapter = createJiraAdapter(v.root, v.config);
+      const r = await adapter.devStatusSummary(key);
+      return c.json({ ok: true, key, ...r });
+    } catch (e) {
+      if (e instanceof JiraError && e.status === 404)
+        return c.json({
+          ok: false,
+          key,
+          reason:
+            'this Jira has no development integration (dev-status API not found) — a direct GitHub connection would be needed',
+        });
+      throw new HttpError(502, e instanceof Error ? e.message : 'dev-status probe failed');
     }
   });
 

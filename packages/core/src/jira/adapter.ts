@@ -212,6 +212,48 @@ export class JiraAdapter {
     await this.send('POST', 'rest/agile/1.0/backlog/issue', { issues: keys });
   }
 
+  /**
+   * Development panel summary for one issue (branches, commits, pull
+   * requests) from Jira's dev-status resource — present when an integration
+   * such as GitHub, Bitbucket or GitLab is installed on this Jira. Counts
+   * plus the instance types seen, or a JiraError with the server's status
+   * (404 = no dev-status API here).
+   */
+  async devStatusSummary(key: string): Promise<{
+    id: string;
+    counts: { pullrequest: number; repository: number; branch: number };
+    instances: string[];
+  }> {
+    const issue = await this.get<{ id: string }>(`rest/api/2/issue/${encodeURIComponent(key)}`, {
+      fields: 'id',
+    });
+    type Bucket = {
+      overall?: { count?: number };
+      byInstanceType?: Record<string, { name?: string }>;
+    };
+    const data = await this.get<{ summary?: Record<string, Bucket> }>(
+      'rest/dev-status/latest/issue/summary',
+      { issueId: issue.id },
+    );
+    const s = data.summary ?? {};
+    const count = (k: string) => s[k]?.overall?.count ?? 0;
+    const instances = new Set<string>();
+    for (const b of Object.values(s)) {
+      for (const [type, inst] of Object.entries(b.byInstanceType ?? {})) {
+        instances.add(inst.name ?? type);
+      }
+    }
+    return {
+      id: issue.id,
+      counts: {
+        pullrequest: count('pullrequest'),
+        repository: count('repository'),
+        branch: count('branch'),
+      },
+      instances: [...instances],
+    };
+  }
+
   /** Detect deployment type; also a cheap auth check. */
   async probe(): Promise<JiraDeploymentInfo> {
     const info = await this.get<{ deploymentType?: string; version?: string }>(
