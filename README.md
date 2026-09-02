@@ -27,6 +27,15 @@ npm install
 npm run build
 ```
 
+On a machine where vite/rollup cannot be installed (quarantined packages), install
+without dev dependencies and use the esbuild-only build — this is why `esbuild` is a
+runtime dependency, not a dev one:
+
+```bat
+npm install --omit=dev --ignore-scripts
+npm run build:work
+```
+
 **Option B — no npm on the work machine**: run `npm run build` on any machine,
 copy the resulting `dist\` folder over (USB, share, artifact). `dist\` is fully
 self-contained — `corpobrain.js`, `corpobrain-cli.js`, `ui\` — no `node_modules`
