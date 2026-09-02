@@ -276,6 +276,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
       ))}
 
       <div className="planning-scroll">
+        <WeekStrip data={data} entries={draft} onOpenNote={onOpenNote} />
         <MonthGrid data={data} entries={draft} onAdd={addEntry} onOpenNote={onOpenNote} />
 
         <h2 className="plan-h2">Entries</h2>
@@ -831,5 +832,111 @@ function MonthGrid({
         </div>
       </div>
     </section>
+  );
+}
+
+// -------------------------------------------------------------- this week
+
+const DAY_MS = 86_400_000;
+const isoDay = (d: Date): string => localISODate(d);
+const weekdayShort = (iso: string): string =>
+  new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, { weekday: 'short' });
+
+/**
+ * The question the page usually answers, in one line: who is out this week
+ * and who is on support, with the days. Entries come from the draft so a
+ * just-drawn absence shows at once.
+ */
+function WeekStrip({
+  data,
+  entries,
+  onOpenNote,
+}: {
+  data: AvailabilityResponse;
+  entries: AvailabilityEntry[];
+  onOpenNote: (path: string) => void;
+}) {
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const days = Array.from({ length: 5 }, (_, i) => isoDay(new Date(monday.getTime() + i * DAY_MS)));
+  const first = days[0] as string;
+  const last = days[4] as string;
+  const norm = (x: string) => x.trim().toLowerCase();
+  const basename = (p: string) => (p.split('/').pop() ?? p).replace(/\.md$/i, '');
+  const personOf = (name: string) =>
+    data.people.find(
+      (p) =>
+        norm(p.name) === norm(name) ||
+        norm(p.path) === norm(name) ||
+        norm(basename(p.path)) === norm(name),
+    );
+  type Row = { path: string; name: string; days: string[] };
+  const collect = (kinds: AvailabilityEntry['kind'][]): Row[] => {
+    const m = new Map<string, Row>();
+    const add = (path: string, name: string, from: string, to: string) => {
+      const hit = days.filter((d) => d >= from && d <= to);
+      if (!hit.length) return;
+      const row = m.get(path) ?? { path, name, days: [] };
+      row.days = [...new Set([...row.days, ...hit])].sort();
+      m.set(path, row);
+    };
+    for (const e of entries) {
+      if (!kinds.includes(e.kind)) continue;
+      const p = personOf(e.person);
+      if (p) add(p.path, p.name, e.from, e.to);
+    }
+    if (kinds.includes('holiday')) {
+      for (const h of data.holidays) {
+        for (const p of data.people) {
+          if (p.country && norm(p.country) === norm(h.country)) add(p.path, p.name, h.from, h.to);
+        }
+      }
+    }
+    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+  };
+  const out = collect(['ooo', 'holiday']);
+  const support = collect(['support']);
+  const span = (r: Row) =>
+    r.days.length === 5
+      ? 'all week'
+      : r.days.length === 1
+        ? weekdayShort(r.days[0] as string)
+        : `${weekdayShort(r.days[0] as string)}–${weekdayShort(r.days[r.days.length - 1] as string)}`;
+  const list = (rows: Row[]) =>
+    rows.map((r, i) => (
+      <span key={r.path}>
+        {i > 0 && ', '}
+        <button type="button" className="key-link" onClick={() => onOpenNote(r.path)}>
+          {r.name}
+        </button>
+        <span className="muted"> {span(r)}</span>
+      </span>
+    ));
+  return (
+    <div className="week-strip">
+      <b>
+        This week{' '}
+        <span className="muted">
+          {new Date(`${first}T00:00:00`).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+          })}
+          –
+          {new Date(`${last}T00:00:00`).toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+          })}
+        </span>
+      </b>
+      <span className="week-part">
+        <i className="avail-chip ooo">out</i>{' '}
+        {out.length ? list(out) : <span className="muted">nobody</span>}
+      </span>
+      <span className="week-part">
+        <i className="avail-chip support">support</i>{' '}
+        {support.length ? list(support) : <span className="muted">nobody</span>}
+      </span>
+    </div>
   );
 }
