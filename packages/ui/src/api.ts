@@ -66,6 +66,7 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  health: () => req<{ ok: boolean; spec: string; vault: string | null }>('/api/health'),
   notes: () => req<NoteListItem[]>('/api/notes'),
   note: (path: string) => req<NoteResponse>(`/api/note?path=${encodeURIComponent(path)}`),
   save: (path: string, content: string) =>

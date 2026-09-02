@@ -21,6 +21,7 @@ import { RightPanel } from './components/RightPanel.tsx';
 import { SettingsPage } from './components/SettingsPage.tsx';
 import { ShortcutHelp } from './components/ShortcutHelp.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
+import { StatusBar } from './components/StatusBar.tsx';
 import { TasksPage } from './components/TasksPage.tsx';
 import { TrackedPage } from './components/TrackedPage.tsx';
 import { DialogProvider, useDialogs } from './dialogs.tsx';
@@ -869,356 +870,366 @@ function AppShell() {
   );
 
   return (
-    <div className="app">
-      <nav className="rail">
-        <button
-          type="button"
-          className={view === 'notes' ? 'active' : ''}
-          onClick={() => goView('notes')}
-          title="Notes"
-        >
-          ✎
-        </button>
-        <button
-          type="button"
-          className={view === 'planning' ? 'active' : ''}
-          onClick={() => goView('planning')}
-          title="Planning"
-        >
-          ▦
-        </button>
-        <button
-          type="button"
-          className={view === 'projects' ? 'active' : ''}
-          onClick={() => goView('projects')}
-          title="Projects: timeline, forecast and dependencies"
-        >
-          ◈
-        </button>
-        <button
-          type="button"
-          className={view === 'availability' ? 'active' : ''}
-          onClick={() => goView('availability')}
-          title="Availability: who is out when — feeds sprint bandwidth"
-        >
-          ✈
-        </button>
-        <button
-          type="button"
-          className={view === 'digest' ? 'active' : ''}
-          onClick={() => goView('digest')}
-          title="What changed in Jira since the last refresh"
-        >
-          ⟳
-        </button>
-        <button
-          type="button"
-          className={view === 'tasks' ? 'active' : ''}
-          onClick={() => goView('tasks')}
-          title="Tasks"
-        >
-          ☑
-        </button>
-        <button
-          type="button"
-          className={view === 'tracked' ? 'active' : ''}
-          onClick={() => goView('tracked')}
-          title="Tracked: commitments, decisions, risks and assumptions"
-        >
-          ◎
-        </button>
-        <button
-          type="button"
-          className={view === 'objects' ? 'active' : ''}
-          onClick={() => goView('objects')}
-          title="Objects"
-        >
-          ▤
-        </button>
-        <button
-          type="button"
-          className={view === 'jira' ? 'active' : ''}
-          onClick={() => goView('jira')}
-          title="Jira: settings, sprints, issues"
-        >
-          ⚙
-        </button>
-        <button
-          type="button"
-          className={view === 'settings' ? 'active' : ''}
-          onClick={() => goView('settings')}
-          title="Settings: appearance, vault history"
-        >
-          ◐
-        </button>
-        <button
-          type="button"
-          className={view === 'private' ? 'active' : ''}
-          onClick={() => goView('private')}
-          title="Protected notes"
-        >
-          🔒
-        </button>
-      </nav>
-      {view === 'planning' ? (
-        <PlanningPage onOpenNote={openFromPlanning} />
-      ) : view === 'projects' ? (
-        <ProjectsPage onOpenNote={openFromPlanning} />
-      ) : view === 'availability' ? (
-        <AvailabilityPage onOpenNote={openFromPlanning} />
-      ) : view === 'digest' ? (
-        <DigestPage onOpenNote={openFromPlanning} />
-      ) : view === 'tasks' ? (
-        <TasksPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
-      ) : view === 'tracked' ? (
-        <TrackedPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
-      ) : view === 'objects' ? (
-        <ObjectsPage onOpenNote={openFromPlanning} />
-      ) : view === 'jira' ? (
-        <JiraPage onOpenNote={openFromPlanning} />
-      ) : view === 'settings' ? (
-        <SettingsPage />
-      ) : view === 'private' ? (
-        <PrivatePage />
-      ) : (
-        <>
-          <Sidebar
-            tree={tree}
-            tags={tags}
-            tagFilter={tagFilter}
-            onTagFilter={openTag}
-            currentPath={note?.path ?? null}
-            onOpen={openPath}
-            onDaily={openDaily}
-            onNew={() => finder.open({ section: 'notes' })}
-            onFind={() => finder.open()}
-            recent={recentPaths
-              .filter((p) => p !== note?.path)
-              .map((p) => ({ path: p, title: titleOf.get(p) ?? p }))
-              .filter((r) => titleOf.has(r.path))}
-            pinned={pinnedPaths.map((p) => ({ path: p, title: titleOf.get(p) ?? p }))}
-            onUnpin={togglePin}
-            sort={treeSort}
-            onSort={setTreeSort}
-            mtimeOf={mtimeOf}
-            onTreeChanged={(moved) => {
-              refreshLists();
-              const current = noteRef.current;
-              if (!current) return;
-              if (moved && current.path === moved.from) openPath(moved.to, 'replace');
-              else
-                api
-                  .note(current.path)
-                  .then(setNote)
-                  .catch(() => setNote(null));
-            }}
-          />
-          <div className="main">
-            {note ? (
-              <>
-                <div className="main-header">
-                  <button
-                    type="button"
-                    className="note-back"
-                    disabled={!canGoBack}
-                    title={`Back to previous note (${isMac ? '⌘[' : 'Alt+←'})`}
-                    aria-label="Back to previous note"
-                    onClick={goBack}
-                  >
-                    ←
-                  </button>
-                  <button
-                    type="button"
-                    className="note-back"
-                    disabled={!canGoForward}
-                    title={`Forward again (${isMac ? '⌘]' : 'Alt+→'})`}
-                    aria-label="Forward to the next note"
-                    onClick={goForward}
-                  >
-                    →
-                  </button>
-                  <RenameableTitle
-                    key={note.path}
-                    title={note.meta?.title ?? note.path.replace(/^.*\//, '').replace(/\.md$/, '')}
-                    onRename={(title) =>
-                      treeApi
-                        .rename(note.path, title)
-                        .then((r) => {
-                          refreshLists();
-                          if (r.path !== note.path) openPath(r.path, 'replace');
-                          else
-                            api
-                              .note(note.path)
-                              .then((fresh) =>
-                                setNote((prev) =>
-                                  prev && prev.path === fresh.path
-                                    ? { ...fresh, content: prev.content }
-                                    : prev,
-                                ),
-                              )
-                              .catch(() => {});
-                        })
-                        .catch((e: Error) => dlg.alert(`Rename failed: ${e.message}`))
-                    }
-                  />
-                  <span>{note.path}</span>
-                  <span className="spacer" />
-                  <button
-                    type="button"
-                    className={`note-pin${pinnedPaths.includes(note.path) ? ' on' : ''}`}
-                    title={
-                      pinnedPaths.includes(note.path)
-                        ? 'Unpin from the sidebar'
-                        : 'Pin to the top of the sidebar'
-                    }
-                    aria-label="Pin note"
-                    onClick={() => togglePin(note.path)}
-                  >
-                    📌
-                  </button>
-                  <button
-                    type="button"
-                    className="note-delete"
-                    title="Delete note (moved to .trash inside the vault)"
-                    onClick={() => {
-                      const current = noteRef.current;
-                      if (!current) return;
-                      const title = current.meta?.title ?? current.path;
-                      const path = current.path;
-                      // no confirm: the note goes to .trash and the toast undoes it
-                      // the editor's debounced save must not resurrect the file
-                      discardRef.current = true;
-                      api
-                        .remove(path)
-                        .then(() => {
-                          dlg.toast({
-                            message: `Deleted “${title}”`,
-                            action: {
-                              label: 'Undo',
-                              run: () =>
-                                api
-                                  .restore(path)
-                                  .then(() => {
-                                    refreshLists();
-                                    goView('notes');
-                                    openPath(path);
-                                  })
-                                  .catch((e: Error) => dlg.alert(`Undo failed: ${e.message}`)),
-                            },
+    <div className="app-shell">
+      <div className="app">
+        <nav className="rail">
+          <button
+            type="button"
+            className={view === 'notes' ? 'active' : ''}
+            onClick={() => goView('notes')}
+            title="Notes"
+          >
+            ✎
+          </button>
+          <button
+            type="button"
+            className={view === 'planning' ? 'active' : ''}
+            onClick={() => goView('planning')}
+            title="Planning"
+          >
+            ▦
+          </button>
+          <button
+            type="button"
+            className={view === 'projects' ? 'active' : ''}
+            onClick={() => goView('projects')}
+            title="Projects: timeline, forecast and dependencies"
+          >
+            ◈
+          </button>
+          <button
+            type="button"
+            className={view === 'availability' ? 'active' : ''}
+            onClick={() => goView('availability')}
+            title="Availability: who is out when — feeds sprint bandwidth"
+          >
+            ✈
+          </button>
+          <button
+            type="button"
+            className={view === 'digest' ? 'active' : ''}
+            onClick={() => goView('digest')}
+            title="What changed in Jira since the last refresh"
+          >
+            ⟳
+          </button>
+          <button
+            type="button"
+            className={view === 'tasks' ? 'active' : ''}
+            onClick={() => goView('tasks')}
+            title="Tasks"
+          >
+            ☑
+          </button>
+          <button
+            type="button"
+            className={view === 'tracked' ? 'active' : ''}
+            onClick={() => goView('tracked')}
+            title="Tracked: commitments, decisions, risks and assumptions"
+          >
+            ◎
+          </button>
+          <button
+            type="button"
+            className={view === 'objects' ? 'active' : ''}
+            onClick={() => goView('objects')}
+            title="Objects"
+          >
+            ▤
+          </button>
+          <button
+            type="button"
+            className={view === 'jira' ? 'active' : ''}
+            onClick={() => goView('jira')}
+            title="Jira: settings, sprints, issues"
+          >
+            ⚙
+          </button>
+          <button
+            type="button"
+            className={view === 'settings' ? 'active' : ''}
+            onClick={() => goView('settings')}
+            title="Settings: appearance, vault history"
+          >
+            ◐
+          </button>
+          <button
+            type="button"
+            className={view === 'private' ? 'active' : ''}
+            onClick={() => goView('private')}
+            title="Protected notes"
+          >
+            🔒
+          </button>
+        </nav>
+        {view === 'planning' ? (
+          <PlanningPage onOpenNote={openFromPlanning} />
+        ) : view === 'projects' ? (
+          <ProjectsPage onOpenNote={openFromPlanning} />
+        ) : view === 'availability' ? (
+          <AvailabilityPage onOpenNote={openFromPlanning} />
+        ) : view === 'digest' ? (
+          <DigestPage onOpenNote={openFromPlanning} />
+        ) : view === 'tasks' ? (
+          <TasksPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
+        ) : view === 'tracked' ? (
+          <TrackedPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
+        ) : view === 'objects' ? (
+          <ObjectsPage onOpenNote={openFromPlanning} />
+        ) : view === 'jira' ? (
+          <JiraPage onOpenNote={openFromPlanning} />
+        ) : view === 'settings' ? (
+          <SettingsPage />
+        ) : view === 'private' ? (
+          <PrivatePage />
+        ) : (
+          <>
+            <Sidebar
+              tree={tree}
+              tags={tags}
+              tagFilter={tagFilter}
+              onTagFilter={openTag}
+              currentPath={note?.path ?? null}
+              onOpen={openPath}
+              onDaily={openDaily}
+              onNew={() => finder.open({ section: 'notes' })}
+              onFind={() => finder.open()}
+              recent={recentPaths
+                .filter((p) => p !== note?.path)
+                .map((p) => ({ path: p, title: titleOf.get(p) ?? p }))
+                .filter((r) => titleOf.has(r.path))}
+              pinned={pinnedPaths.map((p) => ({ path: p, title: titleOf.get(p) ?? p }))}
+              onUnpin={togglePin}
+              sort={treeSort}
+              onSort={setTreeSort}
+              mtimeOf={mtimeOf}
+              onTreeChanged={(moved) => {
+                refreshLists();
+                const current = noteRef.current;
+                if (!current) return;
+                if (moved && current.path === moved.from) openPath(moved.to, 'replace');
+                else
+                  api
+                    .note(current.path)
+                    .then(setNote)
+                    .catch(() => setNote(null));
+              }}
+            />
+            <div className="main">
+              {note ? (
+                <>
+                  <div className="main-header">
+                    <button
+                      type="button"
+                      className="note-back"
+                      disabled={!canGoBack}
+                      title={`Back to previous note (${isMac ? '⌘[' : 'Alt+←'})`}
+                      aria-label="Back to previous note"
+                      onClick={goBack}
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      className="note-back"
+                      disabled={!canGoForward}
+                      title={`Forward again (${isMac ? '⌘]' : 'Alt+→'})`}
+                      aria-label="Forward to the next note"
+                      onClick={goForward}
+                    >
+                      →
+                    </button>
+                    <RenameableTitle
+                      key={note.path}
+                      title={
+                        note.meta?.title ?? note.path.replace(/^.*\//, '').replace(/\.md$/, '')
+                      }
+                      onRename={(title) =>
+                        treeApi
+                          .rename(note.path, title)
+                          .then((r) => {
+                            refreshLists();
+                            if (r.path !== note.path) openPath(r.path, 'replace');
+                            else
+                              api
+                                .note(note.path)
+                                .then((fresh) =>
+                                  setNote((prev) =>
+                                    prev && prev.path === fresh.path
+                                      ? { ...fresh, content: prev.content }
+                                      : prev,
+                                  ),
+                                )
+                                .catch(() => {});
+                          })
+                          .catch((e: Error) => dlg.alert(`Rename failed: ${e.message}`))
+                      }
+                    />
+                    <span>{note.path}</span>
+                    <span className="spacer" />
+                    <button
+                      type="button"
+                      className={`note-pin${pinnedPaths.includes(note.path) ? ' on' : ''}`}
+                      title={
+                        pinnedPaths.includes(note.path)
+                          ? 'Unpin from the sidebar'
+                          : 'Pin to the top of the sidebar'
+                      }
+                      aria-label="Pin note"
+                      onClick={() => togglePin(note.path)}
+                    >
+                      📌
+                    </button>
+                    <button
+                      type="button"
+                      className="note-delete"
+                      title="Delete note (moved to .trash inside the vault)"
+                      onClick={() => {
+                        const current = noteRef.current;
+                        if (!current) return;
+                        const title = current.meta?.title ?? current.path;
+                        const path = current.path;
+                        // no confirm: the note goes to .trash and the toast undoes it
+                        // the editor's debounced save must not resurrect the file
+                        discardRef.current = true;
+                        api
+                          .remove(path)
+                          .then(() => {
+                            dlg.toast({
+                              message: `Deleted “${title}”`,
+                              action: {
+                                label: 'Undo',
+                                run: () =>
+                                  api
+                                    .restore(path)
+                                    .then(() => {
+                                      refreshLists();
+                                      goView('notes');
+                                      openPath(path);
+                                    })
+                                    .catch((e: Error) => dlg.alert(`Undo failed: ${e.message}`)),
+                              },
+                            });
+                            setNote(null);
+                            window.history.replaceState(
+                              {
+                                corpoBrainNote: true,
+                                index: noteHistoryIndex.current,
+                                path: null,
+                              } satisfies NoteHistoryState,
+                              '',
+                              `${window.location.pathname}${window.location.search}`,
+                            );
+                            refreshLists();
+                          })
+                          .catch((e: Error) => dlg.alert(`Delete failed: ${e.message}`))
+                          .finally(() => {
+                            discardRef.current = false;
                           });
-                          setNote(null);
-                          window.history.replaceState(
-                            {
-                              corpoBrainNote: true,
-                              index: noteHistoryIndex.current,
-                              path: null,
-                            } satisfies NoteHistoryState,
-                            '',
-                            `${window.location.pathname}${window.location.search}`,
-                          );
-                          refreshLists();
-                        })
-                        .catch((e: Error) => dlg.alert(`Delete failed: ${e.message}`))
-                        .finally(() => {
-                          discardRef.current = false;
-                        });
-                    }}
-                  >
-                    🗑
-                  </button>
-                  <span className="save-state">
-                    {saveState === 'saved'
-                      ? '✓ saved'
-                      : saveState === 'saving'
-                        ? 'saving…'
-                        : '⚠ save failed'}
-                  </span>
-                </div>
-                <PropertiesBar
-                  note={note}
-                  folded={foldFrontmatter}
-                  onToggleFold={() => setFoldFrontmatter((f) => !f)}
-                  onEdit={() => {
-                    // reveal by putting the cursor on the first property line
-                    const text = editorApi.current?.text() ?? note.content;
-                    const secondLine = text.indexOf('\n') + 1;
-                    editorApi.current?.goTo({ from: secondLine, to: secondLine });
-                  }}
-                  onTag={openTag}
-                  onNavigate={navigate}
-                />
-                {note.path.startsWith('people/') && (
-                  <PersonPanel path={note.path} onOpen={openPath} />
-                )}
-                <Editor
-                  path={note.path}
-                  content={note.content}
-                  completions={completions}
-                  resolveMap={resolveMap}
-                  onNavigate={navigate}
-                  onSnapshot={(path, content) =>
-                    setNote((prev) => (prev && prev.path === path ? { ...prev, content } : prev))
-                  }
-                  onSaveState={(p, st) => {
-                    // a save for the previous note must not relabel this one
-                    if (noteRef.current?.path === p) setSaveState(st);
-                  }}
-                  onSaved={onSaved}
-                  onTrackedCreated={trackedCreated}
-                  onShowTracked={() => goView('tracked')}
-                  discardRef={discardRef}
-                  apiRef={editorApi}
-                  onFind={() => finder.open()}
-                  foldFrontmatter={foldFrontmatter}
-                />
-                {note.tags.length > 0 && (
-                  <div className="tag-footer">
-                    {note.tags.map((t) => (
-                      <button
-                        type="button"
-                        key={t}
-                        className="tag-row clickable"
-                        onClick={() => openTag(t)}
-                      >
-                        #{t}
-                      </button>
-                    ))}
+                      }}
+                    >
+                      🗑
+                    </button>
                   </div>
-                )}
-              </>
-            ) : (
-              <div className="empty-state">
-                <div>
-                  <p>
-                    <strong>corpoBrain</strong>
-                  </p>
-                  <p>
-                    Ctrl+F finds anything · Ctrl+D opens today’s daily note · ? lists the shortcuts
-                  </p>
+                  <PropertiesBar
+                    note={note}
+                    folded={foldFrontmatter}
+                    onToggleFold={() => setFoldFrontmatter((f) => !f)}
+                    onEdit={() => {
+                      // reveal by putting the cursor on the first property line
+                      const text = editorApi.current?.text() ?? note.content;
+                      const secondLine = text.indexOf('\n') + 1;
+                      editorApi.current?.goTo({ from: secondLine, to: secondLine });
+                    }}
+                    onTag={openTag}
+                    onNavigate={navigate}
+                  />
+                  {note.path.startsWith('people/') && (
+                    <PersonPanel path={note.path} onOpen={openPath} />
+                  )}
+                  <Editor
+                    path={note.path}
+                    content={note.content}
+                    completions={completions}
+                    resolveMap={resolveMap}
+                    onNavigate={navigate}
+                    onSnapshot={(path, content) =>
+                      setNote((prev) => (prev && prev.path === path ? { ...prev, content } : prev))
+                    }
+                    onSaveState={(p, st) => {
+                      // a save for the previous note must not relabel this one
+                      if (noteRef.current?.path !== p) return;
+                      setSaveState((prev) => {
+                        if (st === 'error' && prev !== 'error')
+                          dlg.toast({ kind: 'error', message: `Could not save ${p}` });
+                        return st;
+                      });
+                    }}
+                    onSaved={onSaved}
+                    onTrackedCreated={trackedCreated}
+                    onShowTracked={() => goView('tracked')}
+                    discardRef={discardRef}
+                    apiRef={editorApi}
+                    onFind={() => finder.open()}
+                    foldFrontmatter={foldFrontmatter}
+                  />
+                  {note.tags.length > 0 && (
+                    <div className="tag-footer">
+                      {note.tags.map((t) => (
+                        <button
+                          type="button"
+                          key={t}
+                          className="tag-row clickable"
+                          onClick={() => openTag(t)}
+                        >
+                          #{t}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="empty-state">
+                  <div>
+                    <p>
+                      <strong>corpoBrain</strong>
+                    </p>
+                    <p>
+                      Ctrl+F finds anything · Ctrl+D opens today’s daily note · ? lists the
+                      shortcuts
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-          <RightPanel
-            note={note}
-            notes={notes}
-            onOpen={openPath}
-            onTag={openTag}
-            onJump={(pos) => editorApi.current?.goTo({ from: pos, to: pos })}
-            onMetaChanged={(newPath) => {
-              refreshLists();
-              const current = noteRef.current;
-              if (!current) return;
-              if (newPath && newPath !== current.path) openPath(newPath, 'replace');
-              else
-                api
-                  .note(current.path)
-                  .then(setNote)
-                  .catch(() => setNote(null));
-            }}
-          />
-        </>
-      )}
+              )}
+            </div>
+            <RightPanel
+              note={note}
+              notes={notes}
+              onOpen={openPath}
+              onTag={openTag}
+              onJump={(pos) => editorApi.current?.goTo({ from: pos, to: pos })}
+              onMetaChanged={(newPath) => {
+                refreshLists();
+                const current = noteRef.current;
+                if (!current) return;
+                if (newPath && newPath !== current.path) openPath(newPath, 'replace');
+                else
+                  api
+                    .note(current.path)
+                    .then(setNote)
+                    .catch(() => setNote(null));
+              }}
+            />
+          </>
+        )}
+      </div>
+      <StatusBar
+        saveState={saveState}
+        notePath={view === 'notes' ? (note?.path ?? null) : null}
+        onOpenJira={() => goView('jira')}
+        onOpenSettings={() => goView('settings')}
+        onHelp={() => setHelpOpen(true)}
+      />
       <Finder />
       {helpOpen && <ShortcutHelp shortcuts={shortcuts} onClose={() => setHelpOpen(false)} />}
       {chord && <div className="chord-pending">{chord} … then a letter (? for the list)</div>}

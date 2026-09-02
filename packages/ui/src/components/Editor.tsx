@@ -503,7 +503,10 @@ export function Editor({
     // open with the cursor on the first body line, not inside the frontmatter
     // (which would keep the folded block open)
     const fmMatch = /^---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(content);
-    const bodyStart = Math.min(fmMatch ? fmMatch[0].length : 0, content.length);
+    let bodyStart = Math.min(fmMatch ? fmMatch[0].length : 0, content.length);
+    // a cursor on the H1 would show its raw '#': start on the line after it
+    const firstLine = /^(#{1,6} [^\n]*)\n?/.exec(content.slice(bodyStart));
+    if (firstLine) bodyStart = Math.min(bodyStart + firstLine[0].length, content.length);
     const state = EditorState.create({
       doc: content,
       selection: { anchor: bodyStart },

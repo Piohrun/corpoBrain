@@ -76,6 +76,17 @@ export function WritebackSection({
       .apply(items)
       .then((r) => {
         setReport(r);
+        {
+          const applied = r.results.filter((x) => x.status === 'applied').length;
+          const failed = r.results.filter(
+            (x) => x.status === 'error' || x.status === 'conflict',
+          ).length;
+          if (!r.dryRun && (applied || failed))
+            dlg.toast({
+              kind: failed ? 'error' : 'success',
+              message: `Write-back: ${applied} applied${failed ? `, ${failed} not applied` : ''}`,
+            });
+        }
         setPreview(null);
         refresh();
         onChanged();

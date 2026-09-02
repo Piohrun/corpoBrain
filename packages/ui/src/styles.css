@@ -4074,3 +4074,52 @@ button.prop-chip {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---- status bar ---- */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.app-shell > .app {
+  flex: 1;
+  min-height: 0;
+}
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 3px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  min-height: 24px;
+  flex: none;
+}
+.status-bar .spacer {
+  flex: 1;
+}
+.status-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-item.link {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.status-item.link:hover {
+  color: var(--fg);
+}
+.status-item.bad,
+.status-item.save-error {
+  color: var(--danger);
+}
+.status-item.save-saving {
+  color: var(--fg-muted);
+}
