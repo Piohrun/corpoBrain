@@ -956,16 +956,32 @@ function AppShell() {
                     type="button"
                     className="note-delete"
                     title="Delete note (moved to .trash inside the vault)"
-                    onClick={async () => {
+                    onClick={() => {
                       const current = noteRef.current;
                       if (!current) return;
-                      if (!(await dlg.confirm(`Delete "${current.meta?.title ?? current.path}"?`)))
-                        return;
+                      const title = current.meta?.title ?? current.path;
+                      const path = current.path;
+                      // no confirm: the note goes to .trash and the toast undoes it
                       // the editor's debounced save must not resurrect the file
                       discardRef.current = true;
                       api
-                        .remove(current.path)
+                        .remove(path)
                         .then(() => {
+                          dlg.toast({
+                            message: `Deleted “${title}”`,
+                            action: {
+                              label: 'Undo',
+                              run: () =>
+                                api
+                                  .restore(path)
+                                  .then(() => {
+                                    refreshLists();
+                                    goView('notes');
+                                    openPath(path);
+                                  })
+                                  .catch((e: Error) => dlg.alert(`Undo failed: ${e.message}`)),
+                            },
+                          });
                           setNote(null);
                           window.history.replaceState(
                             {

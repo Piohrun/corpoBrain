@@ -128,6 +128,29 @@ describe('server API', () => {
     expect(await json(await app.request('/api/unresolved'))).toEqual([]);
   });
 
+  it('restore brings the newest trashed copy back and re-indexes it', async () => {
+    await app.request('/api/note?path=notes/b.md', { method: 'DELETE' });
+    expect((await app.request('/api/note?path=notes/b.md')).status).toBe(404);
+    const res = await app.request('/api/note/restore', {
+      method: 'POST',
+      body: JSON.stringify({ path: 'notes/b.md' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await app.request('/api/note?path=notes/b.md')).status).toBe(200);
+    expect(
+      vault.indexer.db.prepare('SELECT 1 FROM notes WHERE path = ?').get('notes/b.md'),
+    ).toBeTruthy();
+    // nothing left to restore
+    expect(
+      (
+        await app.request('/api/note/restore', {
+          method: 'POST',
+          body: JSON.stringify({ path: 'notes/b.md' }),
+        })
+      ).status,
+    ).toBe(409);
+  });
+
   it('delete moves to trash and unindexes', async () => {
     const res = await app.request('/api/note?path=notes/b.md', { method: 'DELETE' });
     expect(res.status).toBe(200);

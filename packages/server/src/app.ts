@@ -142,6 +142,13 @@ export function createApp(vault?: VaultService) {
     return c.json({ ok: true });
   });
 
+  /** Undo of a delete: restore the newest trashed copy of the path. */
+  app.post('/api/note/restore', async (c) => {
+    const { path } = (await c.req.json()) as { path?: string };
+    if (!path) throw new HttpError(400, 'path required');
+    return c.json(v.restore(path));
+  });
+
   app.get('/api/resolve', (c) => {
     const target = c.req.query('target');
     if (!target) throw new HttpError(400, 'target required');

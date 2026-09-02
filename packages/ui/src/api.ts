@@ -72,6 +72,8 @@ export const api = {
     req<{ ok: boolean }>('/api/note', { method: 'PUT', body: JSON.stringify({ path, content }) }),
   create: (path: string, title?: string) =>
     req<{ path: string }>('/api/note', { method: 'POST', body: JSON.stringify({ path, title }) }),
+  restore: (path: string) =>
+    req<{ path: string }>('/api/note/restore', { method: 'POST', body: JSON.stringify({ path }) }),
   remove: (path: string) =>
     req<{ ok: boolean }>(`/api/note?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   resolve: (target: string) =>

@@ -249,6 +249,29 @@ export class VaultService {
     pruneTrash(trashDir);
   }
 
+  /** Bring the most recent .trash copy of a deleted note back (the Undo after delete). */
+  restore(relPath: string): { path: string } {
+    const p = this.assertSafe(relPath);
+    const abs = join(this.root, p);
+    if (existsSync(abs)) throw new HttpError(409, `already exists: ${p}`);
+    const trashDir = join(this.root, '.trash');
+    const suffix = `-${p.replace(/\//g, '__')}`;
+    let candidates: string[] = [];
+    try {
+      candidates = readdirSync(trashDir).filter((f) => f.endsWith(suffix));
+    } catch {
+      candidates = [];
+    }
+    const latest = candidates.sort().at(-1);
+    if (!latest) throw new HttpError(404, `nothing in the trash for ${p}`);
+    this.markSelfWrite(p);
+    mkdirSync(join(abs, '..'), { recursive: true });
+    copyFileSync(join(trashDir, latest), abs);
+    unlinkSync(join(trashDir, latest));
+    this.indexer.updatePaths([p]);
+    return { path: p };
+  }
+
   /**
    * Resolve a link target the same way the indexer does; if it does not
    * resolve, report the path where a new note would be created.
