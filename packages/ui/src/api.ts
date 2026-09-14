@@ -194,6 +194,7 @@ export interface SyncProgress {
   current: number;
   total: number;
   detail?: string;
+  retrying?: boolean;
   startedAt: string;
 }
 
@@ -212,6 +213,10 @@ export interface SyncReportSummary {
 
 export interface JiraStatus {
   syncing: boolean;
+  runId: string | null;
+  cancelling: boolean;
+  lastRun: SyncRun | null;
+  historyError: string | null;
   progress: SyncProgress | null;
   lastReports: SyncReportSummary[] | null;
   lastSyncError: string | null;
@@ -219,6 +224,21 @@ export interface JiraStatus {
   baseUrl: string;
   profiles: string[];
   lastSynced: string | null;
+}
+
+export interface SyncRun {
+  id: string;
+  profiles: string[];
+  full: boolean;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number;
+  outcome: 'running' | 'success' | 'failed' | 'cancelled' | 'interrupted';
+  retries: number;
+  reports: SyncReportSummary[];
+  error: string | null;
+  progress: Pick<SyncProgress, 'profile' | 'phase' | 'current' | 'total'> | null;
+  settings: { requestTimeoutSeconds: number; searchPageSize: number };
 }
 
 export type PlanPatch = Partial<{
@@ -595,7 +615,13 @@ export const planApi = {
     }),
   jiraStatus: () => req<JiraStatus>('/api/jira/status'),
   jiraSync: (full = false) =>
-    req<{ ok: boolean }>('/api/jira/sync', { method: 'POST', body: JSON.stringify({ full }) }),
+    req<{ ok: boolean; id: string }>('/api/jira/sync/start', {
+      method: 'POST',
+      body: JSON.stringify({ full }),
+    }),
+  jiraCancel: (id: string) =>
+    req<{ ok: boolean }>('/api/jira/sync/cancel', { method: 'POST', body: JSON.stringify({ id }) }),
+  jiraHistory: () => req<{ runs: SyncRun[]; warning: string | null }>('/api/jira/sync/history'),
 };
 
 export interface SavedView {
@@ -822,6 +848,8 @@ export interface JiraProfileCfg {
 export interface JiraConfig {
   baseUrl: string;
   proxyUrl: string;
+  requestTimeoutSeconds: number;
+  searchPageSize: number;
   writeback: 'off' | 'dry-run' | 'on';
   deployment: 'auto' | 'datacenter' | 'cloud';
   auth: 'bearer' | 'basic';

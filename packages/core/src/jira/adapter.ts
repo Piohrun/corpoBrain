@@ -43,6 +43,8 @@ export interface JiraSprint {
   endDate?: string;
   goal?: string;
   originBoardId?: number;
+  /** Cached board data retained after a failed refresh. */
+  stale?: boolean;
 }
 
 export interface JiraDeploymentInfo {
@@ -71,6 +73,55 @@ const DEFAULT_FIELDS = [
   'comment',
 ];
 
+const READ_ATTEMPTS = 3;
+const RETRY_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRY_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EPIPE',
+  'ETIMEDOUT',
+  'EAI_AGAIN',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+function retryableNetworkError(error: unknown, depth = 0): boolean {
+  if (!(error instanceof Error) || depth > 5) return false;
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return true;
+  if (error instanceof AggregateError)
+    return error.errors.some((e) => retryableNetworkError(e, depth + 1));
+  const code = (error as Error & { code?: string }).code;
+  if (code) return RETRY_CODES.has(code);
+  if (error.cause) return retryableNetworkError(error.cause, depth + 1);
+  return error instanceof TypeError && error.message === 'fetch failed';
+}
+
+/** Both seconds and HTTP dates are allowed. Never retry earlier than Jira asks. */
+function retryAfterMs(value: string | null): number {
+  if (!value?.trim()) return 0;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : 0;
+}
+
+function waitForRetry(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 export class JiraError extends Error {
   constructor(
     readonly status: number,
@@ -82,16 +133,22 @@ export class JiraError extends Error {
 
 export class JiraAdapter {
   private deployment: 'datacenter' | 'cloud' | null;
+  onRetry: ((detail: string) => void) | undefined;
 
   constructor(
     readonly baseUrl: string,
     readonly auth: JiraAuth,
     deployment: 'auto' | 'datacenter' | 'cloud' = 'auto',
     private readonly fetchFn: FetchFn = fetch,
-    /** per-request timeout; a blackholed connection fails fast instead of hanging */
-    private readonly timeoutMs = 30_000,
+    /** Deadline for each attempt, including reading the response body. */
+    private readonly timeoutMs = 60_000,
+    private readonly pageSize = 50,
+    private readonly signal?: AbortSignal,
   ) {
     this.deployment = deployment === 'auto' ? null : deployment;
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 300_000)
+      this.timeoutMs = 60_000;
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) this.pageSize = 50;
   }
 
   private headers(): Record<string, string> {
@@ -105,29 +162,75 @@ export class JiraAdapter {
     return h;
   }
 
-  private async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+  private async get<T>(
+    path: string,
+    params: Record<string, string> = {},
+    context = '',
+  ): Promise<T> {
     const url = new URL(path, this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    let res: Response;
-    try {
-      res = await this.fetchFn(url, {
-        headers: this.headers(),
-        signal: AbortSignal.timeout(this.timeoutMs),
-      });
-    } catch (e) {
-      throw new JiraError(0, `cannot reach ${url.host}: ${describeNetworkError(e)}`);
+    // Do not put credentials, JQL, or Cloud continuation tokens in diagnostics.
+    const paging = ['startAt', 'maxResults']
+      .filter((key) => params[key] !== undefined)
+      .map((key) => `${key}=${params[key]}`);
+    const details = [context, ...paging].filter(Boolean).join(', ');
+    const request = `GET ${path}${details ? ` (${details})` : ''} on ${url.host}`;
+    const started = Date.now();
+    for (let attempt = 1; attempt <= READ_ATTEMPTS; attempt++) {
+      this.signal?.throwIfAborted();
+      let retryable = false;
+      let delay = 1000 * 2 ** (attempt - 1);
+      try {
+        const res = await this.fetchFn(url, {
+          headers: this.headers(),
+          signal: this.signal
+            ? AbortSignal.any([this.signal, AbortSignal.timeout(this.timeoutMs)])
+            : AbortSignal.timeout(this.timeoutMs),
+        });
+        if (!res.ok) {
+          delay = Math.max(delay, retryAfterMs(res.headers.get('retry-after')));
+          // A long server cooldown ends this run instead of waiting indefinitely
+          // or ignoring Retry-After and immediately hitting Jira again.
+          retryable = RETRY_STATUSES.has(res.status) && delay <= 60_000;
+          const body = await res.text().catch(() => '');
+          throw new JiraError(
+            res.status,
+            `${res.status} ${res.statusText}: ${body.slice(0, 300)}${
+              delay > 60_000 ? ` (server requests a ${Math.ceil(delay / 1000)}s retry delay)` : ''
+            }`,
+          );
+        }
+        // Body timeouts and interrupted downloads must retry the same page too.
+        return (await res.json()) as T;
+      } catch (e) {
+        this.signal?.throwIfAborted();
+        const status = e instanceof JiraError ? e.status : 0;
+        if (!(e instanceof JiraError)) retryable = retryableNetworkError(e);
+        const detail =
+          e instanceof JiraError
+            ? e.message
+            : `${describeNetworkError(e)}${
+                e instanceof Error && (e.name === 'TimeoutError' || e.name === 'AbortError')
+                  ? ` (limit ${this.timeoutMs / 1000}s per attempt)`
+                  : ''
+              }`;
+        if (!retryable || attempt === READ_ATTEMPTS) {
+          const elapsed = ((Date.now() - started) / 1000).toFixed(1);
+          throw new JiraError(
+            status,
+            `${request} failed after ${attempt} attempt${attempt === 1 ? '' : 's'} (${elapsed}s elapsed): ${detail}`,
+          );
+        }
+        this.onRetry?.(
+          `Retrying Jira request in ${delay / 1000}s (attempt ${attempt + 1}/${READ_ATTEMPTS}): ${detail}`,
+        );
+        await waitForRetry(delay, this.signal);
+      }
     }
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new JiraError(
-        res.status,
-        `${res.status} ${res.statusText} for ${path}: ${body.slice(0, 300)}`,
-      );
-    }
-    return (await res.json()) as T;
+    throw new Error('unreachable');
   }
 
-  /** Write helper: PUT/POST with the same error wrapping as get(). */
+  /** Writes are attempted once: a lost response must not repeat a Jira mutation. */
   private async send(
     method: 'PUT' | 'POST',
     path: string,
@@ -279,18 +382,22 @@ export class JiraAdapter {
     jql: string,
     extraFields: string[] = [],
     onPage?: (fetched: number, total: number) => void,
-    opts: { changelog?: boolean } = { changelog: true },
+    opts: { changelog?: boolean; comments?: boolean } = {},
   ): Promise<RawIssue[]> {
     const deployment = await this.ensureDeployment();
-    const fields = [...new Set([...DEFAULT_FIELDS, ...extraFields])].join(',');
-    const expand = opts.changelog ? { expand: 'changelog' } : {};
+    const fields = [...new Set([...DEFAULT_FIELDS, ...extraFields])]
+      .filter((field) => field !== 'comment' || opts.comments !== false)
+      .join(',');
+    const expand = opts.changelog !== false ? { expand: 'changelog' } : {};
     const out: RawIssue[] = [];
+    let pageNumber = 0;
     if (deployment === 'datacenter') {
       let startAt = 0;
       for (;;) {
         const page = await this.get<{ issues: RawIssue[]; total: number; startAt: number }>(
           'rest/api/2/search',
-          { jql, fields, startAt: String(startAt), maxResults: '100', ...expand },
+          { jql, fields, startAt: String(startAt), maxResults: String(this.pageSize), ...expand },
+          `search page ${++pageNumber}`,
         );
         out.push(...page.issues);
         startAt += page.issues.length;
@@ -305,10 +412,11 @@ export class JiraAdapter {
           {
             jql,
             fields,
-            maxResults: '100',
+            maxResults: String(this.pageSize),
             ...expand,
             ...(token ? { nextPageToken: token } : {}),
           },
+          `search page ${++pageNumber}`,
         );
         out.push(...page.issues);
         onPage?.(out.length, 0); // Cloud pagination reports no total
@@ -316,7 +424,7 @@ export class JiraAdapter {
         if (!token || page.issues.length === 0) break;
       }
     }
-    if (opts.changelog) {
+    if (opts.changelog !== false) {
       for (const issue of out) {
         const cl = issue.changelog;
         if (cl && cl.total !== undefined && cl.total > cl.histories.length) {
@@ -447,13 +555,13 @@ export function describeNetworkError(e: unknown): string {
   }
   const name = (e as { name?: string } | null)?.name;
   if (name === 'TimeoutError' || name === 'AbortError') {
-    return 'request timed out — connection silently dropped; the host may only be reachable through a proxy, or a firewall is blackholing it';
+    return 'request timed out while waiting for Jira; the server or network may be slow';
   }
   const detail = seen[seen.length - 1] ?? 'fetch failed';
   const hints: Record<string, string> = {
     ENOTFOUND: 'DNS lookup failed — check the URL / VPN',
     ECONNREFUSED: 'connection refused — wrong port, or the host needs a proxy',
-    ETIMEDOUT: 'timed out — likely blocked by a firewall or needs a proxy',
+    ETIMEDOUT: 'connection timed out — the server or network did not respond in time',
     ECONNRESET: 'connection reset — often TLS interception or a proxy in the path',
     UNABLE_TO_VERIFY_LEAF_SIGNATURE:
       'TLS chain not trusted — set NODE_EXTRA_CA_CERTS to your corporate root CA file',

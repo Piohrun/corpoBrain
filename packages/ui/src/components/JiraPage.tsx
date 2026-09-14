@@ -8,6 +8,7 @@ import {
 } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { SyncHistory } from './SyncHistory.tsx';
 import { lastSyncSummary, SyncProgressBar } from './SyncProgressBar.tsx';
 import { WritebackSection } from './WritebackSection.tsx';
 
@@ -37,7 +38,14 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
 
-  const { syncing, status: syncStatus, start: sync, error: syncError } = useJiraSync(refresh);
+  const {
+    syncing,
+    cancelling,
+    cancel,
+    status: syncStatus,
+    start: sync,
+    error: syncError,
+  } = useJiraSync(refresh);
 
   return (
     <div className="planning">
@@ -69,7 +77,7 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
           {syncing ? 'Syncing…' : 'Sync now'}
         </button>
       </div>
-      <SyncProgressBar status={syncStatus} />
+      <SyncProgressBar status={syncStatus} onCancel={cancel} cancelling={cancelling} />
       {(syncStatus?.lastReports ?? []).flatMap((r) => r.warnings ?? []).length > 0 && (
         <div className="sync-warnings">
           {(syncStatus?.lastReports ?? [])
@@ -90,6 +98,7 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
           </section>
         )}
         {config && <SettingsCard config={config} onSaved={refresh} />}
+        <SyncHistory status={syncStatus} />
         <SprintsSection sprints={sprints} onOpenNote={onOpenNote} onChanged={refresh} />
         {config && <WritebackSection config={config} onChanged={refresh} />}
         <IssuesSection issues={issues} onOpenNote={onOpenNote} />
@@ -146,6 +155,8 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
       .saveConfig({
         baseUrl: draft.baseUrl,
         proxyUrl: draft.proxyUrl,
+        requestTimeoutSeconds: draft.requestTimeoutSeconds,
+        searchPageSize: draft.searchPageSize,
         deployment: draft.deployment,
         auth: draft.auth,
         projectKeys: draft.projectKeys,
@@ -240,6 +251,26 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               <option value="bearer">Bearer token (Data Center PAT)</option>
               <option value="basic">Basic: email + API token (Cloud)</option>
             </select>
+            <label htmlFor="j-timeout">request timeout (seconds)</label>
+            <input
+              id="j-timeout"
+              type="number"
+              min={5}
+              max={300}
+              step={1}
+              value={draft.requestTimeoutSeconds}
+              onChange={(e) => edit({ requestTimeoutSeconds: Number(e.target.value) })}
+            />
+            <label htmlFor="j-page-size">issues per search page</label>
+            <input
+              id="j-page-size"
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={draft.searchPageSize}
+              onChange={(e) => edit({ searchPageSize: Number(e.target.value) })}
+            />
             {draft.auth === 'basic' && (
               <>
                 <label htmlFor="j-email">email</label>

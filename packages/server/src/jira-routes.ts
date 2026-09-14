@@ -2,13 +2,12 @@
 import {
   createJiraAdapter,
   JiraError,
-  JiraSync,
   loadJiraAuth,
-  type SyncProgress,
   type SyncReport,
   type VaultConfig,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { syncService } from './jira-sync-service.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 import {
   type ApplyItem,
@@ -46,19 +45,15 @@ export interface JiraIssueRow {
   plan_note: string | null;
 }
 
-/** Module-level sync progress (one vault per server process). */
-let liveProgress: (SyncProgress & { startedAt: string }) | null = null;
-let lastReports: SyncReport[] | null = null;
-let lastSyncError: string | null = null;
-/** One sync at a time, whoever asks (button, scheduler, post-write-back). */
-let syncInFlight = false;
-
 export function jiraRoutes(v: VaultService): Hono {
   const app = new Hono();
+  const jobs = syncService(v);
 
   const sanitizedConfig = () => ({
     baseUrl: v.config.jira.baseUrl,
     proxyUrl: v.config.jira.proxyUrl,
+    requestTimeoutSeconds: v.config.jira.requestTimeoutSeconds,
+    searchPageSize: v.config.jira.searchPageSize,
     deployment: v.config.jira.deployment,
     auth: v.config.jira.auth,
     projectKeys: v.config.jira.projectKeys,
@@ -81,6 +76,16 @@ export function jiraRoutes(v: VaultService): Hono {
     const partial: Partial<VaultConfig['jira']> = {};
     if (typeof rest.baseUrl === 'string') partial.baseUrl = rest.baseUrl.trim().replace(/\/+$/, '');
     if (typeof rest.proxyUrl === 'string') partial.proxyUrl = rest.proxyUrl.trim();
+    for (const [key, min, max] of [
+      ['requestTimeoutSeconds', 5, 300],
+      ['searchPageSize', 1, 100],
+    ] as const) {
+      const value = rest[key];
+      if (value === undefined) continue;
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max)
+        throw new HttpError(400, `${key} must be an integer between ${min} and ${max}`);
+      partial[key] = value;
+    }
     if (rest.deployment && ['auto', 'datacenter', 'cloud'].includes(rest.deployment))
       partial.deployment = rest.deployment;
     if (rest.auth && ['bearer', 'basic'].includes(rest.auth)) partial.auth = rest.auth;
@@ -234,7 +239,6 @@ export function jiraRoutes(v: VaultService): Hono {
   );
 
   app.post('/sync', async (c) => {
-    if (syncInFlight) throw new HttpError(409, 'sync already running');
     try {
       const body = (await c.req.json().catch(() => ({}))) as {
         profile?: string;
@@ -248,6 +252,22 @@ export function jiraRoutes(v: VaultService): Hono {
         : new HttpError(502, e instanceof Error ? e.message : 'sync failed');
     }
   });
+
+  /** Start a server-owned job; browser navigation does not own its lifetime. */
+  app.post('/sync/start', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { profile?: string; full?: boolean };
+    const job = jobs.start(body.profile, body.full === true);
+    return c.json({ ok: true, id: job.id }, 202);
+  });
+
+  app.post('/sync/cancel', async (c) => {
+    const body = (await c.req.json()) as { id?: string };
+    if (typeof body.id !== 'string' || !body.id) throw new HttpError(400, 'sync id required');
+    jobs.cancel(body.id);
+    return c.json({ ok: true });
+  });
+
+  app.get('/sync/history', (c) => c.json({ runs: jobs.history, warning: jobs.historyError }));
 
   // ------------------------------------------------------------ write-back
   let applying = false;
@@ -307,10 +327,7 @@ export function jiraRoutes(v: VaultService): Hono {
       synced: string | null;
     };
     return c.json({
-      syncing: liveProgress !== null || syncInFlight,
-      progress: liveProgress,
-      lastReports,
-      lastSyncError,
+      ...jobs.status,
       configured: v.config.jira.baseUrl !== '' && v.config.jira.profiles.length > 0,
       baseUrl: v.config.jira.baseUrl,
       profiles: v.config.jira.profiles.map((p) => p.name),
@@ -326,40 +343,7 @@ export async function runSync(
   profile?: string,
   full = false,
 ): Promise<SyncReport[]> {
-  if (syncInFlight) throw new HttpError(409, 'sync already running');
-  syncInFlight = true;
-  const adapter = createJiraAdapter(v.root, v.config);
-  const sync = new JiraSync(v.root, v.config, adapter);
-  const startedAt = new Date().toISOString();
-  sync.onProgress = (p) => {
-    liveProgress = { ...p, startedAt };
-  };
-  try {
-    const reports = await sync.run(profile, { full });
-    lastReports = reports;
-    lastSyncError = null;
-    v.indexer.loadSprints();
-    // Re-index what the sync wrote, not the whole vault: a full walk stats
-    // every file, which on a laptop with antivirus is the expensive part.
-    const touched = reports.flatMap((r) => [
-      ...r.created.map((k) => `${profileFolder(v, r.profile)}/${k}.md`),
-      ...r.updated.map((k) => `${profileFolder(v, r.profile)}/${k}.md`),
-      ...r.peopleCreated,
-    ]);
-    if (touched.length) v.indexer.updatePaths(touched);
-    v.notifyJiraChanged(reports);
-    return reports;
-  } catch (e) {
-    lastSyncError = e instanceof Error ? e.message : String(e);
-    throw e;
-  } finally {
-    liveProgress = null;
-    syncInFlight = false;
-  }
-}
-
-function profileFolder(v: VaultService, name: string): string {
-  return v.config.jira.profiles.find((p) => p.name === name)?.folder ?? v.config.folders.jira;
+  return await syncService(v).start(profile, full).completion;
 }
 
 /** Background scheduler honouring each profile's intervalMinutes. */

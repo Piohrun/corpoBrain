@@ -94,7 +94,7 @@ describe('describeNetworkError', () => {
 });
 
 describe('request timeout', () => {
-  it('a hanging fetch aborts and reports a proxy/firewall hint', async () => {
+  it('a hanging fetch aborts, retries, and reports the deadline without diagnosing a dropped connection', async () => {
     const { JiraAdapter, JiraError } = await import('../src/jira/adapter.ts');
     const hangingFetch = ((_url: unknown, init?: { signal?: AbortSignal }) =>
       new Promise((_resolve, reject) => {
@@ -107,7 +107,9 @@ describe('request timeout', () => {
       hangingFetch,
       50, // 50ms timeout for the test
     );
-    await expect(adapter.probe()).rejects.toThrow(JiraError);
-    await expect(adapter.probe()).rejects.toThrow(/timed out.*proxy|proxy.*timed out/i);
+    const error = await adapter.probe().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(JiraError);
+    expect((error as Error).message).toMatch(/serverInfo.*3 attempts.*timed out.*limit 0.05s/);
+    expect((error as Error).message).not.toMatch(/silently dropped|blackholing/);
   }, 5000);
 });

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { type JiraStatus, planApi } from './api.ts';
+import { watchJiraSync } from './jira-sync-poller.ts';
 
 type PathsListener = (paths: string[]) => void;
 
@@ -78,63 +79,85 @@ export function useDebouncedCallback<A extends unknown[]>(
   return [call, flush, cancel];
 }
 
-/** Trigger a Jira sync and poll live progress until it settles. */
+/** Start/cancel server-owned jobs and reconnect to progress after navigation. */
 export function useJiraSync(onDone: () => void): {
   syncing: boolean;
+  cancelling: boolean;
   status: JiraStatus | null;
   start: (full?: boolean) => void;
+  cancel: () => void;
   error: string | null;
 } {
   const [status, setStatus] = useState<JiraStatus | null>(null);
-  const [syncing, setSyncing] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  /** our own POST is still running: a status poll that says idle is stale */
   const inFlight = useRef(false);
+  const poller = useRef<ReturnType<typeof watchJiraSync> | null>(null);
+  const mounted = useRef(false);
   const doneRef = useRef(onDone);
   doneRef.current = onDone;
 
-  const poll = useCallback(() => {
-    planApi
-      .jiraStatus()
-      .then((st) => {
+  useEffect(() => {
+    mounted.current = true;
+    const watcher = watchJiraSync(
+      planApi.jiraStatus,
+      (st) => {
         setStatus(st);
-        // The interval only feeds the progress bar. Completion is decided
-        // here, but never while our POST is in flight — the first poll can
-        // land before the server has marked the sync as started.
-        if (!st.syncing && !inFlight.current && timer.current) {
-          clearInterval(timer.current);
-          timer.current = null;
-          setSyncing(false);
-          doneRef.current();
-        }
-      })
-      .catch(() => {});
+        setError(st.lastSyncError);
+      },
+      () => doneRef.current(),
+      () => setError('Could not refresh sync status — reconnecting…'),
+    );
+    poller.current = watcher;
+    return () => {
+      mounted.current = false;
+      watcher.stop();
+      poller.current = null;
+    };
   }, []);
 
-  useEffect(() => {
-    poll();
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-    };
-  }, [poll]);
+  const start = useCallback((full = false) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setStarting(true);
+    setError(null);
+    planApi
+      .jiraSync(full)
+      .catch((e: Error) => {
+        if (mounted.current) setError(e.message);
+      })
+      .finally(() => {
+        inFlight.current = false;
+        if (mounted.current) {
+          setStarting(false);
+          poller.current?.refresh();
+        }
+      });
+  }, []);
 
-  const start = useCallback(
-    (full = false) => {
-      setSyncing(true);
-      setError(null);
-      inFlight.current = true;
-      if (!timer.current) timer.current = setInterval(poll, 700);
-      planApi
-        .jiraSync(full)
-        .catch((e: Error) => setError(e.message))
-        .finally(() => {
-          inFlight.current = false;
-          poll(); // settles: stops the interval and fires onDone once idle
-        });
-    },
-    [poll],
-  );
+  const cancel = useCallback(() => {
+    if (!status?.runId) return;
+    setCancelling(true);
+    planApi
+      .jiraCancel(status.runId)
+      .catch((e: Error) => {
+        if (mounted.current) setError(e.message);
+      })
+      .finally(() => {
+        if (mounted.current) {
+          setCancelling(false);
+          poller.current?.refresh();
+        }
+      });
+  }, [status?.runId]);
 
-  return { syncing: syncing || (status?.syncing ?? false), status, start, error };
+  return {
+    syncing: starting || (status?.syncing ?? false),
+    cancelling: cancelling || (status?.cancelling ?? false),
+    status,
+    start,
+    cancel,
+    error,
+  };
 }

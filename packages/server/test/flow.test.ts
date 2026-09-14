@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { VaultService } from '../src/vault-service.ts';
 
@@ -42,6 +42,8 @@ function issue(key: string, fm: Record<string, string>, histories: unknown[]): v
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-08-30T12:00:00Z'));
   root = join(tmpdir(), `cb-flow-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   for (const d of ['jira', 'people', '.corpobrain/jira-cache/issues'])
     mkdirSync(join(root, d), { recursive: true });
@@ -113,6 +115,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vault.stop();
   rmSync(root, { recursive: true, force: true });
 });

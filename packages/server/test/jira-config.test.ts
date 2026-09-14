@@ -23,7 +23,13 @@ afterEach(() => {
 describe('jira settings API', () => {
   it('GET returns sanitized defaults', async () => {
     const cfg = (await (await app.request('/api/jira/config')).json()) as Record<string, unknown>;
-    expect(cfg).toMatchObject({ baseUrl: '', tokenSet: false, profiles: [] });
+    expect(cfg).toMatchObject({
+      baseUrl: '',
+      tokenSet: false,
+      profiles: [],
+      requestTimeoutSeconds: 60,
+      searchPageSize: 50,
+    });
     expect(JSON.stringify(cfg)).not.toContain('token"');
   });
 
@@ -35,6 +41,8 @@ describe('jira settings API', () => {
         auth: 'bearer',
         projectKeys: ['exec', 'bad key!'],
         estimateField: 'customfield_10016',
+        requestTimeoutSeconds: 120,
+        searchPageSize: 25,
         token: 'SEKRET',
         profiles: [{ name: 'team', jql: 'project = EXEC', boards: [7, 'x'], intervalMinutes: 15 }],
       }),
@@ -45,6 +53,8 @@ describe('jira settings API', () => {
       baseUrl: 'https://jira.example.com',
       projectKeys: ['EXEC'],
       tokenSet: true,
+      requestTimeoutSeconds: 120,
+      searchPageSize: 25,
       profiles: [{ name: 'team', folder: 'jira', boards: [7], futureSprints: 3 }],
     });
     expect(JSON.stringify(cfg)).not.toContain('SEKRET');
@@ -61,6 +71,8 @@ describe('jira settings API', () => {
     // a config reload from disk agrees
     const fresh = new VaultService(root, ':memory:');
     expect(fresh.config.jira.projectKeys).toEqual(['EXEC']);
+    expect(fresh.config.jira.requestTimeoutSeconds).toBe(120);
+    expect(fresh.config.jira.searchPageSize).toBe(25);
     fresh.stop();
   });
 
@@ -81,5 +93,39 @@ describe('jira settings API', () => {
     expect(existsSync(join(root, '.corpobrain', 'secrets.json'))).toBe(false);
     const res = await app.request('/api/jira/probe', { method: 'POST' });
     expect(res.status).toBe(502);
+  });
+
+  it.each([
+    { requestTimeoutSeconds: 0 },
+    { requestTimeoutSeconds: 301 },
+    { requestTimeoutSeconds: 1.5 },
+    { requestTimeoutSeconds: '60' },
+    { requestTimeoutSeconds: null },
+    { searchPageSize: 0 },
+    { searchPageSize: 101 },
+    { searchPageSize: 2.5 },
+  ])('rejects invalid request settings without saving partial changes: %j', async (settings) => {
+    const res = await app.request('/api/jira/config', {
+      method: 'PUT',
+      body: JSON.stringify({ baseUrl: 'https://changed', ...settings }),
+    });
+    expect(res.status).toBe(400);
+    expect(vault.config.jira.baseUrl).toBe('');
+  });
+
+  it('releases the sync lock and records errors when adapter setup fails', async () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const res = await app.request('/api/jira/sync', { method: 'POST', body: '{}' });
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({
+        error: expect.stringContaining('baseUrl is not configured'),
+      });
+      const status = await (await app.request('/api/jira/status')).json();
+      expect(status).toMatchObject({
+        syncing: false,
+        progress: null,
+        lastSyncError: expect.stringContaining('baseUrl is not configured'),
+      });
+    }
   });
 });

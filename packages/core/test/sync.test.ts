@@ -84,6 +84,81 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('JiraSync', () => {
+  it('keeps ORDER BY at the end on subsequent refreshes', async () => {
+    const cfg = structuredClone(config);
+    (cfg.jira.profiles[0] as JiraProfile).jql = 'project = EXEC ORDER BY updated DESC';
+    const sorted = new JiraSync(root, cfg, adapter, () => new Date('2026-08-30T12:00:00Z'));
+    await sorted.run();
+    await sorted.run();
+    expect(adapter.jqls).toEqual([
+      'project = EXEC ORDER BY updated DESC',
+      '(project = EXEC) AND updated >= -5m ORDER BY updated DESC',
+    ]);
+  });
+
+  it('preserves failed boards and fallback assignments, but replaces a successfully emptied board', async () => {
+    const cfg = structuredClone(config);
+    (cfg.jira.profiles[0] as JiraProfile).boards = [7, 9];
+    adapter.issues = [issue('EXEC-1', 'one'), issue('EXEC-2', 'two')];
+    let failed = false;
+    let empty = false;
+    adapter.sprints = async (board) => {
+      if (board === 9 && failed) throw new Error('offline');
+      if (board === 9 && empty) return [];
+      return [
+        { id: board * 10, name: `Board ${board} sprint`, state: 'active', originBoardId: board },
+      ];
+    };
+    adapter.sprintIssueKeys = async (sprint) => (sprint === 70 ? ['EXEC-1'] : ['EXEC-2']);
+    const sync = new JiraSync(root, cfg, adapter);
+    await sync.run();
+    failed = true;
+    const [report] = await sync.run();
+    const file = join(root, '.corpobrain/jira-cache/sprints.json');
+    expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 70, stale: false }),
+        expect.objectContaining({ id: 90, stale: true }),
+      ]),
+    );
+    expect(report?.warnings.join(' ')).toContain('retained as stale');
+    expect(readFileSync(join(root, 'jira/EXEC-2.md'), 'utf8')).toContain('sprint: Board 9 sprint');
+    failed = false;
+    empty = true;
+    await sync.run();
+    expect(JSON.parse(readFileSync(file, 'utf8')).map((s: JiraSprint) => s.id)).toEqual([70]);
+    expect(readFileSync(join(root, 'jira/EXEC-2.md'), 'utf8')).not.toContain(
+      'sprint: Board 9 sprint',
+    );
+  });
+
+  it('does not permanently cache a failed sprint-field discovery', async () => {
+    let calls = 0;
+    adapter.detectSprintField = async () => {
+      if (++calls === 1) throw new Error('offline');
+      return 'customfield_99';
+    };
+    await sync.run();
+    await sync.run();
+    expect(calls).toBe(2);
+    const state = JSON.parse(readFileSync(join(root, '.corpobrain/jira-cache/state.json'), 'utf8'));
+    expect(state.sprintField).toBe('customfield_99');
+  });
+
+  it('cancellation during board loading cannot be swallowed as a board warning', async () => {
+    const controller = new AbortController();
+    adapter.issues = [issue('EXEC-1', 'one')];
+    adapter.sprints = async () => {
+      controller.abort();
+      throw controller.signal.reason;
+    };
+    await expect(sync.run(undefined, { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    });
+    expect(existsSync(join(root, 'jira/EXEC-1.md'))).toBe(false);
+    expect(existsSync(join(root, '.corpobrain/jira-cache/state.json'))).toBe(false);
+  });
+
   it('creates files, people, caches, and a watermark', async () => {
     adapter.issues = [issue('EXEC-1', 'First thing', 'anna'), issue('EXEC-2', 'Second thing')];
     const [report] = await sync.run();

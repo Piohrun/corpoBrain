@@ -146,6 +146,7 @@ switch (command) {
         });
     } else if (sub === 'sync') {
       const adapter = createJiraAdapter(vaultRoot, config);
+      adapter.onRetry = (detail) => console.error(`[jira] ${detail}`);
       const sync = new JiraSync(vaultRoot, config, adapter);
       const profileFlag = flags.get('profile');
       sync

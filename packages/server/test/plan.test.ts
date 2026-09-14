@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { buildBoard } from '../src/plan-routes.ts';
 import { VaultService } from '../src/vault-service.ts';
@@ -15,6 +15,8 @@ function jiraFile(key: string, extra: string, user = ''): string {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-08-30T12:00:00Z'));
   root = join(tmpdir(), `cb-plan-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(join(root, 'jira'), { recursive: true });
   mkdirSync(join(root, 'people'), { recursive: true });
@@ -56,6 +58,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vault.stop();
   rmSync(root, { recursive: true, force: true });
 });

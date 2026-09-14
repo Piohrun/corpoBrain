@@ -96,7 +96,14 @@ export function PlanningPage({ onOpenNote }: Props) {
     [refresh],
   );
 
-  const { syncing, status: syncStatus, start: sync, error: syncError } = useJiraSync(refresh);
+  const {
+    syncing,
+    cancelling,
+    cancel,
+    status: syncStatus,
+    start: sync,
+    error: syncError,
+  } = useJiraSync(refresh);
 
   /** Visible sprint columns: first N sprints, Backlog always last. */
   const visibleColumns = useMemo(() => {
@@ -317,7 +324,7 @@ export function PlanningPage({ onOpenNote }: Props) {
           {syncing ? 'Syncing…' : 'Sync Jira'}
         </button>
       </div>
-      <SyncProgressBar status={syncStatus} />
+      <SyncProgressBar status={syncStatus} onCancel={cancel} cancelling={cancelling} />
 
       {board &&
         !nudgeOff &&

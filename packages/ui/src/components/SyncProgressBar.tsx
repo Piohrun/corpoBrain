@@ -9,17 +9,41 @@ const PHASE_LABEL: Record<string, string> = {
   done: 'finishing',
 };
 
-export function SyncProgressBar({ status }: { status: JiraStatus | null }) {
+export function SyncProgressBar({
+  status,
+  onCancel,
+  cancelling = false,
+}: {
+  status: JiraStatus | null;
+  onCancel?: () => void;
+  cancelling?: boolean;
+}) {
   const p = status?.progress;
-  if (!p) return null;
-  const pct = p.total > 0 ? Math.round((p.current / p.total) * 100) : null;
+  if (!status?.syncing) return null;
+  const pct = p && p.total > 0 ? Math.round((p.current / p.total) * 100) : null;
   return (
-    <div className="sync-progress" title={p.detail ?? ''}>
-      <div className="sync-progress-label">
-        {PHASE_LABEL[p.phase] ?? p.phase}
-        {p.total > 0 && ` — ${p.current}/${p.total}`}
-        {p.total === 0 && p.current > 0 && ` — ${p.current} so far`}
-        {p.detail && p.phase !== 'search' && ` · ${p.detail}`}
+    <div className="sync-progress" title={p?.detail ?? ''}>
+      <div className="sync-progress-heading">
+        <div className="sync-progress-label">
+          {cancelling
+            ? 'Cancelling sync…'
+            : p
+              ? (PHASE_LABEL[p.phase] ?? p.phase)
+              : 'Starting sync…'}
+          {p && p.total > 0 && ` — ${p.current}/${p.total}`}
+          {p && p.total === 0 && p.current > 0 && ` — ${p.current} so far`}
+          {!cancelling && p?.detail && (p.phase !== 'search' || p.retrying) && ` · ${p.detail}`}
+        </div>
+        {onCancel && (
+          <button
+            type="button"
+            className="risk-chip"
+            disabled={cancelling || !status.runId}
+            onClick={onCancel}
+          >
+            Cancel sync
+          </button>
+        )}
       </div>
       <div className={`sync-progress-track${pct === null ? ' indeterminate' : ''}`}>
         <div className="sync-progress-fill" style={pct === null ? {} : { width: `${pct}%` }} />
@@ -29,6 +53,10 @@ export function SyncProgressBar({ status }: { status: JiraStatus | null }) {
 }
 
 export function lastSyncSummary(status: JiraStatus | null): string | null {
+  if (status?.lastRun?.outcome === 'cancelled')
+    return 'Last sync cancelled; completed profiles were kept.';
+  if (status?.lastRun?.outcome === 'interrupted')
+    return 'Last sync interrupted by a server restart.';
   const reports = status?.lastReports;
   if (!reports?.length) return null;
   const r = reports[0];

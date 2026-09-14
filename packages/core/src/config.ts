@@ -39,6 +39,10 @@ export interface VaultConfig {
     baseUrl: string;
     /** forward proxy for Jira calls, e.g. http://proxy.corp:8080 (empty = direct / env vars) */
     proxyUrl: string;
+    /** Per-attempt deadline, including the response body (5–300 seconds). */
+    requestTimeoutSeconds: number;
+    /** Issues per search page (1–100); smaller pages reduce large-history payloads. */
+    searchPageSize: number;
     deployment: 'auto' | 'datacenter' | 'cloud';
     auth: 'bearer' | 'basic';
     projectKeys: string[];
@@ -100,6 +104,8 @@ export const DEFAULT_CONFIG: VaultConfig = {
   jira: {
     baseUrl: '',
     proxyUrl: '',
+    requestTimeoutSeconds: 60,
+    searchPageSize: 50,
     deployment: 'auto',
     auth: 'bearer',
     projectKeys: [],

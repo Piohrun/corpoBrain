@@ -1606,6 +1606,23 @@ button {
   padding: 6px 16px 8px;
   border-bottom: 1px solid var(--border);
 }
+.sync-progress-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sync-history-run {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.sync-diagnostics {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+}
 .sync-progress-label {
   font-size: 12px;
   color: var(--fg-muted);

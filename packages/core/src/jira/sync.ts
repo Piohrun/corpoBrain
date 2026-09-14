@@ -7,6 +7,7 @@ import { writeFileAtomic } from '../vault.ts';
 import type { JiraSprint, RawIssue } from './adapter.ts';
 import type { ChangeEvent } from './digest.ts';
 import { DigestStore, diffIssue, snapshotOf } from './digest.ts';
+import { incrementalJql } from './jql.ts';
 import { mergeIssueFile, normalizeIssue } from './render.ts';
 
 /** Structural subset of JiraAdapter so tests can stub it. */
@@ -15,6 +16,7 @@ export interface AdapterLike {
     jql: string,
     extraFields?: string[],
     onPage?: (fetched: number, total: number) => void,
+    opts?: { changelog?: boolean; comments?: boolean },
   ): Promise<RawIssue[]>;
   sprints(boardId: number, closedLimit?: number): Promise<JiraSprint[]>;
   sprintIssueKeys(sprintId: number): Promise<string[]>;
@@ -29,6 +31,7 @@ export interface SyncProgress {
   /** 0 = unknown/indeterminate */
   total: number;
   detail?: string;
+  retrying?: boolean;
 }
 
 export interface SyncReport {
@@ -58,6 +61,8 @@ interface SyncState {
 export class JiraSync {
   /** optional live progress feed for UIs */
   onProgress: ((p: SyncProgress) => void) | undefined;
+  /** A completed profile has committed its watermark and can be indexed immediately. */
+  onReport: ((report: SyncReport) => void) | undefined;
 
   constructor(
     readonly root: string,
@@ -88,19 +93,30 @@ export class JiraSync {
     writeFileSync(join(this.cacheDir(), 'state.json'), `${JSON.stringify(state, null, 2)}\n`);
   }
 
-  async run(profileName?: string, opts: { full?: boolean } = {}): Promise<SyncReport[]> {
+  async run(
+    profileName?: string,
+    opts: { full?: boolean; signal?: AbortSignal } = {},
+  ): Promise<SyncReport[]> {
     const profiles = this.config.jira.profiles.filter(
       (p) => !profileName || p.name === profileName,
     );
     if (!profiles.length)
       throw new Error(`no jira profile${profileName ? ` named ${profileName}` : 's configured'}`);
     const reports: SyncReport[] = [];
-    for (const profile of profiles)
-      reports.push(await this.runProfile(profile, opts.full ?? false));
+    for (const profile of profiles) {
+      opts.signal?.throwIfAborted();
+      const report = await this.runProfile(profile, opts.full ?? false, opts.signal);
+      reports.push(report);
+      this.onReport?.(report);
+    }
     return reports;
   }
 
-  private async runProfile(profile: JiraProfile, full: boolean): Promise<SyncReport> {
+  private async runProfile(
+    profile: JiraProfile,
+    full: boolean,
+    signal?: AbortSignal,
+  ): Promise<SyncReport> {
     const syncStart = this.now();
     const state = this.loadState();
     // Incremental window as a *relative* JQL clause: an absolute timestamp is
@@ -109,7 +125,7 @@ export class JiraSync {
     // overlap for clock skew.
     const since = full ? null : lastRunOf(state, profile.name);
     const window = since ? minutesSince(since, syncStart) + OVERLAP_MINUTES : null;
-    const jql = window !== null ? `(${profile.jql}) AND updated >= -${window}m` : profile.jql;
+    const jql = window !== null ? incrementalJql(profile.jql, window) : profile.jql;
     if (full) delete state.sprintField; // re-detect on a full pass too
     const extraFields = this.config.jira.estimateField ? [this.config.jira.estimateField] : [];
     // The issue's own sprint field is authoritative (full history, handles
@@ -118,20 +134,27 @@ export class JiraSync {
       try {
         state.sprintField = await this.adapter.detectSprintField();
       } catch {
-        state.sprintField = null;
+        signal?.throwIfAborted();
+        // A failed discovery is not evidence that the field does not exist.
       }
     }
+    signal?.throwIfAborted();
     if (state.sprintField) extraFields.push(state.sprintField);
     this.emit({ profile: profile.name, phase: 'search', current: 0, total: 0, detail: jql });
-    const issues = await this.adapter.search(jql, extraFields, (fetched, total) =>
-      this.emit({
-        profile: profile.name,
-        phase: 'search',
-        current: fetched,
-        total,
-        ...(total > 0 ? {} : { detail: `${fetched} so far` }),
-      }),
+    const issues = await this.adapter.search(
+      jql,
+      extraFields,
+      (fetched, total) =>
+        this.emit({
+          profile: profile.name,
+          phase: 'search',
+          current: fetched,
+          total,
+          ...(total > 0 ? {} : { detail: `${fetched} so far` }),
+        }),
+      { comments: this.config.jira.syncComments },
     );
+    signal?.throwIfAborted();
     this.emit({
       profile: profile.name,
       phase: 'search',
@@ -143,6 +166,8 @@ export class JiraSync {
     const sprintByKey = new Map<string, { id: number; name: string }>();
     const allSprints: JiraSprint[] = [];
     const warnings: string[] = [];
+    const refreshedBoards = new Set<number>();
+    let membershipIncomplete = false;
     if (profile.boards.length === 0) {
       warnings.push(
         'no agile board ids configured on this profile — sprints were NOT fetched (add your Scrum board id in Jira settings)',
@@ -162,12 +187,16 @@ export class JiraSync {
       try {
         sprints = await this.adapter.sprints(boardId);
       } catch (e) {
+        signal?.throwIfAborted();
+        membershipIncomplete = true;
         warnings.push(
-          `board ${boardId}: ${e instanceof Error ? e.message : String(e)} — is it a Scrum board? (Kanban boards have no sprints)`,
+          `board ${boardId}: ${e instanceof Error ? e.message : String(e)} — cached sprint data retained as stale. Check board access/type (Kanban boards have no sprints).`,
         );
         continue;
       }
-      allSprints.push(...sprints);
+      signal?.throwIfAborted();
+      refreshedBoards.add(boardId);
+      allSprints.push(...sprints.map((s) => ({ ...s, stale: false })));
       const considered = sprints
         .filter((s) => s.state !== 'closed')
         .slice(0, 1 + profile.futureSprints + 5);
@@ -181,27 +210,48 @@ export class JiraSync {
           total: considered.length,
           detail: sprint.name,
         });
-        for (const key of await this.adapter.sprintIssueKeys(sprint.id)) {
+        let keys: string[];
+        try {
+          keys = await this.adapter.sprintIssueKeys(sprint.id);
+        } catch (e) {
+          signal?.throwIfAborted();
+          membershipIncomplete = true;
+          warnings.push(
+            `sprint ${sprint.name}: ${e instanceof Error ? e.message : String(e)} — previous issue sprint assignments may be stale`,
+          );
+          continue;
+        }
+        signal?.throwIfAborted();
+        for (const key of keys) {
           if (sprint.state === 'active' || !sprintByKey.has(key)) {
             sprintByKey.set(key, { id: sprint.id, name: sprint.name });
           }
         }
       }
     }
-    if (allSprints.length) {
-      // Merge per board: another profile's boards keep their sprints.
+    // Let a pending cancellation reach the server before committing this profile.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    signal?.throwIfAborted();
+    // The local apply below is synchronous: finish this profile consistently,
+    // then honor cancellation before starting another profile.
+    if (profile.boards.length) {
+      // Replace only boards successfully refreshed, including an empty result.
       const file = join(this.cacheDir(), 'sprints.json');
       let kept: JiraSprint[] = [];
       try {
         const prev = JSON.parse(readFileSync(file, 'utf8')) as JiraSprint[];
-        kept = prev.filter(
-          (s) => s.originBoardId !== undefined && !profile.boards.includes(s.originBoardId),
-        );
+        kept = prev
+          .filter((s) => s.originBoardId === undefined || !refreshedBoards.has(s.originBoardId))
+          .map((s) =>
+            s.originBoardId !== undefined && profile.boards.includes(s.originBoardId)
+              ? { ...s, stale: true }
+              : s,
+          );
       } catch {
         kept = [];
       }
       const dedup = new Map([...kept, ...allSprints].map((s) => [s.id, s]));
-      writeFileSync(file, `${JSON.stringify([...dedup.values()], null, 2)}\n`);
+      writeFileAtomic(file, `${JSON.stringify([...dedup.values()], null, 2)}\n`);
     }
 
     const report: SyncReport = {
@@ -261,6 +311,16 @@ export class JiraSync {
       const relPath = `${profile.folder}/${issue.key}.md`;
       const abs = join(this.root, relPath);
       const existing = existsSync(abs) ? readFileSync(abs, 'utf8') : null;
+      if (
+        membershipIncomplete &&
+        !issue.sprint &&
+        existing &&
+        !(state.sprintField && Object.hasOwn(raw.fields, state.sprintField))
+      ) {
+        const previous = parseFrontmatter(existing).data;
+        if (typeof previous.sprint === 'string' && typeof previous.sprint_id === 'number')
+          issue.sprint = { id: previous.sprint_id, name: previous.sprint };
+      }
 
       if (!baseline && !(before === null && existing !== null)) {
         const prev = before ? snapshotOf(normalizeIssue(before, normOpts)) : null;

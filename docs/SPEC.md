@@ -531,6 +531,8 @@ Everything in this schema is derivable from vault files plus
     "estimateField": "customfield_10016",
     "estimateUnit": "points",
     "syncComments": false,
+    "requestTimeoutSeconds": 60,
+    "searchPageSize": 50,
     "createPeople": true,
     "autolinkMentions": false,
     "missingMarker": "skip",

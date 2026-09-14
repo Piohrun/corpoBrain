@@ -60,6 +60,31 @@ in the same settings (or set `HTTPS_PROXY`). If TLS fails behind interception,
 `start.cmd` auto-uses the Windows cert store on newer Node; otherwise set
 `NODE_EXTRA_CA_CERTS=C:\path\to\ca.pem`.
 
+Sync defaults to **50 issues per search page** and a **60-second timeout per
+request attempt**. Both are adjustable in Connection settings (or
+`jira.searchPageSize` and `jira.requestTimeoutSeconds` in the vault config).
+For slow searches, try 25 issues per page or a 120-second timeout. Reads retry
+transient network failures and HTTP 408/429/500/502/503/504 up to twice with
+backoff, honoring `Retry-After` up to 60 seconds; a longer cooldown ends the run
+so you can retry later. Jira writes are never automatically retried. The progress
+bar shows retries, and final errors include the endpoint, search page, attempt
+count, and elapsed time. Comment data is fetched only when `jira.syncComments`
+is enabled; changelogs are always retained for planning history.
+
+The web UI starts sync as a background job and reconnects to its progress after
+navigation or refresh. **Cancel sync** stops pending Jira requests and retry
+waits. If local files are already being applied, that profile finishes first;
+completed profiles remain available, and an unfinished profile keeps its old
+watermark so a later sync fetches it again.
+
+The Jira page's **Sync history** keeps the last 20 server runs across restarts,
+including duration, counts, retries, errors, and **Copy diagnostics**. History
+is stored in `.corpobrain/jira-cache/sync-history.json`; credentials are not
+included. Runs interrupted by a server restart are marked as interrupted.
+Failed board refreshes retain cached sprint data with a stale-data warning;
+successfully refreshed boards replace their cache even when they return no
+sprints. Incremental sync also supports profile queries ending in `ORDER BY`.
+
 **Updating**: `git pull` + `npm run build` (option A), or copy a fresh `dist\`
 (option B). Your vault is untouched by updates; the index rebuilds itself when
 the schema changes.

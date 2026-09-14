@@ -32,7 +32,11 @@ export function loadJiraAuth(root: string, config: VaultConfig): JiraAuth | null
   return { mode: config.jira.auth, token, ...(email ? { email } : {}) };
 }
 
-export function createJiraAdapter(root: string, config: VaultConfig): JiraAdapter {
+export function createJiraAdapter(
+  root: string,
+  config: VaultConfig,
+  signal?: AbortSignal,
+): JiraAdapter {
   if (!config.jira.baseUrl) {
     throw new Error('jira.baseUrl is not configured (.corpobrain/config.json)');
   }
@@ -48,5 +52,8 @@ export function createJiraAdapter(root: string, config: VaultConfig): JiraAdapte
     auth,
     config.jira.deployment,
     proxy ? createProxyFetch(proxy) : fetch,
+    config.jira.requestTimeoutSeconds * 1000,
+    config.jira.searchPageSize,
+    signal,
   );
 }
