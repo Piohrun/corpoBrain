@@ -49,6 +49,28 @@ describe('server API', () => {
     expect(body.backlinks).toMatchObject([{ srcPath: 'notes/a.md' }]);
   });
 
+  it('resolves generated Jira links for previews without adding them to the personal index', async () => {
+    vault.create(
+      'jira/DEMO-1.md',
+      'Demo',
+      '---\ntype: jira\nkey: DEMO-1\n---\n# Demo\n[[Beta]] and [[Missing]]\n`[[Not a link]]`\n<!-- jira:end -->\n## My notes\n',
+    );
+    const plain = (await (await app.request('/api/note?path=jira/DEMO-1.md')).json()) as {
+      links: unknown[];
+    };
+    expect(plain.links).toEqual([]);
+    const preview = (await (
+      await app.request('/api/note?path=jira/DEMO-1.md&context=true')
+    ).json()) as { links: unknown[] };
+    expect(preview.links).toEqual([
+      { target: 'Beta', path: 'notes/b.md', resolved: true },
+      { target: 'Missing', path: 'notes/Missing.md', resolved: false },
+    ]);
+    expect(vault.indexer.backlinks('notes/b.md')).not.toContainEqual(
+      expect.objectContaining({ srcPath: 'jira/DEMO-1.md' }),
+    );
+  });
+
   it('writes a note and reindexes', async () => {
     const res = await app.request('/api/note', {
       method: 'PUT',
@@ -60,6 +82,56 @@ describe('server API', () => {
     expect(res.status).toBe(200);
     const hits = (await json(await app.request('/api/search?q=zanzibar'))) as { path: string }[];
     expect(hits).toMatchObject([{ path: 'notes/b.md' }]);
+  });
+
+  it('captures separate follow-ups with due dates and backlinks, without changing the source', async () => {
+    const before = vault.read('notes/b.md').content;
+    const responses = await Promise.all(
+      ['Ask about rollout', 'Review\n  the checklist'].map((text) =>
+        app.request('/api/follow-up', {
+          method: 'POST',
+          body: JSON.stringify({ source: 'notes/b.md', text, due: '2026-10-01' }),
+        }),
+      ),
+    );
+    expect(responses.map((r) => r.status)).toEqual([201, 201]);
+    const captures = await Promise.all(
+      responses.map(async (r) => (await r.json()) as { path: string }),
+    );
+    expect(captures[0]?.path).not.toBe(captures[1]?.path);
+    expect(vault.read('notes/b.md').content).toBe(before);
+    const tasks = (await (await app.request('/api/tasks')).json()) as {
+      path: string;
+      due: string;
+      text: string;
+    }[];
+    for (const { path } of captures) {
+      expect(tasks).toContainEqual(expect.objectContaining({ path, due: '2026-10-01' }));
+      expect(vault.indexer.backlinks('notes/b.md')).toContainEqual(
+        expect.objectContaining({ srcPath: path }),
+      );
+    }
+    expect(tasks.some((t) => t.text === 'Review the checklist')).toBe(true);
+  });
+
+  it('rejects invalid captures and protected or missing sources before creating notes', async () => {
+    const count = vault.list().length;
+    for (const [body, status] of [
+      [{ source: 'notes/b.md', text: ' ' }, 400],
+      [{ source: 'notes/b.md', text: 'x'.repeat(2001) }, 400],
+      [{ source: 'notes/b.md', text: 'Ask', due: '2026-02-30' }, 400],
+      [{ source: 'notes/b.md', text: 'Ask', due: 42 }, 400],
+      [{ source: 'private/p.md.enc', text: 'Ask' }, 403],
+      [{ source: '../outside.md', text: 'Ask' }, 400],
+      [{ source: 'notes/missing.md', text: 'Ask' }, 404],
+    ] as const) {
+      const res = await app.request('/api/follow-up', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(status);
+    }
+    expect(vault.list()).toHaveLength(count);
   });
 
   it('refuses paths outside the vault and private/', async () => {

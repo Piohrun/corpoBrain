@@ -1,4 +1,10 @@
-import { SPEC_VERSION } from '@corpobrain/core';
+import {
+  generateUlid,
+  isCalendarDay,
+  localDay,
+  SPEC_VERSION,
+  scanMarkdown,
+} from '@corpobrain/core';
 import { Hono } from 'hono';
 import { availabilityRoutes } from './availability-routes.ts';
 import { digestRoutes } from './digest-routes.ts';
@@ -101,6 +107,21 @@ export function createApp(vault?: VaultService) {
          WHERE l.src_path = ? AND l.dst_target != ''`,
       )
       .all(note.path) as { target: string; resolved: number }[];
+    // Context previews also show links from Jira's generated region. Keep
+    // those out of the regular index, where they would swamp personal links.
+    const contextLinks =
+      c.req.query('context') === 'true'
+        ? [
+            ...new Set(
+              scanMarkdown(note.content)
+                .links.map((link) => link.target)
+                .filter(Boolean),
+            ),
+          ].map((target) => {
+            const resolved = v.resolve(target.replace(/\.md$/, ''));
+            return { target, path: resolved.path, resolved: resolved.exists };
+          })
+        : null;
     return c.json({
       ...note,
       meta: meta
@@ -112,7 +133,8 @@ export function createApp(vault?: VaultService) {
           }
         : null,
       tags: tagRows.map((t) => t.tag),
-      links: linkRows.map((l) => ({ target: l.target, resolved: l.resolved === 1 })),
+      links:
+        contextLinks ?? linkRows.map((l) => ({ target: l.target, resolved: l.resolved === 1 })),
       backlinks: v.indexer.backlinks(note.path),
     });
   });
@@ -204,6 +226,30 @@ export function createApp(vault?: VaultService) {
       )
       .all(...(done === undefined ? [] : [done === 'true' ? 1 : 0]));
     return c.json(rows);
+  });
+
+  /** Capture independently: no read/replace of a note open in an editor. */
+  app.post('/api/follow-up', async (c) => {
+    const { source, text, due } = (await c.req.json()) as {
+      source?: unknown;
+      text?: unknown;
+      due?: unknown;
+    };
+    if (
+      typeof source !== 'string' ||
+      typeof text !== 'string' ||
+      !text.trim() ||
+      text.length > 2000
+    )
+      throw new HttpError(400, 'source and follow-up text (1–2000 characters) required');
+    if (due !== undefined && due !== '' && (typeof due !== 'string' || !isCalendarDay(due)))
+      throw new HttpError(400, 'due must be a valid YYYY-MM-DD date');
+    const original = v.read(source); // also enforces the protected-note boundary
+    const task = text.trim().replace(/\r?\n\s*/g, ' ');
+    const id = generateUlid();
+    const path = `${v.config.links.newNoteFolder}/follow-ups/${id}.md`;
+    const content = `---\nid: ${id}\ntype: note\ntitle: ${JSON.stringify(task.slice(0, 100))}\ncreated: ${localDay()}\n---\n\n# Follow-up\n\n- [ ] ${task}${due ? ` 📅 ${due}` : ''}\n\nRelated: [[${original.path.replace(/\.md$/, '')}]]\n`;
+    return c.json(v.create(path, task.slice(0, 100), content), 201);
   });
 
   app.get('/api/unresolved', (c) => c.json(v.indexer.unresolved()));

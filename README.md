@@ -91,9 +91,28 @@ the schema changes.
 
 ## Using it
 
-The left rail is the set of panels: Notes, Planning, Projects, Availability, Digest,
-Tasks, Tracked, Objects, Jira, Settings, Protected notes. Two things work the same
-everywhere:
+Navigation groups the panels into Workspace, Notebook, and Tools. Pinned notes
+are also available here from every panel. Collapse the navigation for more room;
+it becomes an icon rail on smaller screens and when comparing two previews.
+Settings → Appearance → Layout switches between Comfortable and Compact spacing.
+Note details and the outline are available from the panel icon in the note header.
+
+**Context previews.** Issue and person links in the planning screens, wikilinks,
+and backlinks open beside your current work. The Finder also offers a *preview
+beside this screen* action. Follow related links with independent Back/Forward
+buttons, or **Pin** one reference and open another to compare them. **Open note**
+moves the preview into the editor; **Esc** closes the focused preview panel.
+Small screens show the previews over the workspace while keeping it open underneath.
+Missing notes are created only when you choose **Create note**.
+
+Use **Capture a follow-up** (+) in a preview to add a linked task with an optional
+due date. Each capture is a separate Markdown note under
+`<newNoteFolder>/follow-ups/`, and appears immediately in Tasks. It leaves the
+source note intact. Unsubmitted text stays in memory while navigating previews
+or closing the panel; it is cleared when the app reloads. Encrypted content stays
+locked in previews—open its note to reveal it.
+
+Two things work the same everywhere:
 
 **Find (Ctrl+F, also Ctrl+P / Ctrl+K).** One overlay whose sections depend on the
 panel you are on. Type, ↑↓ to move, Tab to jump between sections, Enter for the

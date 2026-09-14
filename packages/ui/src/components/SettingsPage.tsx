@@ -22,6 +22,9 @@ const ACCENTS = [
 export function SettingsPage() {
   const [theme, setTheme] = useState<Theme>(() => (lsGet('cb.theme') as Theme) || 'system');
   const [accent, setAccent] = useState(() => lsGet('cb.accent'));
+  const [density, setDensity] = useState(() =>
+    lsGet('cb.density') === 'compact' ? 'compact' : 'comfortable',
+  );
   const [git, setGit] = useState<GitStatus | null>(null);
   const [hubs, setHubs] = useState<BoardPerson[]>([]);
 
@@ -90,6 +93,20 @@ export function SettingsPage() {
           <h2 className="plan-h2">Appearance</h2>
           <div className="settings-card">
             <div className="settings-grid">
+              <label htmlFor="s-density">layout</label>
+              <select
+                id="s-density"
+                value={density}
+                onChange={(e) => {
+                  const value = e.target.value === 'compact' ? 'compact' : 'comfortable';
+                  setDensity(value);
+                  lsSet('cb.density', value);
+                  document.documentElement.dataset.density = value;
+                }}
+              >
+                <option value="comfortable">Comfortable — room to read</option>
+                <option value="compact">Compact — more rows on screen</option>
+              </select>
               <label htmlFor="s-theme">theme</label>
               <select
                 id="s-theme"

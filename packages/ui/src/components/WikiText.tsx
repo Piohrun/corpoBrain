@@ -1,5 +1,6 @@
 import type React from 'react';
 import { api } from '../api.ts';
+import { useContextPreview } from '../context-preview.tsx';
 import { type ExternalLink, externalLinksInText } from '../editor/externalLinks.ts';
 
 interface Props {
@@ -22,6 +23,7 @@ interface LinkToken {
 
 /** Render plain text with wiki/external links and #tags as interactive elements. */
 export function WikiText({ text, className, onOpen, onTag }: Props) {
+  const preview = useContextPreview();
   const parts: React.ReactNode[] = [];
   const tokens: LinkToken[] = externalLinksInText(text).map((external) => ({
     from: external.from,
@@ -57,6 +59,10 @@ export function WikiText({ text, className, onOpen, onTag }: Props) {
             title={target}
             onClick={(e) => {
               e.stopPropagation();
+              if (preview) {
+                preview.resolve(target);
+                return;
+              }
               api
                 .resolveOrCreate(bare)
                 .then((r) => onOpen(r.path))

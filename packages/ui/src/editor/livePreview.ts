@@ -105,6 +105,7 @@ class CheckboxWidget extends WidgetType {
     const box = document.createElement('input');
     box.type = 'checkbox';
     box.checked = this.checked;
+    box.disabled = view.state.readOnly;
     box.className = `cm-cb-checkbox${this.jira ? ' jira' : ''}`;
     if (this.jira) box.title = 'Jira to create or prioritise';
     box.onmousedown = (e) => {
@@ -143,6 +144,11 @@ class SecretWidget extends WidgetType {
     btn.className = 'cm-secret-btn';
     btn.textContent =
       this.revealed === null ? '\u{1F512} encrypted \u2014 click to reveal' : '\u{1F513}';
+    if (view.state.readOnly) {
+      btn.disabled = true;
+      btn.textContent = '\u{1F512} Encrypted';
+      btn.title = 'Open the note to reveal encrypted content';
+    }
     btn.onmousedown = (e) => {
       e.preventDefault();
       view.state.facet(livePreviewConfig).onSecretClick?.(this.cipher);
@@ -182,7 +188,7 @@ function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const { state } = view;
   const config = state.facet(livePreviewConfig);
-  const cursor = state.selection.main.head;
+  const cursor = state.readOnly ? -1 : state.selection.main.head;
   const doc = state.doc;
   const tree = syntaxTree(state);
   const viewportFrom = view.visibleRanges[0]?.from ?? 0;
@@ -528,7 +534,7 @@ function buildSecretDecorations(state: EditorState): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   for (const block of findSecretBlocks(state)) {
     // cursor inside → show the raw fence so it can be edited or deleted
-    if (cursor >= block.from && cursor <= block.to) continue;
+    if (!state.readOnly && cursor >= block.from && cursor <= block.to) continue;
     builder.add(
       block.from,
       block.to,

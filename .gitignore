@@ -3,6 +3,8 @@ dist/
 *.tsbuildinfo
 .vite/
 coverage/
+# Local design previews and browser verification screenshots
+/output/
 # local dev vault
 vault/
 .env

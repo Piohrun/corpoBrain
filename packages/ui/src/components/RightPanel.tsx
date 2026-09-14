@@ -8,6 +8,7 @@ import {
   treeApi,
   type UnlinkedMention,
 } from '../api.ts';
+import { Icon } from './Icon.tsx';
 
 interface Props {
   note: NoteResponse | null;
@@ -17,9 +18,10 @@ interface Props {
   onMetaChanged: (newPath?: string) => void;
   /** move the editor cursor to a document offset (outline clicks) */
   onJump?: (pos: number) => void;
+  onClose?: () => void;
 }
 
-export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump }: Props) {
+export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump, onClose }: Props) {
   const outline = useMemo(() => (note ? headingsOf(note.content) : []), [note]);
   const [mentions, setMentions] = useState<UnlinkedMention[]>([]);
   const [mentionsSeq, setMentionsSeq] = useState(0);
@@ -104,6 +106,19 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump }
 
   return (
     <div className="right">
+      {onClose && (
+        <div className="note-details-heading">
+          <strong>Note details</strong>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Close note details"
+            onClick={onClose}
+          >
+            <Icon name="close" />
+          </button>
+        </div>
+      )}
       {!isJira && (
         <>
           <h3>Organize</h3>

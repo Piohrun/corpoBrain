@@ -2,6 +2,7 @@ import type React from 'react';
 import { useEffect, useState } from 'react';
 import { api, type TagCount, type TreeModel } from '../api.ts';
 import { isMac } from '../shortcuts.ts';
+import { Icon } from './Icon.tsx';
 import { NoteTree } from './NoteTree.tsx';
 
 interface Props {
@@ -65,6 +66,10 @@ export function Sidebar({
 
   return (
     <div className="sidebar">
+      <div className="notebook-heading">
+        <Icon name="notes" />
+        <strong>Your notebook</strong>
+      </div>
       <div className="sidebar-actions">
         <button type="button" onClick={onDaily} title="Open today's daily note">
           Today
@@ -123,7 +128,7 @@ export function Sidebar({
                       onClick={() => onOpen(n.path)}
                       title={n.path}
                     >
-                      📌 {n.title}
+                      <Icon name="pin" /> {n.title}
                     </button>
                     <button
                       type="button"

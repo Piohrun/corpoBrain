@@ -30,7 +30,7 @@ export interface NoteResponse {
   /** merged tags from the index: frontmatter + inline #tags */
   tags: string[];
   /** per-target wikilink resolution (Obsidian-style placeholder styling) */
-  links: { target: string; resolved: boolean }[];
+  links: { target: string; resolved: boolean; path?: string }[];
   backlinks: Backlink[];
 }
 
@@ -56,11 +56,20 @@ export interface TaskItem {
   kind: 'task' | 'jira';
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `${res.status} ${res.statusText}`);
+    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
   }
   return (await res.json()) as T;
 }
@@ -68,7 +77,10 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => req<{ ok: boolean; spec: string; vault: string | null }>('/api/health'),
   notes: () => req<NoteListItem[]>('/api/notes'),
-  note: (path: string) => req<NoteResponse>(`/api/note?path=${encodeURIComponent(path)}`),
+  note: (path: string, context = false) =>
+    req<NoteResponse>(
+      `/api/note?path=${encodeURIComponent(path)}${context ? '&context=true' : ''}`,
+    ),
   save: (path: string, content: string) =>
     req<{ ok: boolean }>('/api/note', { method: 'PUT', body: JSON.stringify({ path, content }) }),
   create: (path: string, title?: string) =>
@@ -98,6 +110,11 @@ export const api = {
   tag: (tag: string) =>
     req<{ path: string; title: string }[]>(`/api/tag?tag=${encodeURIComponent(tag)}`),
   tasks: () => req<TaskItem[]>('/api/tasks'),
+  captureFollowUp: (source: string, text: string, due: string) =>
+    req<{ path: string }>('/api/follow-up', {
+      method: 'POST',
+      body: JSON.stringify({ source, text, due }),
+    }),
   /** flip a `- [ ]` line; 409 when the note changed under the task list */
   toggleTask: (path: string, line: number) =>
     req<{ ok: boolean }>('/api/task/toggle', {

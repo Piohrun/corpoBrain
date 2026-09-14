@@ -3,12 +3,15 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.tsx';
 import { lsGet, lsJson } from './storage.ts';
 import './styles.css';
+import './workspace.css';
 
 // apply the per-browser look before the first paint
 const theme = lsGet('cb.theme');
 if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 const accent = lsGet('cb.accent');
 if (accent) document.documentElement.dataset.accent = accent;
+document.documentElement.dataset.density =
+  lsGet('cb.density') === 'compact' ? 'compact' : 'comfortable';
 for (const [key, value] of Object.entries(lsJson<Record<string, string>>('cb.colors', {}))) {
   if (/^st-[a-z]+$/.test(key) && /^#[0-9a-fA-F]{6}$/.test(value)) {
     document.documentElement.style.setProperty(`--${key}`, value);

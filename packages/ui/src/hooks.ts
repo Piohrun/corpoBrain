@@ -12,6 +12,11 @@ type PathsListener = (paths: string[]) => void;
 const listeners = new Set<PathsListener>();
 let stream: EventSource | null = null;
 
+/** Tell mounted views about an API write without opening another event stream. */
+export function notifyVaultChanges(paths: string[]): void {
+  for (const fn of [...listeners]) fn(paths);
+}
+
 function ensureStream(): void {
   if (stream) return;
   stream = new EventSource('/api/events'); // reconnects on its own after errors
@@ -23,7 +28,7 @@ function ensureStream(): void {
       return;
     }
     if (!paths?.length) return;
-    for (const fn of [...listeners]) fn(paths);
+    notifyVaultChanges(paths);
   };
 }
 
