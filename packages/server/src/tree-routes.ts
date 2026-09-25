@@ -3,6 +3,12 @@ import { join } from 'node:path';
 /** Note hierarchy (SPEC §3.5) and note-metadata edits (type/parent/order). */
 import { deleteFrontmatterKey, parseFrontmatter, setFrontmatterKey } from '@corpobrain/core';
 import { Hono } from 'hono';
+import {
+  organizationSources,
+  PERSON_ORG_FIELDS,
+  UNIT_ORG_FIELDS,
+  validateOrganizationCandidate,
+} from './organization-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
 export interface CategoryField {
@@ -47,6 +53,12 @@ export function categoryFields(
     source: CategoryField['source'],
     force = false,
   ) => {
+    if (
+      PERSON_ORG_FIELDS.has(key) ||
+      key === 'org_kind' ||
+      (category === v.config.folders.organization && UNIT_ORG_FIELDS.has(key))
+    )
+      return;
     if (!fields.has(key) && (force || !FIELD_EXCLUDED.has(key)))
       fields.set(key, { key, kind, source });
   };
@@ -132,6 +144,7 @@ export function folderForCategory(v: VaultService, category: string | null): str
   const c = (category ?? '').trim().toLowerCase();
   if (c === '' || c === 'note' || c === f.notes) return f.notes;
   if (c === 'person' || c === f.people) return f.people;
+  if (c === 'org_unit' || c === f.organization) return f.organization;
   if (c === 'daily' || c === f.daily) return f.daily;
   if (c === 'template' || c === f.templates) return f.templates;
   if (c === 'view' || c === 'scenario' || c === f.planning) return f.planning;
@@ -146,6 +159,7 @@ export function folderForCategory(v: VaultService, category: string | null): str
 export function typeForFolder(v: VaultService, folder: string): string | null {
   const f = v.config.folders;
   if (folder === f.people) return 'person';
+  if (folder === f.organization) return 'org_unit';
   if (folder === f.projects) return 'project';
   if (folder === f.notes || folder === f.daily || folder === f.templates || folder === f.planning)
     return null;
@@ -457,6 +471,17 @@ export function treeRoutes(v: VaultService): Hono {
     };
     if (!body.path) throw new HttpError(400, 'path required');
     let workingPath = v.read(body.path).path;
+    // Check dedicated organization fields before category changes can move or write a file.
+    const currentFm = parseFrontmatter(v.read(workingPath).content).data;
+    for (const key of Object.keys(body.set ?? {})) {
+      if (
+        PERSON_ORG_FIELDS.has(key) ||
+        key === 'org_kind' ||
+        (currentFm.type === 'org_unit' && UNIT_ORG_FIELDS.has(key))
+      )
+        throw new HttpError(400, `edit ${key} through Organization & reporting`);
+    }
+    if (body.parent !== undefined) validateOrgParent(v, workingPath, body.parent);
     if (body.type !== undefined) {
       workingPath = applyCategory(v, workingPath, body.type);
     }
@@ -478,7 +503,11 @@ export function treeRoutes(v: VaultService): Hono {
               | { title: string }
               | undefined
           )?.title;
-          text = setFrontmatterKey(text, 'parent', `[[${parentTitle ?? target.path}]]`);
+          text = setFrontmatterKey(
+            text,
+            'parent',
+            `[[${currentFm.type === 'org_unit' ? target.path.replace(/\.md$/, '') : (parentTitle ?? target.path)}]]`,
+          );
         }
       }
 
@@ -547,6 +576,7 @@ export function treeRoutes(v: VaultService): Hono {
     const target = base === oldTitle ? `${folder ? `${folder}/` : ''}${title}.md` : path;
     if (target !== path && v.list().some((n) => n.path === target))
       throw new HttpError(409, `a note already exists at ${target}`);
+    const wasHub = hubKind(v, path) !== null;
     v.patchNote(path, (text) => {
       let next = setFrontmatterKey(text, 'title', title);
       const aliases = Array.isArray(fm.data.aliases)
@@ -556,7 +586,7 @@ export function treeRoutes(v: VaultService): Hono {
         next = setFrontmatterKey(next, 'aliases', [...aliases, oldTitle]);
       return next;
     });
-    if (target !== path) v.move(path, target);
+    if (target !== path) v.move(path, target, { preserveOrgLinks: !wasHub });
     return c.json({ ok: true, path: target, title });
   });
 
@@ -586,6 +616,7 @@ export function treeRoutes(v: VaultService): Hono {
       if (parent.path === path) throw new HttpError(400, 'a note cannot be its own parent');
       if (isDescendant(v, parent.path, path))
         throw new HttpError(400, 'cannot move a note under its own descendant');
+      validateOrgParent(v, path, parent.path);
       siblings = parent.children;
       // no cross-category hierarchy: the child follows the parent's folder
       const parentFolder = parent.path.includes('/') ? (parent.path.split('/')[0] as string) : '';
@@ -596,7 +627,11 @@ export function treeRoutes(v: VaultService): Hono {
           | undefined
       )?.title;
       v.patchNote(path, (content) =>
-        setFrontmatterKey(content, 'parent', `[[${title ?? parent.path}]]`),
+        setFrontmatterKey(
+          content,
+          'parent',
+          `[[${moving.type === 'org_unit' ? parent.path.replace(/\.md$/, '') : (title ?? parent.path)}]]`,
+        ),
       );
       adoptRegionFromParent(v, path);
     } else {
@@ -605,6 +640,7 @@ export function treeRoutes(v: VaultService): Hono {
       siblings = group?.roots ?? [];
       // cross-folder drop → move into that category (type synced, parent broken)
       path = applyCategory(v, path, folder || null);
+      v.patchNote(path, (content) => deleteFrontmatterKey(content, 'parent'));
     }
 
     // renumber: siblings minus the moved note, insert at index
@@ -626,6 +662,19 @@ export function treeRoutes(v: VaultService): Hono {
   });
 
   return app;
+}
+
+/** Tree moves share the organization editor's parent-kind and cycle checks. */
+function validateOrgParent(v: VaultService, path: string, parent: string | null): void {
+  const { content } = v.read(path);
+  const fm = parseFrontmatter(content);
+  if (fm.error) throw new HttpError(409, `frontmatter cannot be parsed (${fm.error})`);
+  if (fm.data.type !== 'org_unit') return;
+  const target = parent ? v.resolve(parent).path.replace(/\.md$/, '') : null;
+  const next = target
+    ? setFrontmatterKey(content, 'parent', `[[${target}]]`)
+    : deleteFrontmatterKey(content, 'parent');
+  validateOrganizationCandidate(organizationSources(v), path, next, new Set(['parent']));
 }
 
 /** `prefix%` with LIKE metacharacters in the prefix escaped (pair with ESCAPE '\\'). */

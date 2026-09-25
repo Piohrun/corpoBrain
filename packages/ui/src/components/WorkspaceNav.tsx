@@ -7,6 +7,7 @@ export type View =
   | 'planning'
   | 'projects'
   | 'availability'
+  | 'organization'
   | 'digest'
   | 'tasks'
   | 'tracked'
@@ -21,6 +22,7 @@ const groups: { label: string; items: { view: View; label: string; key: string }
       { view: 'planning', label: 'Planning', key: 'p' },
       { view: 'projects', label: 'Projects', key: 'j' },
       { view: 'availability', label: 'Availability', key: 'a' },
+      { view: 'organization', label: 'Organization', key: 'r' },
       { view: 'digest', label: 'What changed', key: 'd' },
     ],
   },

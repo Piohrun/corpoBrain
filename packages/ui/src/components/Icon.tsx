@@ -1,4 +1,6 @@
 const paths = {
+  organization:
+    'M9 2h6v6H9z M12 8v5 M4 13h16 M4 13v3 M12 13v3 M20 13v3 M1 16h6v6H1z M9 16h6v6H9z M17 16h6v6h-6z',
   notes:
     'M8 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3 M16 3l5 5-9 9-6 1 1-6z M14 5l5 5',
   planning: 'M3 3h18v18H3z M3 9h18 M9 9v12 M15 9v12',

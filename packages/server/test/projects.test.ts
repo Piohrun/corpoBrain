@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import type { CalendarModel, ProjectSummary } from '../src/project-routes.ts';
 import { VaultService } from '../src/vault-service.ts';
@@ -18,6 +18,8 @@ function jira(key: string, extra: string): void {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-08-30T12:00:00Z'));
   root = join(tmpdir(), `cb-proj-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   for (const d of ['jira', 'people', 'projects', '.corpobrain/jira-cache']) {
     mkdirSync(join(root, d), { recursive: true });
@@ -61,6 +63,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vault.stop();
   rmSync(root, { recursive: true, force: true });
 });
@@ -303,9 +306,7 @@ describe('POST /api/projects/arrange', () => {
     const body = (await res.json()) as { pinned: number; finishDate: string | null };
     expect(body.pinned).toBe(3);
     expect(body.finishDate).toMatch(/^2026-09-/);
-    // EXEC-3 depends on EXEC-1, so it starts after it — the exact dates move
-    // with the clock (the scheduler never plans into the past), so assert the
-    // relationship rather than fixed days.
+    // EXEC-3 depends on EXEC-1, so it must start after its blocker.
     const startOf = (key: string) =>
       /start: (\d{4}-\d{2}-\d{2})/.exec(readFileSync(join(root, 'jira', `${key}.md`), 'utf8'))?.[1];
     const one = startOf('EXEC-1');

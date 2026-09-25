@@ -9,6 +9,7 @@ import {
   type UnlinkedMention,
 } from '../api.ts';
 import { Icon } from './Icon.tsx';
+import { OrganizationNoteFields } from './OrganizationEditor.tsx';
 
 interface Props {
   note: NoteResponse | null;
@@ -16,12 +17,22 @@ interface Props {
   onOpen: (path: string) => void;
   onTag: (tag: string) => void;
   onMetaChanged: (newPath?: string) => void;
+  beforeMetaChange?: () => Promise<void>;
   /** move the editor cursor to a document offset (outline clicks) */
   onJump?: (pos: number) => void;
   onClose?: () => void;
 }
 
-export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump, onClose }: Props) {
+export function RightPanel({
+  note,
+  notes,
+  onOpen,
+  onTag,
+  onMetaChanged,
+  beforeMetaChange,
+  onJump,
+  onClose,
+}: Props) {
   const outline = useMemo(() => (note ? headingsOf(note.content) : []), [note]);
   const [mentions, setMentions] = useState<UnlinkedMention[]>([]);
   const [mentionsSeq, setMentionsSeq] = useState(0);
@@ -98,8 +109,9 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump, 
     set?: Record<string, unknown>;
   }) => {
     setError(null);
-    treeApi
-      .meta({ path: note.path, ...body })
+    Promise.resolve()
+      .then(() => beforeMetaChange?.())
+      .then(() => treeApi.meta({ path: note.path, ...body }))
       .then((r) => onMetaChanged(r.path))
       .catch((e: Error) => setError(e.message));
   };
@@ -121,6 +133,13 @@ export function RightPanel({ note, notes, onOpen, onTag, onMetaChanged, onJump, 
       )}
       {!isJira && (
         <>
+          {note.meta?.organization && (
+            <OrganizationNoteFields
+              path={note.path}
+              onOpen={onOpen}
+              beforeSave={beforeMetaChange}
+            />
+          )}
           <h3>Organize</h3>
           <div className="meta-edit">
             <label>

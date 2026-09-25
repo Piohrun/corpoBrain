@@ -191,6 +191,26 @@ describe('server API', () => {
     expect(r2.created).toBe(false);
   });
 
+  it('resolves basenames with indexer precedence and keeps ambiguous links unresolved', async () => {
+    const resolve = async (target: string) =>
+      await json(await app.request(`/api/resolve?target=${encodeURIComponent(target)}`));
+    expect(await resolve('b')).toEqual({ path: 'notes/b.md', exists: true });
+    expect(await resolve('B.md')).toEqual({ path: 'notes/b.md', exists: true });
+    vault.create('notes/c.md', 'Gamma', '---\ntitle: Gamma\naliases: [notes/b, b]\n---\n');
+    expect(await resolve('notes/b')).toEqual({ path: 'notes/b.md', exists: true });
+    expect(await resolve('b')).toEqual({ path: 'notes/c.md', exists: true });
+    vault.create('notes/d.md', 'Delta', '---\ntitle: Delta\naliases: [b]\n---\n');
+    expect(await resolve('b')).toMatchObject({ exists: false });
+    vault.create('other/a.md', 'Another Alpha');
+    expect(await resolve('a')).toMatchObject({ exists: false });
+    // A note that matches through its own path and several aliases remains unambiguous.
+    vault.patchNote('notes/b.md', (text) =>
+      text.replace('title: Beta', 'title: Beta\naliases: [notes/b, beta]'),
+    );
+    expect(await resolve('notes/b')).toEqual({ path: 'notes/b.md', exists: true });
+    expect(await resolve('Beta')).toEqual({ path: 'notes/b.md', exists: true });
+  });
+
   it('tags, tag lookup, tasks, unresolved', async () => {
     expect(await json(await app.request('/api/tags'))).toEqual([{ tag: 'x', count: 1 }]);
     expect(await json(await app.request('/api/tag?tag=x'))).toMatchObject([{ path: 'notes/a.md' }]);

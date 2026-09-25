@@ -16,7 +16,9 @@ import {
   loadConfig,
   localDay,
   openDb,
+  orgSourceType,
   parseFrontmatter,
+  setFrontmatterKey,
   toPosix,
   type UpdateSummary,
   type VaultConfig,
@@ -143,6 +145,11 @@ export class VaultService {
     return () => this.listeners.delete(fn);
   }
 
+  /** Notify open views after a validated API edit (self-writes bypass the watcher). */
+  notifyPathsChanged(paths: string[]): void {
+    for (const fn of this.listeners) fn(paths);
+  }
+
   // ------------------------------------------------------------------ notes
 
   /**
@@ -218,7 +225,7 @@ export class VaultService {
   }
 
   /** Move/rename a note within the vault. Links by title keep resolving. */
-  move(fromRel: string, toRel: string): void {
+  move(fromRel: string, toRel: string, options: { preserveOrgLinks?: boolean } = {}): void {
     const from = this.assertSafe(fromRel);
     const to = this.assertSafe(toRel);
     if (!from.endsWith('.md') || !to.endsWith('.md'))
@@ -229,7 +236,33 @@ export class VaultService {
     if (existsSync(toAbs)) throw new HttpError(409, `already exists: ${to}`);
     this.markSelfWrite(from);
     this.markSelfWrite(to);
-    writeFileAtomic(toAbs, readFileSync(fromAbs, 'utf8'));
+    let content = readFileSync(fromAbs, 'utf8');
+    const fm = parseFrontmatter(content);
+    const orgType = orgSourceType(
+      {
+        path: from,
+        title:
+          typeof fm.data.title === 'string'
+            ? fm.data.title
+            : (from.split('/').pop()?.replace(/\.md$/, '') ?? ''),
+        type: typeof fm.data.type === 'string' ? fm.data.type : 'note',
+        fm: fm.data,
+      },
+      this.config.folders.people,
+    );
+    // Organization relations use full paths to distinguish people with the same name.
+    // Preserve that target when a person or organizational unit is moved or renamed.
+    if (
+      !fm.error &&
+      options.preserveOrgLinks !== false &&
+      (orgType === 'person' || orgType === 'org_unit')
+    ) {
+      const aliases = Array.isArray(fm.data.aliases) ? fm.data.aliases : [];
+      content = setFrontmatterKey(content, 'aliases', [
+        ...new Set([...aliases, from.replace(/\.md$/, '')]),
+      ]);
+    }
+    writeFileAtomic(toAbs, content);
     unlinkSync(fromAbs);
     this.indexer.updatePaths([from, to]);
   }
@@ -282,16 +315,32 @@ export class VaultService {
       const p = `${this.config.folders.jira}/${t}.md`;
       return { path: p, exists: existsSync(join(this.root, p)) };
     }
-    const row = this.indexer.db
+    const key = t.replace(/\.md$/i, '').toLowerCase();
+    // Match the indexer: exact path first, then unique title/alias, then unique basename.
+    const exact = this.indexer.db
       .prepare(
-        `SELECT n.path FROM notes n
-         LEFT JOIN aliases a ON a.path = n.path
-         WHERE lower(replace(n.path, '.md', '')) = lower(?) OR a.alias = lower(?)
+        'SELECT path FROM notes WHERE protected = 0 AND lower(substr(path, 1, length(path) - 3)) = ?',
+      )
+      .get(key) as { path: string } | undefined;
+    if (exact) return { path: exact.path, exists: true };
+    const aliases = this.indexer.db
+      .prepare(
+        `SELECT DISTINCT n.path FROM notes n
+         JOIN aliases a ON a.path = n.path
+         WHERE n.protected = 0 AND a.alias = ?
          LIMIT 2`,
       )
-      .all(t, t) as { path: string }[];
-    if (row.length === 1) return { path: (row[0] as { path: string }).path, exists: true };
-    const safe = t.replace(/[\\:*?"<>|]/g, '-');
+      .all(key) as { path: string }[];
+    if (aliases.length === 1 && aliases[0]) return { path: aliases[0].path, exists: true };
+    if (!aliases.length && !key.includes('/')) {
+      const suffix = `/${key}.md`;
+      const bases = this.indexer.db
+        .prepare(`SELECT path FROM notes WHERE protected = 0 AND
+          (lower(path) = ? OR lower(substr(path, -length(?))) = ?) LIMIT 2`)
+        .all(`${key}.md`, suffix, suffix) as { path: string }[];
+      if (bases.length === 1 && bases[0]) return { path: bases[0].path, exists: true };
+    }
+    const safe = t.replace(/\.md$/i, '').replace(/[\\:*?"<>|]/g, '-');
     return { path: `${this.config.links.newNoteFolder}/${safe}.md`, exists: false };
   }
 

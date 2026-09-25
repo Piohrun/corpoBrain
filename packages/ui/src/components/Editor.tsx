@@ -81,6 +81,8 @@ interface Props {
 export interface EditorApi {
   /** current text of the open note (unsaved edits included) */
   text: () => string;
+  /** Persist pending text before a metadata editor changes this note on disk. */
+  saveNow: () => Promise<void>;
   /** every match with line context; also highlights them in the editor */
   find: (query: string) => FindMatch[];
   clearFind: () => void;
@@ -406,10 +408,12 @@ export function Editor({
     refreshDecorations();
   }, [foldFrontmatter]);
 
+  const saveInFlight = useRef<Promise<unknown>>(Promise.resolve());
   const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, text: string) => {
     latest.current.onSaveState(p, 'saving');
-    api
-      .save(p, text)
+    const pending = saveInFlight.current.catch(() => undefined).then(() => api.save(p, text));
+    saveInFlight.current = pending;
+    pending
       .then(() => {
         latest.current.onSaveState(p, 'saved');
         latest.current.onSaved();
@@ -541,6 +545,22 @@ export function Editor({
     if (apiRef) {
       apiRef.current = {
         text: () => view.state.doc.toString(),
+        saveNow: async () => {
+          cancelSave();
+          await saveInFlight.current.catch(() => undefined);
+          cancelSave();
+          if (viewRef.current !== view) throw new Error('The open note changed; try again.');
+          latest.current.onSaveState(path, 'saving');
+          try {
+            const pending = api.save(path, view.state.doc.toString());
+            saveInFlight.current = pending;
+            await pending;
+            latest.current.onSaveState(path, 'saved');
+          } catch (error) {
+            latest.current.onSaveState(path, 'error');
+            throw error;
+          }
+        },
         find: (q) => {
           setFind(view, q);
           return findMatches(view, q);

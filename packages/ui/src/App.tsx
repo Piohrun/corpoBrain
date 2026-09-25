@@ -14,6 +14,7 @@ import { Editor, type EditorApi } from './components/Editor.tsx';
 import { Icon } from './components/Icon.tsx';
 import { JiraPage } from './components/JiraPage.tsx';
 import { ObjectsPage } from './components/ObjectsPage.tsx';
+import { OrganizationPage } from './components/OrganizationPage.tsx';
 import { PersonPanel } from './components/PersonPanel.tsx';
 import { PlanningPage } from './components/PlanningPage.tsx';
 import { PrivatePage } from './components/PrivatePage.tsx';
@@ -892,6 +893,8 @@ function AppShell() {
               <ProjectsPage onOpenNote={openFromPlanning} />
             ) : view === 'availability' ? (
               <AvailabilityPage onOpenNote={openFromPlanning} />
+            ) : view === 'organization' ? (
+              <OrganizationPage onOpenNote={openFromPlanning} />
             ) : view === 'digest' ? (
               <DigestPage onOpenNote={openFromPlanning} />
             ) : view === 'tasks' ? (
@@ -1147,6 +1150,9 @@ function AppShell() {
                     onOpen={openPreview}
                     onClose={() => setDetailsOpen(false)}
                     onTag={openTag}
+                    beforeMetaChange={async () => {
+                      await editorApi.current?.saveNow();
+                    }}
                     onJump={(pos) => editorApi.current?.goTo({ from: pos, to: pos })}
                     onMetaChanged={(newPath) => {
                       refreshLists();

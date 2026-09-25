@@ -569,3 +569,9 @@ the `CORPOBRAIN_JIRA_TOKEN` environment variable.
 
 A change to this spec that alters any golden output MUST bump the spec
 version.
+
+## 13. Organization mapping
+
+Organization relationships are specified in [Organization mapping](ORGANIZATION.md).
+They use additive person properties and `type: org_unit` notes under
+`folders.organization`, without changing the existing note identity or index contract.

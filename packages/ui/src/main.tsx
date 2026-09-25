@@ -4,6 +4,7 @@ import { App } from './App.tsx';
 import { lsGet, lsJson } from './storage.ts';
 import './styles.css';
 import './workspace.css';
+import './organization.css';
 
 // apply the per-browser look before the first paint
 const theme = lsGet('cb.theme');

@@ -91,6 +91,16 @@ the schema changes.
 
 ## Using it
 
+**Organization mapping.** Workspace → Organization (`g r`) connects Department,
+Product Area, and POD notes with your people. Keep Functional and Entity Manager
+chains independent, assign a primary POD and secondary memberships, and record
+POD/Product Area leadership plus Country/Region Lead responsibilities. Explore
+the expandable structure, switch reporting chains, or compare POD membership
+across countries in the matrix. Select any person or group to edit relationships
+or preview its note. Person-note details also include an Organization & reporting
+editor. See [Organization mapping](docs/ORGANIZATION.md) for the note format and
+setup flow.
+
 Navigation groups the panels into Workspace, Notebook, and Tools. Pinned notes
 are also available here from every panel. Collapse the navigation for more room;
 it becomes an icon rail on smaller screens and when comparing two previews.
@@ -125,6 +135,7 @@ Esc to back out. Prefixes: `/` this note only, `#` tags, `>` commands.
 | Projects | Jira issues to add in bulk (clicking an empty calendar day opens it aimed at that day), epics and labels as project rules, people for the roster |
 | Planning | issues with *move to sprint…* / *assign to…* follow-ups, people (jump to row), sprints (filter) |
 | Availability | people: jump to their row, add time off or support for today |
+| Organization | people and groups: inspect relationships or preview the note |
 | Tracked | items: open the record or its source, filter the list |
 
 **Keys.** `?` (or Ctrl+/) shows the full list, generated from the same registry the

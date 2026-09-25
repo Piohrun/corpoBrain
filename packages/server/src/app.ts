@@ -2,6 +2,7 @@ import {
   generateUlid,
   isCalendarDay,
   localDay,
+  orgSourceType,
   SPEC_VERSION,
   scanMarkdown,
 } from '@corpobrain/core';
@@ -13,6 +14,7 @@ import { gitFor } from './git-service.ts';
 import { jiraRoutes } from './jira-routes.ts';
 import { mentionsRoutes } from './mentions-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
+import { organizationRoutes } from './organization-routes.ts';
 import { personRoutes } from './person-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { privateRoutes } from './private-routes.ts';
@@ -130,6 +132,19 @@ export function createApp(vault?: VaultService) {
             type: meta.type,
             title: meta.title,
             frontmatter: JSON.parse(meta.frontmatter_json as string),
+            organization:
+              !note.path.startsWith(`${v.config.folders.templates}/`) &&
+              ['person', 'org_unit'].includes(
+                orgSourceType(
+                  {
+                    path: note.path,
+                    title: meta.title as string,
+                    type: meta.type as string,
+                    fm: JSON.parse(meta.frontmatter_json as string),
+                  },
+                  v.config.folders.people,
+                ),
+              ),
           }
         : null,
       tags: tagRows.map((t) => t.tag),
@@ -283,6 +298,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/availability', availabilityRoutes(v));
   app.route('/api/projects', projectRoutes(v));
   app.route('/api/person', personRoutes(v));
+  app.route('/api/organization', organizationRoutes(v));
   app.route('/api/objects', objectRoutes(v));
   app.route('/api/private', privateRoutes(v).app);
   app.route('/api/tree', treeRoutes(v));

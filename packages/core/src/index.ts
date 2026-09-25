@@ -111,6 +111,43 @@ export type { AdapterLike, SyncProgress, SyncReport } from './jira/sync.ts';
 export { JiraSync, jqlDate } from './jira/sync.ts';
 export type { Mention } from './mentions.ts';
 export { findMentions, linkMention } from './mentions.ts';
+export type {
+  OrgAnonymousGroup,
+  OrgChain,
+  OrgCount,
+  OrgFilters,
+  OrgHeadcountGroup,
+  OrgKind,
+  OrgModel,
+  OrgPerson,
+  OrgProblem,
+  OrgReportingMode,
+  OrgReportSummary,
+  OrgSource,
+  OrgUnit,
+} from './organization.ts';
+export {
+  buildOrganization,
+  ORG_KINDS,
+  ORG_LABELS,
+  orgAncestors,
+  orgAnonymousGroups,
+  orgCount,
+  orgCyclePaths,
+  orgFilteredAnonymous,
+  orgFilteredView,
+  orgForest,
+  orgHeadcount,
+  orgMembers,
+  orgParentAllowed,
+  orgReportingTotals,
+  orgReportingView,
+  orgSourceType,
+  orgStrings,
+  orgTarget,
+  orgText,
+  orgUnitPaths,
+} from './organization.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';
 export { convertEffort, issueRiskFlags } from './planning.ts';
 export type { ProjectDef, ProjectIssue, ProjectRollup } from './projects.ts';

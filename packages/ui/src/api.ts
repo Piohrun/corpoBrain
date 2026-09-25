@@ -1,4 +1,19 @@
 /** Typed client for the corpobrain server API. */
+import type { OrgKind, OrgModel } from '../../core/src/organization.ts';
+
+export const organizationApi = {
+  get: () => req<OrgModel>('/api/organization'),
+  patch: (kind: 'person' | 'unit', path: string, patch: Record<string, unknown>) =>
+    req<{ path: string }>(`/api/organization/${kind}`, {
+      method: 'PUT',
+      body: JSON.stringify({ path, patch }),
+    }),
+  create: (title: string, kind: OrgKind, patch: Record<string, unknown>) =>
+    req<{ path: string }>('/api/organization/units', {
+      method: 'POST',
+      body: JSON.stringify({ title, kind, patch }),
+    }),
+};
 
 export interface NoteListItem {
   path: string;
@@ -13,6 +28,7 @@ export interface NoteMeta {
   type: string;
   title: string;
   frontmatter: Record<string, unknown>;
+  organization?: boolean;
 }
 
 export interface Backlink {
