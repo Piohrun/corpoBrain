@@ -173,6 +173,7 @@ function AppShell() {
   const [tree, setTree] = useState<TreeModel | null>(null);
   const [tags, setTags] = useState<TagCount[]>([]);
   const [note, setNote] = useState<NoteResponse | null>(null);
+  const [noteOpenSequence, setNoteOpenSequence] = useState(0);
   const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<View>('notes');
@@ -216,6 +217,7 @@ function AppShell() {
       .then((n) => {
         if (seq !== loadSeq.current) return; // a later open won
         setNote(n);
+        setNoteOpenSequence(seq);
         setSaveState('saved');
         setRecentPaths((r) => [path, ...r.filter((x) => x !== path)].slice(0, 10));
 
@@ -912,6 +914,7 @@ function AppShell() {
             ) : (
               <>
                 <Sidebar
+                  openSequence={noteOpenSequence}
                   tree={tree}
                   tags={tags}
                   tagFilter={tagFilter}

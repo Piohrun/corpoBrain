@@ -11,6 +11,7 @@ interface Props {
   tagFilter: string | null;
   onTagFilter: (tag: string | null) => void;
   currentPath: string | null;
+  openSequence: number;
   onOpen: (path: string) => void;
   onDaily: () => void;
   onNew: () => void;
@@ -33,6 +34,7 @@ export function Sidebar({
   tagFilter,
   onTagFilter,
   currentPath,
+  openSequence,
   onOpen,
   onDaily,
   onNew,
@@ -185,6 +187,7 @@ export function Sidebar({
               <NoteTree
                 tree={tree}
                 currentPath={currentPath}
+                openSequence={openSequence}
                 onOpen={onOpen}
                 onChanged={onTreeChanged}
                 onError={setTreeError}

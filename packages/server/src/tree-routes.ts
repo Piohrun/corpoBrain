@@ -356,6 +356,7 @@ export interface TreeNode {
 }
 
 export interface TreeModel {
+  dailyFolder: string;
   /** top-level folder → root nodes inside it */
   folders: { folder: string; roots: TreeNode[] }[];
 }
@@ -443,6 +444,7 @@ export function buildTree(v: VaultService): TreeModel {
     byFolder.set(folder, arr);
   }
   return {
+    dailyFolder: v.config.folders.daily,
     folders: [...byFolder.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([folder, list]) => ({ folder, roots: list })),

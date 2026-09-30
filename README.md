@@ -107,6 +107,12 @@ it becomes an icon rail on smaller screens and when comparing two previews.
 Settings → Appearance → Layout switches between Comfortable and Compact spacing.
 Note details and the outline are available from the panel icon in the note header.
 
+**Daily notes.** The notebook groups dated notes in your daily folder by year,
+month, and Monday–Sunday week, newest first. The current week starts expanded;
+older periods start collapsed. Click a period to expand or collapse it—your
+choices are remembered. Opening a daily note from Today, search, or a link reveals
+its group. Weeks crossing a month boundary show each note under its own month.
+
 **Context previews.** Issue and person links in the planning screens, wikilinks,
 and backlinks open beside your current work. The Finder also offers a *preview
 beside this screen* action. Follow related links with independent Back/Forward

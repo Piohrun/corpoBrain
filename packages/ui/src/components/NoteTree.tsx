@@ -1,11 +1,15 @@
 import type React from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { type TreeModel, type TreeNode, treeApi } from '../api.ts';
+import { dailyGroupKeysForPath, groupDailyNotes } from '../daily-notes.ts';
 import { lsJson, lsSetJson } from '../storage.ts';
+import { DailyNoteGroups } from './DailyNoteGroups.tsx';
 
 interface Props {
   tree: TreeModel;
   currentPath: string | null;
+  /** Changes even when Today/search reopens the same note. */
+  openSequence: number;
   onOpen: (path: string) => void;
   onChanged: (moved?: { from: string; to: string }) => void;
   onError?: (message: string) => void;
@@ -40,6 +44,7 @@ const loadExpanded = (): Set<string> => new Set(lsJson<string[]>(LS_EXPANDED, []
 export function NoteTree({
   tree,
   currentPath,
+  openSequence,
   onOpen,
   onChanged,
   onError,
@@ -51,6 +56,29 @@ export function NoteTree({
   const [expanded, setExpanded] = useState<Set<string>>(loadExpanded);
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [spot, setSpot] = useState<DropSpot | null>(null);
+  const folders = useMemo(
+    () =>
+      tree.folders.map((folder) => ({
+        ...folder,
+        daily: groupDailyNotes(folder.roots, tree.dailyFolder),
+      })),
+    [tree],
+  );
+  const revealFolder = folders.find(
+    ({ daily }) => dailyGroupKeysForPath(daily.groups, currentPath).length > 0,
+  )?.folder;
+  const revealSelection = currentPath ? `${openSequence}:${currentPath}` : null;
+
+  useEffect(() => {
+    if (!revealSelection || revealFolder === undefined) return;
+    const key = `folder:${revealFolder}`;
+    setCollapsed((previous) => {
+      if (!previous.has(key)) return previous;
+      const next = new Set(previous);
+      next.delete(key);
+      return next;
+    });
+  }, [revealSelection, revealFolder]);
 
   useEffect(() => lsSetJson(LS_KEY, [...collapsed]), [collapsed]);
   useEffect(() => lsSetJson(LS_EXPANDED, [...expanded]), [expanded]);
@@ -208,11 +236,12 @@ export function NoteTree({
 
   return (
     <div>
-      {tree.folders.map(({ folder, roots }) => {
+      {folders.map(({ folder, roots, daily }) => {
         const key = `folder:${folder}`;
+        const size = daily.groups.length ? 0 : roots.length;
         const isCollapsed = isCollapsedKey(
           key,
-          roots.length,
+          size,
           currentPath !== null && roots.some((r) => contains(r, currentPath)),
         );
         return (
@@ -220,7 +249,8 @@ export function NoteTree({
             <button
               type="button"
               className={`tree-folder${spot?.key === key ? ' drop-into' : ''}`}
-              onClick={() => toggle(key, roots.length)}
+              aria-expanded={!isCollapsed}
+              onClick={() => toggle(key, size)}
               onDragOver={(e) => {
                 if (dragPath) {
                   e.preventDefault();
@@ -242,7 +272,24 @@ export function NoteTree({
               {isCollapsed ? '▸' : '▾'} {folder || 'vault'}{' '}
               <span className="muted">({roots.length})</span>
             </button>
-            {!isCollapsed && ordered(roots).map((r, i) => renderNode(r, 0, folder, null, i))}
+            {!isCollapsed &&
+              (daily.groups.length ? (
+                <>
+                  <DailyNoteGroups
+                    groups={daily.groups}
+                    currentPath={currentPath}
+                    openSequence={openSequence}
+                    renderNote={({ node, index }, depth) =>
+                      renderNode(node, depth, folder, null, index)
+                    }
+                  />
+                  {ordered(daily.ungrouped.map(({ node }) => node)).map((node) =>
+                    renderNode(node, 0, folder, null, roots.indexOf(node)),
+                  )}
+                </>
+              ) : (
+                ordered(roots).map((r, i) => renderNode(r, 0, folder, null, i))
+              ))}
           </div>
         );
       })}

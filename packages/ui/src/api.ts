@@ -735,6 +735,7 @@ export interface TreeNode {
 }
 
 export interface TreeModel {
+  dailyFolder: string;
   folders: { folder: string; roots: TreeNode[] }[];
 }
 
