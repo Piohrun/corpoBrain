@@ -2,10 +2,19 @@
 // Content-hashed asset names so browsers can never serve a stale bundle.
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { build } from 'esbuild';
 
 mkdirSync('dist/ui/assets', { recursive: true });
+copyFileSync('packages/ui/public/favicon.svg', 'dist/ui/favicon.svg');
 // drop old bundles so dist only ever contains the current pair
 for (const f of readdirSync('dist/ui/assets')) {
   if (/^index[-.].*\.(js|css)$/.test(f)) rmSync(`dist/ui/assets/${f}`);
@@ -41,6 +50,7 @@ writeFileSync(
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>corpoBrain</title>
     <link rel="stylesheet" href="/assets/index-${hash}.css" />
   </head>

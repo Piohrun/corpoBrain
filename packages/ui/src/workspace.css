@@ -73,8 +73,9 @@ button:disabled {
   font-size: 16px;
   letter-spacing: -0.5px;
 }
-.workspace-brand .app-icon {
-  color: var(--accent);
+.workspace-logo {
+  display: block;
+  flex: none;
 }
 .workspace-search {
   display: flex;
@@ -154,7 +155,8 @@ button:disabled {
   display: none;
 }
 .workspace-nav.collapsed .workspace-brand {
-  padding-left: 10px;
+  justify-content: center;
+  padding-inline: 0;
 }
 .workspace-nav.collapsed section + section {
   padding-top: 12px;
@@ -675,7 +677,8 @@ button:disabled {
     display: none;
   }
   .workspace-nav .workspace-brand {
-    padding-left: 10px;
+    justify-content: center;
+    padding-inline: 0;
   }
   .workspace-nav section + section {
     padding-top: 12px;

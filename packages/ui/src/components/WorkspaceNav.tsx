@@ -66,7 +66,7 @@ export function WorkspaceNav({
   return (
     <nav className={`workspace-nav${collapsed ? ' collapsed' : ''}`} aria-label="Main navigation">
       <div className="workspace-brand">
-        <Icon name="notes" />
+        <img className="workspace-logo" src="/favicon.svg?v=2" width="24" height="24" alt="" />
         <span>corpoBrain</span>
       </div>
       <button
