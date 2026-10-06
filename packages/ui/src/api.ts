@@ -274,6 +274,65 @@ export interface SyncRun {
   settings: { requestTimeoutSeconds: number; searchPageSize: number };
 }
 
+export interface OutlookConfig {
+  enabled: boolean;
+  python: string;
+  folder: string;
+  daysBack: number;
+  daysAhead: number;
+  includeAppointments: boolean;
+  skipCategories: string[];
+  skipSubjects: string[];
+  intervalMinutes: number;
+  timeoutSeconds: number;
+  window: { from: string; to: string };
+  exporterFound: boolean;
+}
+
+export interface OutlookReport {
+  fetched: number;
+  created: string[];
+  updated: string[];
+  unchanged: number;
+  skipped: { id: string; reason: string }[];
+  gone: string[];
+  warnings: string[];
+}
+
+export interface OutlookStatus {
+  syncing: boolean;
+  runId: string | null;
+  cancelling: boolean;
+  progress: { phase: 'export' | 'notes'; current: number; total: number } | null;
+  lastRun: {
+    id: string;
+    startedAt: string;
+    finishedAt: string | null;
+    durationMs: number;
+    outcome: SyncRun['outcome'];
+    error: string | null;
+    reports: OutlookReport[];
+  } | null;
+  historyError: string | null;
+}
+
+export const outlookApi = {
+  config: () => req<OutlookConfig>('/api/outlook/config'),
+  saveConfig: (patch: Partial<OutlookConfig>) =>
+    req<OutlookConfig>('/api/outlook/config', { method: 'PUT', body: JSON.stringify(patch) }),
+  test: () =>
+    req<{ outlookVersion: string | null; me: string | null; today: number }>('/api/outlook/test', {
+      method: 'POST',
+    }),
+  status: () => req<OutlookStatus>('/api/outlook/status'),
+  start: () => req<{ id: string }>('/api/outlook/sync/start', { method: 'POST' }),
+  cancel: (id: string) =>
+    req<{ ok: boolean }>('/api/outlook/sync/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+};
+
 export type PlanPatch = Partial<{
   project: string | null;
   start: string | null;

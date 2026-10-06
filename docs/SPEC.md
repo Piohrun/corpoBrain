@@ -384,6 +384,63 @@ matched case-insensitively after normalisation (`mailto:` and a leading `@` or
 login are ignored. If two person notes declare the same identity, records for
 it are treated as unattributed rather than guessed.
 
+### 6.4 Outlook meeting notes
+
+One note per calendar occurrence, created in `config.outlook.folder`
+(default `meetings/`) as `<YYYY-MM-DD> <subject>.md`; a clash gets the start
+time (`… 1500.md`) and then a counter. The file may be renamed or moved
+anywhere: it is found again by `outlook.id`, never by path.
+
+```yaml
+---
+type: meeting
+title: 2026-10-06 Roadmap review
+date: 2026-10-06                     # local day the occurrence starts
+start: 2026-10-06T07:00:00Z          # UTC
+end: 2026-10-06T08:00:00Z
+all_day: true                        # only when true
+location: Room 4.12
+organizer: "[[people/anna|Anna Kowalska]]"   # a link when matched via email:, else the name
+attendees: ["[[people/anna|Anna Kowalska]]"] # matched people only; the body lists everyone
+cancelled: true                      # only when cancelled in Outlook
+outlook:                             # tool-owned bookkeeping
+  id: <GlobalAppointmentID>[:<day> for recurring series]
+  synced: 2026-10-06T10:00:00Z
+  recurring: true
+  response: accepted                 # organizer | accepted | tentative | none
+  busy: tentative                    # omitted when busy
+  categories: [Planning]
+  gone: true                         # set when the occurrence left Outlook
+---
+# Roadmap review
+
+**Tue 6 Oct 2026 · 09:00–10:00** · Room 4.12
+
+Organizer: [[people/anna|Anna Kowalska]]
+Attendees: [[people/anna|Anna Kowalska]], John External
+<!-- outlook:end -->
+
+## Notes
+```
+
+Rules, as for Jira (§6.2):
+
+- The sync owns the keys listed above and the region above
+  `<!-- outlook:end -->`; every other frontmatter key and everything below the
+  marker belong to the user and are preserved byte for byte.
+- A note without the marker, or with unreadable frontmatter, is skipped with a
+  warning, never rewritten.
+- Calendar text is untrusted: the marker, leading `---` lines and `[[`/`]]` are
+  neutralised.
+- A note is only rewritten when something other than `outlook.synced` changed.
+- New notes are not created for declined, cancelled or filtered occurrences
+  (`skipSubjects`, `skipCategories`), nor for appointments without attendees
+  unless `includeAppointments`. An existing note is still updated.
+- A note whose occurrence is no longer in the exported window gets
+  `outlook.gone: true`; notes are never deleted. A rescheduled occurrence of a
+  recurring series is a new occurrence (new note); the old one is flagged gone.
+- The mailbox owner and meeting rooms are left out of attendee lists.
+
 ---
 
 ## 7. Planning overlay (`plan:`)
@@ -551,6 +608,10 @@ Everything in this schema is derivable from vault files plus
         "boards": [42], "futureSprints": 3 }
     ]
   },
+  "outlook": { "enabled": false, "python": "python", "folder": "meetings",
+               "daysBack": 7, "daysAhead": 14, "includeAppointments": false,
+               "skipCategories": [], "skipSubjects": [],
+               "intervalMinutes": 30, "timeoutSeconds": 300 },
   "private": { "lockAfterMinutes": 10 },
   "git": { "autoCommit": true, "intervalMinutes": 10 }
 }

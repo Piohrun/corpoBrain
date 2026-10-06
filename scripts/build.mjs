@@ -1,5 +1,6 @@
 // Bundles the server + core + cli into a single dependency-free file so the
 // laptop only needs node.exe and the dist/ folder. UI is built by vite into dist/ui.
+import { cpSync } from 'node:fs';
 import { build } from 'esbuild';
 
 const common = {
@@ -24,4 +25,10 @@ await build({
   ...common,
   entryPoints: ['packages/cli/src/index.ts'],
   outfile: 'dist/corpobrain-cli.js',
+});
+
+// Connector helpers that run outside Node (Outlook COM via Python).
+cpSync('packages/server/python', 'dist/python', {
+  recursive: true,
+  filter: (src) => !src.includes('__pycache__'),
 });

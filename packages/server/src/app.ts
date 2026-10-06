@@ -15,6 +15,7 @@ import { jiraRoutes } from './jira-routes.ts';
 import { mentionsRoutes } from './mentions-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
 import { organizationRoutes } from './organization-routes.ts';
+import { outlookRoutes } from './outlook-routes.ts';
 import { personRoutes } from './person-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { privateRoutes } from './private-routes.ts';
@@ -293,6 +294,7 @@ export function createApp(vault?: VaultService) {
   });
 
   app.route('/api/jira', jiraRoutes(v));
+  app.route('/api/outlook', outlookRoutes(v));
   app.route('/api/plan', planRoutes(v));
   app.route('/api/digest', digestRoutes(v));
   app.route('/api/availability', availabilityRoutes(v));

@@ -155,6 +155,24 @@ export {
   orgText,
   orgUnitPaths,
 } from './organization.ts';
+export type {
+  KnownMeeting,
+  MeetingsReport,
+  OutlookAttendee,
+  OutlookExport,
+  OutlookMeeting,
+  OutlookPerson,
+  PersonResolver,
+} from './outlook/meetings.ts';
+export {
+  applyMeetings,
+  knownMeetingOf,
+  meetingBaseName,
+  mergeMeetingFile,
+  neutralizeOutlook,
+  OUTLOOK_MARKER,
+  skipReason,
+} from './outlook/meetings.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';
 export { convertEffort, issueRiskFlags } from './planning.ts';
 export type { ProjectDef, ProjectIssue, ProjectRollup } from './projects.ts';

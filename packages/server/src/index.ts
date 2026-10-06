@@ -5,6 +5,7 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { gitFor, startAutoCommit } from './git-service.ts';
 import { startSyncScheduler } from './jira-routes.ts';
+import { startOutlookScheduler } from './outlook-routes.ts';
 import { VaultService } from './vault-service.ts';
 
 const vaultRoot = resolve(process.env.CORPOBRAIN_VAULT ?? process.argv[2] ?? process.cwd());
@@ -27,6 +28,7 @@ const vault = new VaultService(vaultRoot);
 }
 vault.startWatching();
 startSyncScheduler(vault);
+startOutlookScheduler(vault);
 if (vault.config.git.autoCommit) {
   const git = gitFor(vaultRoot);
   void git.ensureRepo().then((ok) => {

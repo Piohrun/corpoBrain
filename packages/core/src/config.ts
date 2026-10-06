@@ -57,6 +57,24 @@ export interface VaultConfig {
     writeback: 'off' | 'dry-run' | 'on';
     profiles: JiraProfile[];
   };
+  /** calendar sync from the local classic Outlook (SPEC §6.4) */
+  outlook: {
+    /** run the scheduled sync (manual "Sync now" works either way) */
+    enabled: boolean;
+    /** the Python that has `comtypes` installed */
+    python: string;
+    /** where new meeting notes are created */
+    folder: string;
+    daysBack: number;
+    daysAhead: number;
+    /** also mirror appointments without attendees (focus time, reminders) */
+    includeAppointments: boolean;
+    skipCategories: string[];
+    /** case-insensitive substrings of subjects that never get a note */
+    skipSubjects: string[];
+    intervalMinutes: number;
+    timeoutSeconds: number;
+  };
   /** out-of-office and support rota, feeding sprint bandwidth */
   availability: {
     /** the note holding the availability table */
@@ -119,6 +137,18 @@ export const DEFAULT_CONFIG: VaultConfig = {
     missingMarker: 'skip',
     writeback: 'off',
     profiles: [],
+  },
+  outlook: {
+    enabled: false,
+    python: 'python',
+    folder: 'meetings',
+    daysBack: 7,
+    daysAhead: 14,
+    includeAppointments: false,
+    skipCategories: [],
+    skipSubjects: [],
+    intervalMinutes: 30,
+    timeoutSeconds: 300,
   },
   availability: {
     file: 'planning/availability.md',

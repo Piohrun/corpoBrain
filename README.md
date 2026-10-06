@@ -89,6 +89,15 @@ sprints. Incremental sync also supports profile queries ending in `ORDER BY`.
 (option B). Your vault is untouched by updates; the index rebuilds itself when
 the schema changes.
 
+**Sync your Outlook calendar** (classic Outlook on Windows): install the one
+Python dependency once (`pip install comtypes`), then ⚙ Settings → Outlook
+calendar → *Test connection* → *Sync now*. Each meeting in the window (7 days
+back, 14 ahead by default) becomes a note in `meetings/`, with attendees linked
+to person notes through their `email:` property. Write your notes below the
+`<!-- outlook:end -->` line; later syncs refresh only the part above it.
+PowerShell is not involved, so ConstrainedLanguage mode does not matter.
+`scripts/outlook-probe.py` checks what Outlook allows on a new machine.
+
 ## Using it
 
 **Organization mapping.** Workspace → Organization (`g r`) connects Department,

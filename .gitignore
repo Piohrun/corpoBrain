@@ -9,3 +9,4 @@ coverage/
 vault/
 .env
 .claude/worktrees/
+__pycache__/
