@@ -4442,3 +4442,13 @@ button.prop-chip {
   border-top: 1px solid var(--border);
   margin-top: 4px;
 }
+
+/* virtualized grids: the padding rows stand in for rows not rendered */
+.bw-pad-row td.bw-pad {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.av-pad {
+  flex: none;
+}

@@ -20,6 +20,7 @@ import type { GroupBy } from './planningShared.ts';
 import { SprintHealth } from './SprintHealth.tsx';
 import { SprintTable } from './SprintTable.tsx';
 import { SyncProgressBar } from './SyncProgressBar.tsx';
+import { revealRow } from './virtualRows.tsx';
 
 interface Props {
   onOpenNote: (path: string) => void;
@@ -115,12 +116,8 @@ export function PlanningPage({ onOpenNote }: Props) {
   // ---- what Ctrl+F offers here: issues (multi, move/assign), people, sprints ----
   const finderSections = useMemo<FinderSection[]>(() => {
     if (!board) return [];
-    const jump = (id: string) => {
-      const el = document.querySelector<HTMLElement>(`[data-person-id="${CSS.escape(id)}"]`);
-      el?.scrollIntoView({ block: 'center' });
-      el?.classList.add('flash');
-      setTimeout(() => el?.classList.remove('flash'), 1600);
-    };
+    // the grid renders only rows near the screen: it scrolls the row in and flashes it
+    const jump = (id: string) => revealRow('bandwidth', `p:${id}`);
     const sprints = section<{ name: string }>({
       id: 'plan-sprints',
       title: 'Sprints',

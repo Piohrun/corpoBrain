@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { type HealthProblem, type HealthReport, planApi } from '../api.ts';
 
+/** items shown per problem group before "show all" */
+const GROUP_PREVIEW = 12;
+
 const LABELS: Record<string, string> = {
   'no-estimate': 'No estimate',
   'no-assignee': 'Nobody assigned',
@@ -44,6 +47,8 @@ export function SprintHealth({
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  // long groups show their first items; the rest on request
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = useCallback(() => {
     planApi
@@ -133,7 +138,7 @@ export function SprintHealth({
               </button>
               {!hidden.has(kind) && (
                 <ul className="health-list">
-                  {list.map((p) => (
+                  {(expanded.has(kind) ? list : list.slice(0, GROUP_PREVIEW)).map((p) => (
                     <li key={`${p.kind}:${p.issueKey ?? p.personPath ?? p.personName}`}>
                       {p.issueKey && (
                         <button
@@ -158,6 +163,26 @@ export function SprintHealth({
                       {p.summary && <span className="health-summary">{p.summary}</span>}
                     </li>
                   ))}
+                  {list.length > GROUP_PREVIEW && (
+                    <li>
+                      <button
+                        type="button"
+                        className="props-toggle"
+                        onClick={() =>
+                          setExpanded((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(kind)) next.delete(kind);
+                            else next.add(kind);
+                            return next;
+                          })
+                        }
+                      >
+                        {expanded.has(kind)
+                          ? 'show fewer'
+                          : `show all ${list.length} (${list.length - GROUP_PREVIEW} more)`}
+                      </button>
+                    </li>
+                  )}
                 </ul>
               )}
             </div>

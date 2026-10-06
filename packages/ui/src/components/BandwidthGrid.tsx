@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { cloneElement, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { ctxTarget } from '../finder/ContextMenu.tsx';
@@ -10,6 +10,7 @@ import {
   ColumnResizeHandle,
   usePersistentColumnWidths,
 } from './resizableColumns.tsx';
+import { useVirtualRows } from './virtualRows.tsx';
 
 const BANDWIDTH_WIDTHS_KEY = 'cb.plan.bandwidthColumnWidths.v1';
 const PERSON_WIDTH = { fallback: 160, min: 120, max: 360 };
@@ -608,6 +609,47 @@ export const BandwidthGrid = memo(function BandwidthGrid({
     );
   };
 
+  // The rows in display order (collapsed groups hide their members), so only
+  // the ones near the visible part of the page need to be rendered.
+  type Line =
+    | { kind: 'group'; key: string; label: string; members: Row[]; sub: boolean }
+    | { kind: 'person'; key: string; row: Row };
+  const lines = useMemo(() => {
+    const out: Line[] = [];
+    const person = (r: Row): Line => ({ kind: 'person', key: `p:${r.path ?? r.id}`, row: r });
+    for (const g of groups) {
+      if (g.label)
+        out.push({ kind: 'group', key: g.key, label: g.label, members: g.members, sub: false });
+      if (g.label && collapsed.has(g.key)) continue;
+      if (g.subs) {
+        for (const sub of g.subs) {
+          out.push({
+            kind: 'group',
+            key: sub.key,
+            label: sub.label,
+            members: sub.members,
+            sub: true,
+          });
+          if (!collapsed.has(sub.key)) out.push(...sub.members.map(person));
+        }
+      } else out.push(...g.members.map(person));
+    }
+    return out;
+  }, [groups, collapsed]);
+  const lineKeys = useMemo(() => lines.map((l) => l.key), [lines]);
+  const grid = useVirtualRows({
+    list: 'bandwidth',
+    keys: lineKeys,
+    estimate: 64,
+    onRevealed: (key) => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-person-id="${CSS.escape(key.slice(2))}"]`,
+      );
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 1600);
+    },
+  });
+
   return (
     <section>
       <div className="plan-section-title">
@@ -693,20 +735,26 @@ export const BandwidthGrid = memo(function BandwidthGrid({
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => (
-              <FragmentGroup key={g.key}>
-                {g.label && aggRow(g.key, g.label, g.members, false)}
-                {(!g.label || !collapsed.has(g.key)) &&
-                  (g.subs
-                    ? g.subs.map((sub) => (
-                        <FragmentGroup key={sub.key}>
-                          {aggRow(sub.key, sub.label, sub.members, true)}
-                          {!collapsed.has(sub.key) && sub.members.map(memberRow)}
-                        </FragmentGroup>
-                      ))
-                    : g.members.map(memberRow))}
-              </FragmentGroup>
-            ))}
+            <tr ref={grid.anchorRef as React.RefObject<HTMLTableRowElement>} className="bw-pad-row">
+              <td colSpan={columns.length + 1} className="bw-pad" style={{ height: grid.padTop }} />
+            </tr>
+            {lines
+              .slice(grid.start, grid.end)
+              .map((line) =>
+                cloneElement(
+                  line.kind === 'group'
+                    ? aggRow(line.key, line.label, line.members, line.sub)
+                    : memberRow(line.row),
+                  { key: line.key, ref: grid.measure(line.key) },
+                ),
+              )}
+            <tr className="bw-pad-row">
+              <td
+                colSpan={columns.length + 1}
+                className="bw-pad"
+                style={{ height: grid.padBottom }}
+              />
+            </tr>
           </tbody>
         </table>
       </div>

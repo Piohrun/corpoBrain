@@ -1,7 +1,9 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import type { BoardModel, PlanPatch } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { personName } from './planningShared.ts';
+import { useProgressive } from './progressive.tsx';
 
 export const ChangesPanel = memo(function ChangesPanel({
   board,
@@ -13,11 +15,17 @@ export const ChangesPanel = memo(function ChangesPanel({
   onOpenNote: (path: string) => void;
 }) {
   const dlg = useDialogs();
-  const changes = board.issues.filter(
-    (i) =>
-      i.statusCategory !== 'done' &&
-      (i.plan.sprint !== null || i.plan.assignee !== null || i.plan.effort !== null),
+  const changes = useMemo(
+    () =>
+      board.issues.filter(
+        (i) =>
+          i.statusCategory !== 'done' &&
+          (i.plan.sprint !== null || i.plan.assignee !== null || i.plan.effort !== null),
+      ),
+    [board],
   );
+  // hundreds of local changes: rows arrive as the list scrolls into view
+  const { shown, sentinel } = useProgressive(changes.length, 60, changes);
   if (changes.length === 0) return null;
   return (
     <section>
@@ -38,8 +46,8 @@ export const ChangesPanel = memo(function ChangesPanel({
         </button>
       </h2>
       <div className="changes-panel">
-        {changes.map((i) => (
-          <div key={i.key} className="change-row">
+        {changes.slice(0, shown).map((i) => (
+          <div key={i.key} className="change-row" {...ctxTarget('plan-issues', i.key)}>
             <button type="button" className="key-link" onClick={() => onOpenNote(i.path)}>
               {i.key}
             </button>
@@ -74,6 +82,11 @@ export const ChangesPanel = memo(function ChangesPanel({
             </button>
           </div>
         ))}
+        {shown < changes.length && (
+          <div ref={sentinel as React.RefObject<HTMLDivElement>} className="muted small">
+            {changes.length - shown} more…
+          </div>
+        )}
       </div>
     </section>
   );

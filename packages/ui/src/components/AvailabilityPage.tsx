@@ -12,6 +12,7 @@ import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
+import { revealRow, useVirtualRows } from './virtualRows.tsx';
 
 /** rows keep a stable client id so editing and deleting do not shuffle inputs */
 type DraftEntry = AvailabilityEntry & { rowId: string };
@@ -103,12 +104,8 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   // ---- Ctrl+F here: people → jump to their row or add an entry for today ----
   const finderSections = useMemo<FinderSection[]>(() => {
     const people = data?.people ?? [];
-    const jump = (path: string) => {
-      const el = document.querySelector<HTMLElement>(`.av-row[data-path="${CSS.escape(path)}"]`);
-      el?.scrollIntoView({ block: 'center' });
-      el?.classList.add('flash');
-      setTimeout(() => el?.classList.remove('flash'), 1600);
-    };
+    // the month grid renders only rows near the screen: it scrolls the row in and flashes it
+    const jump = (path: string) => revealRow('availability', path);
     const today = localISODate();
     return [
       section<(typeof people)[number]>({
@@ -750,6 +747,18 @@ function MonthGrid({
     (path: string, name: string, idx: number) => setDrag({ path, name, from: idx, to: idx }),
     [],
   );
+  // only the rows near the visible part of the page are rendered
+  const personKeys = useMemo(() => people.map((p) => p.path), [people]);
+  const grid = useVirtualRows({
+    list: 'availability',
+    keys: personKeys,
+    estimate: 24,
+    onRevealed: (path) => {
+      const el = document.querySelector<HTMLElement>(`.av-row[data-path="${CSS.escape(path)}"]`);
+      el?.classList.add('flash');
+      setTimeout(() => el?.classList.remove('flash'), 1600);
+    },
+  });
 
   return (
     <section className="av-cal">
@@ -805,9 +814,15 @@ function MonthGrid({
               </span>
             ))}
           </div>
-          {people.map((p) => (
+          <div
+            ref={grid.anchorRef as React.RefObject<HTMLDivElement>}
+            className="av-pad"
+            style={{ height: grid.padTop }}
+          />
+          {people.slice(grid.start, grid.end).map((p) => (
             <AvRow
               key={p.path}
+              rowRef={grid.measure(p.path)}
               person={p}
               days={days}
               cover={cover.get(p.path)}
@@ -822,6 +837,7 @@ function MonthGrid({
               onOpenNote={onOpenNote}
             />
           ))}
+          <div className="av-pad" style={{ height: grid.padBottom }} />
         </div>
       </div>
     </section>
@@ -841,6 +857,7 @@ const AvRow = memo(function AvRow({
   drawRange,
   onStart,
   onOpenNote,
+  rowRef,
 }: {
   person: { path: string; name: string };
   days: { date: string; day: number; weekend: boolean; outside: boolean }[];
@@ -851,10 +868,13 @@ const AvRow = memo(function AvRow({
   drawRange: string | null;
   onStart: (path: string, name: string, idx: number) => void;
   onOpenNote: (path: string) => void;
+  /** measures the row for the virtualized grid; stable per person */
+  rowRef?: (el: HTMLElement | null) => void;
 }) {
   const [from, to] = drawRange ? drawRange.split(':').map(Number) : [-1, -2];
   return (
     <div
+      ref={rowRef}
       className="av-row"
       data-path={person.path}
       {...ctxTarget('av-people', person.path)}

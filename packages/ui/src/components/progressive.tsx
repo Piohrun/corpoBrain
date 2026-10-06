@@ -5,7 +5,7 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
  * none does). `overflow-x: auto` alone also computes `overflow-y: auto`, so a
  * horizontally scrolling wrapper only counts if its content is taller than it.
  */
-function scrollParent(el: HTMLElement): HTMLElement | null {
+export function scrollParent(el: HTMLElement): HTMLElement | null {
   for (let at = el.parentElement; at; at = at.parentElement) {
     const { overflowY } = getComputedStyle(at);
     if ((overflowY === 'auto' || overflowY === 'scroll') && at.scrollHeight > at.clientHeight + 1)
