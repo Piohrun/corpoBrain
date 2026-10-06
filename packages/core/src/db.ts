@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SCHEMA_VERSION = '0.3.1/13';
+export const SCHEMA_VERSION = '0.3.2/14';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS links(
 );
 CREATE INDEX IF NOT EXISTS links_src ON links(src_path);
 CREATE INDEX IF NOT EXISTS links_dst ON links(dst_path);
+-- incremental resolution looks links up by the name they were written with
+CREATE INDEX IF NOT EXISTS links_dst_lower ON links(lower(dst_target));
 CREATE TABLE IF NOT EXISTS tags(path TEXT NOT NULL, tag TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS tags_tag ON tags(tag);
 CREATE INDEX IF NOT EXISTS tags_path ON tags(path);
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS jira(
   labels_json TEXT, estimate REAL, created TEXT, updated TEXT, resolved TEXT,
   synced TEXT, profile TEXT
 );
+CREATE INDEX IF NOT EXISTS jira_path ON jira(path);
 CREATE TABLE IF NOT EXISTS plan(
   key TEXT PRIMARY KEY, sprint TEXT, assignee TEXT, rank REAL, effort REAL,
   risk TEXT, confidence TEXT, bucket TEXT, blocked_on_json TEXT, note TEXT,
@@ -90,6 +93,11 @@ export function openDb(dbPath: string): DatabaseSync {
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA synchronous = NORMAL;');
+  // The index is disposable and local: favour speed (64 MB page cache, temp
+  // tables in memory, memory-mapped reads).
+  db.exec('PRAGMA cache_size = -65536;');
+  db.exec('PRAGMA temp_store = MEMORY;');
+  db.exec('PRAGMA mmap_size = 268435456;');
   const hasMeta = db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='meta'")
     .get();

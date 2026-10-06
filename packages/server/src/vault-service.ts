@@ -63,6 +63,8 @@ export class VaultService {
       this.config,
       openDb(dbPath ?? join(root, '.corpobrain', 'index.sqlite')),
     );
+    // ids the indexer writes into notes are our own writes, not user edits
+    this.indexer.onSelfWrite = (p) => this.markSelfWrite(p);
     const t0 = performance.now();
     const summary = this.indexer.update();
     this.indexer.loadSprints();
@@ -99,7 +101,9 @@ export class VaultService {
       const external = paths.filter((p) => !this.consumeSelfWrite(p));
       if (!external.length) return;
       this.changeSeq++;
-      const summary = this.indexer.updatePaths(external);
+      // Files this process already indexed (a sync that wrote and indexed
+      // them, say) come back unchanged and cost nothing.
+      const summary = this.indexer.updatePaths(external, { onlyChanged: true });
       if (summary.indexed.length || summary.removed.length) {
         for (const fn of this.listeners) fn([...summary.indexed, ...summary.removed]);
       }
@@ -306,31 +310,9 @@ export class VaultService {
       const p = `${this.config.folders.jira}/${t}.md`;
       return { path: p, exists: existsSync(join(this.root, p)) };
     }
-    const key = t.replace(/\.md$/i, '').toLowerCase();
-    // Match the indexer: exact path first, then unique title/alias, then unique basename.
-    const exact = this.indexer.db
-      .prepare(
-        'SELECT path FROM notes WHERE protected = 0 AND lower(substr(path, 1, length(path) - 3)) = ?',
-      )
-      .get(key) as { path: string } | undefined;
-    if (exact) return { path: exact.path, exists: true };
-    const aliases = this.indexer.db
-      .prepare(
-        `SELECT DISTINCT n.path FROM notes n
-         JOIN aliases a ON a.path = n.path
-         WHERE n.protected = 0 AND a.alias = ?
-         LIMIT 2`,
-      )
-      .all(key) as { path: string }[];
-    if (aliases.length === 1 && aliases[0]) return { path: aliases[0].path, exists: true };
-    if (!aliases.length && !key.includes('/')) {
-      const suffix = `/${key}.md`;
-      const bases = this.indexer.db
-        .prepare(`SELECT path FROM notes WHERE protected = 0 AND
-          (lower(path) = ? OR lower(substr(path, -length(?))) = ?) LIMIT 2`)
-        .all(`${key}.md`, suffix, suffix) as { path: string }[];
-      if (bases.length === 1 && bases[0]) return { path: bases[0].path, exists: true };
-    }
+    // Same rules and same in-memory names as the indexer's link resolution.
+    const hit = this.indexer.resolveName(t);
+    if (hit.dst) return { path: hit.dst, exists: true };
     const safe = t.replace(/\.md$/i, '').replace(/[\\:*?"<>|]/g, '-');
     return { path: `${this.config.links.newNoteFolder}/${safe}.md`, exists: false };
   }

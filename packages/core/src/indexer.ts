@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import type { VaultConfig } from './config.ts';
 import { parseFrontmatter, setFrontmatterKey } from './frontmatter.ts';
 import { IDENTITY_KINDS, identitiesOf } from './identities.ts';
@@ -48,18 +48,59 @@ export interface Backlink {
   alias: string | null;
 }
 
+/** Tables whose rows belong to one note, keyed by its path (links: src_path). */
+const NOTE_TABLES = [
+  'notes',
+  'aliases',
+  'links',
+  'tags',
+  'properties',
+  'tasks',
+  'headings',
+  'blocks',
+  'track_anchors',
+  'person_identities',
+];
+
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
+
+/** Lower-cased names notes answer to (SPEC §5.2), kept in memory between saves. */
+interface NameIndex {
+  /** extension-less path → path */
+  path: Map<string, string>;
+  /** basename → paths */
+  base: Map<string, Set<string>>;
+  /** title / declared alias → paths */
+  alias: Map<string, Set<string>>;
+}
 
 export class Indexer {
   /** Moves whenever the index content changes; cheap cache key for derived models. */
   version = 0;
+  /**
+   * Called with each path the indexer itself rewrites (assigning an id), so
+   * the owner can ignore the watcher event for its own write.
+   */
+  onSelfWrite: ((path: string) => void) | null = null;
+  private statements = new Map<string, StatementSync>();
+  private names: NameIndex | null = null;
 
   constructor(
     readonly root: string,
     readonly config: VaultConfig,
     readonly db: DatabaseSync,
   ) {}
+
+  /** Prepared once per SQL text; node:sqlite does not cache statements itself. */
+  private q(sql: string): StatementSync {
+    let st = this.statements.get(sql);
+    if (!st) {
+      st = this.db.prepare(sql);
+      this.statements.set(sql, st);
+    }
+    return st;
+  }
 
   // ------------------------------------------------------------------ build
 
@@ -70,11 +111,22 @@ export class Indexer {
     const stale = (this.db.prepare('SELECT path FROM notes').all() as { path: string }[]).filter(
       (r) => !known.has(r.path),
     );
-    return this.applyChanges(
-      files,
-      stale.map((r) => r.path),
-      { full: true },
-    );
+    // Everything is re-read: empty the derived tables in one go instead of
+    // deleting each note's rows (Jira sprints come from sprints.json, kept).
+    this.db.exec('BEGIN');
+    try {
+      for (const t of [...NOTE_TABLES, 'notes_fts', 'transitions', 'jira', 'plan', 'people'])
+        this.db.exec(`DELETE FROM ${t}`);
+      this.db.exec("DELETE FROM sprints WHERE source = 'local'");
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+    this.names = null;
+    const summary = this.applyChanges(files, [], { full: true });
+    summary.removed = stale.map((r) => r.path);
+    return summary;
   }
 
   /** Incremental: compare stat info against the index. */
@@ -101,16 +153,34 @@ export class Indexer {
     return summary;
   }
 
-  /** Re-index specific relative paths (missing on disk → removed). */
-  updatePaths(paths: string[]): UpdateSummary {
+  /**
+   * Re-index specific relative paths (missing on disk → removed). With
+   * `onlyChanged`, files whose mtime and size match the index are skipped:
+   * a watcher event for a file this process already indexed costs nothing.
+   */
+  updatePaths(paths: string[], opts: { onlyChanged?: boolean } = {}): UpdateSummary {
     const files: VaultFile[] = [];
     const removed: string[] = [];
+    let unchanged = 0;
+    const known = this.q('SELECT mtime, size FROM notes WHERE path = ?');
     for (const p of new Set(paths)) {
       const found = vaultFileInfo(this.root, this.config, p);
-      if (found) files.push(found);
-      else removed.push(p);
+      if (!found) {
+        if (!opts.onlyChanged || known.get(p)) removed.push(p);
+        continue;
+      }
+      if (opts.onlyChanged) {
+        const row = known.get(p) as { mtime: number; size: number } | undefined;
+        if (row && row.mtime === Math.trunc(found.mtimeMs) && row.size === found.size) {
+          unchanged++;
+          continue;
+        }
+      }
+      files.push(found);
     }
-    return this.applyChanges(files, removed);
+    const summary = this.applyChanges(files, removed);
+    summary.unchanged = unchanged;
+    return summary;
   }
 
   /** Sprints live in .corpobrain/jira-cache/sprints.json (written by sync). */
@@ -161,66 +231,73 @@ export class Indexer {
       unchanged: 0,
       idsAssigned: 0,
     };
+    if (!files.length && !removed.length) return summary;
     this.db.exec('BEGIN');
     try {
       const touched = [...removed, ...files.map((f) => f.path)];
+      // An empty index has nothing to delete: a first build skips that work.
+      const fresh = !this.q('SELECT 1 FROM notes LIMIT 1').get();
       // Names these notes answered to before the change (old aliases, paths)…
-      const keys = new Set(this.resolutionKeys(touched));
-      for (const p of removed) this.deleteRows(p);
+      const before = fresh ? new Map<string, string[]>() : this.aliasesOf(touched);
+      const keys = new Set(this.resolutionKeys(touched, before));
+      this.forgetNames(touched, before);
+      let jiraRemoved = false;
+      for (const p of removed) jiraRemoved = this.deleteRows(p) || jiraRemoved;
       for (const f of files) {
+        if (!fresh) jiraRemoved = this.deleteRows(f.path) || jiraRemoved;
         summary.idsAssigned += this.indexFile(f) ? 1 : 0;
         summary.indexed.push(f.path);
       }
+      // A re-indexed issue re-inserts its own plan row; only plan rows whose
+      // issue note is gone for good are orphans.
+      if (jiraRemoved) this.q('DELETE FROM plan WHERE key NOT IN (SELECT key FROM jira)').run();
       // …and after it. Any link aimed at one of those names may now resolve
       // differently; links inside the changed files are re-read wholesale.
-      for (const k of this.resolutionKeys(files.map((f) => f.path))) keys.add(k);
+      const after = this.aliasesOf(files.map((f) => f.path));
+      this.learnNames(files, after);
+      for (const k of this.resolutionKeys(
+        files.map((f) => f.path),
+        after,
+      ))
+        keys.add(k);
       if (opts.full) this.resolveAll();
       else if (touched.length) this.resolveLinks(touched, keys);
       this.db.exec('COMMIT');
       if (touched.length) this.version++;
     } catch (e) {
       this.db.exec('ROLLBACK');
+      this.names = null; // rebuilt from the database on next use
       throw e;
     }
     return summary;
   }
 
-  private deleteRows(path: string): void {
-    for (const t of [
-      'notes',
-      'aliases',
-      'links',
-      'tags',
-      'properties',
-      'tasks',
-      'headings',
-      'blocks',
-      'track_anchors',
-      'person_identities',
-    ])
-      this.db
-        .prepare(`DELETE FROM ${t} WHERE ${t === 'links' ? 'src_path' : 'path'} = ?`)
-        .run(path);
-    this.db.prepare('DELETE FROM notes_fts WHERE path = ?').run(path);
-    this.db
-      .prepare('DELETE FROM transitions WHERE key IN (SELECT key FROM jira WHERE path = ?)')
-      .run(path);
-    this.db.prepare('DELETE FROM jira WHERE path = ?').run(path);
-    this.db.prepare('DELETE FROM plan WHERE key NOT IN (SELECT key FROM jira)').run();
-    this.db.prepare('DELETE FROM people WHERE path = ?').run(path);
-    this.db.prepare("DELETE FROM sprints WHERE source = 'local' AND path = ?").run(path);
+  /** Delete every row a note produced. Returns true when it was a Jira issue. */
+  private deleteRows(path: string): boolean {
+    const old = this.q('SELECT rowid, type FROM notes WHERE path = ?').get(path) as
+      | { rowid: number; type: string }
+      | undefined;
+    // Every row below is written after the notes row, in one transaction.
+    if (!old) return false;
+    this.q('DELETE FROM notes_fts WHERE rowid = ?').run(old.rowid);
+    for (const t of NOTE_TABLES)
+      this.q(`DELETE FROM ${t} WHERE ${t === 'links' ? 'src_path' : 'path'} = ?`).run(path);
+    if (old.type === 'person') this.q('DELETE FROM people WHERE path = ?').run(path);
+    if (old.type === 'sprint')
+      this.q("DELETE FROM sprints WHERE source = 'local' AND path = ?").run(path);
+    if (old.type !== 'jira') return false;
+    this.q('DELETE FROM transitions WHERE key IN (SELECT key FROM jira WHERE path = ?)').run(path);
+    this.q('DELETE FROM jira WHERE path = ?').run(path);
+    return true;
   }
 
   /** Returns true when an id was assigned (file rewritten). */
   private indexFile(fIn: VaultFile): boolean {
     let f = fIn;
-    this.deleteRows(f.path);
     if (f.protected) {
-      this.db
-        .prepare(
-          'INSERT INTO notes(path, title, mtime, size, hash, protected) VALUES (?, ?, ?, ?, ?, 1)',
-        )
-        .run(f.path, 'Protected note', Math.trunc(f.mtimeMs), f.size, '');
+      this.q(
+        'INSERT INTO notes(path, title, mtime, size, hash, protected) VALUES (?, ?, ?, ?, ?, 1)',
+      ).run(f.path, 'Protected note', Math.trunc(f.mtimeMs), f.size, '');
       return false;
     }
 
@@ -242,6 +319,7 @@ export class Indexer {
     ) {
       text = setFrontmatterKey(text, 'id', generateUlid(), { position: 'start' });
       writeFileAtomic(abs, text);
+      this.onSelfWrite?.(f.path);
       const st = statSync(abs);
       f = { ...f, mtimeMs: st.mtimeMs, size: st.size };
       parsed = parseFrontmatter(parseSource(text));
@@ -256,40 +334,42 @@ export class Indexer {
     const type = str(fm.type) ?? this.typeFromPath(f.path);
     const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
 
-    this.db
-      .prepare(
-        `INSERT INTO notes(path, id, type, title, mtime, size, hash, frontmatter_json, frontmatter_error)
+    const { lastInsertRowid: rowid } = this.q(
+      `INSERT INTO notes(path, id, type, title, mtime, size, hash, frontmatter_json, frontmatter_error)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        f.path,
-        str(fm.id),
-        type,
-        title,
-        Math.trunc(f.mtimeMs),
-        f.size,
-        hash,
-        JSON.stringify(fm),
-        parsed.error ? 1 : 0,
-      );
+    ).run(
+      f.path,
+      str(fm.id),
+      type,
+      title,
+      Math.trunc(f.mtimeMs),
+      f.size,
+      hash,
+      JSON.stringify(fm),
+      parsed.error ? 1 : 0,
+    );
 
     // aliases (title + declared aliases + basename handled at resolve time)
-    const insAlias = this.db.prepare('INSERT INTO aliases(path, alias) VALUES (?, ?)');
+    const insAlias = this.q('INSERT INTO aliases(path, alias) VALUES (?, ?)');
     insAlias.run(f.path, title.toLowerCase());
     if (Array.isArray(fm.aliases))
       for (const a of fm.aliases) if (typeof a === 'string') insAlias.run(f.path, a.toLowerCase());
 
-    // FTS over title + body (generated Jira region included on purpose)
-    this.db
-      .prepare('INSERT INTO notes_fts(path, title, body) VALUES (?, ?, ?)')
-      .run(f.path, title, stripTrackMarkers(text.slice(parsed.bodyOffset)));
+    // FTS over title + body (generated Jira region included on purpose). The
+    // FTS row shares the note's rowid, so deleting it is a key lookup.
+    this.q('INSERT INTO notes_fts(rowid, path, title, body) VALUES (?, ?, ?, ?)').run(
+      rowid,
+      f.path,
+      title,
+      stripTrackMarkers(text.slice(parsed.bodyOffset)),
+    );
 
     // body scan
     const scan = scanMarkdown(text, {
       jiraProjectKeys: this.config.jira.projectKeys,
       ...(inJiraFolder ? { skipUntilMarker: JIRA_MARKER } : {}),
     });
-    const insLink = this.db.prepare(
+    const insLink = this.q(
       'INSERT INTO links(src_path, dst_target, kind, fragment, alias, line, col) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
     for (const l of scan.links)
@@ -297,7 +377,7 @@ export class Indexer {
 
     // Tags come exclusively from frontmatter (SPEC §3.2). Inline #tags in the
     // body are styling only; the scanner still reports them for rendering.
-    const insTag = this.db.prepare('INSERT INTO tags(path, tag) VALUES (?, ?)');
+    const insTag = this.q('INSERT INTO tags(path, tag) VALUES (?, ?)');
     const tagSet = new Set<string>();
     if (Array.isArray(fm.tags)) {
       for (const t of fm.tags) {
@@ -308,31 +388,27 @@ export class Indexer {
     }
     for (const t of tagSet) if (t) insTag.run(f.path, t);
 
-    const insTask = this.db.prepare(
+    const insTask = this.q(
       'INSERT INTO tasks(path, line, block_id, text, done, due, kind) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
     for (const t of scan.tasks)
       insTask.run(f.path, t.line, t.blockId, t.text, t.done ? 1 : 0, t.due, t.kind);
 
-    const insHeading = this.db.prepare(
-      'INSERT INTO headings(path, level, text, line) VALUES (?, ?, ?, ?)',
-    );
+    const insHeading = this.q('INSERT INTO headings(path, level, text, line) VALUES (?, ?, ?, ?)');
     for (const h of scan.headings) insHeading.run(f.path, h.level, h.text, h.line);
 
-    const insBlock = this.db.prepare('INSERT INTO blocks(path, block_id, line) VALUES (?, ?, ?)');
+    const insBlock = this.q('INSERT INTO blocks(path, block_id, line) VALUES (?, ?, ?)');
     for (const b of scan.blocks) insBlock.run(f.path, b.blockId, b.line);
 
     // tracked-record evidence anchors: found here so the Tracked page never
     // has to re-read source notes, and so a moved source is still found
-    const insAnchor = this.db.prepare(
+    const insAnchor = this.q(
       'INSERT INTO track_anchors(path, id, kind, line, content) VALUES (?, ?, ?, ?, ?)',
     );
     for (const a of trackAnchors(text)) insAnchor.run(f.path, a.id, a.kind, a.line, a.content);
 
     // properties + property links
-    const insProp = this.db.prepare(
-      'INSERT INTO properties(path, key, value_json) VALUES (?, ?, ?)',
-    );
+    const insProp = this.q('INSERT INTO properties(path, key, value_json) VALUES (?, ?, ?)');
     for (const [k, v] of Object.entries(fm)) {
       if (!RESERVED_KEYS.has(k)) insProp.run(f.path, k, JSON.stringify(v ?? null));
     }
@@ -363,60 +439,56 @@ export class Indexer {
     const key = str(fm.key);
     if (!key) return;
     const jiraMeta = (fm.jira ?? {}) as Record<string, unknown>;
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO jira(key, path, summary, status, status_category, issue_type,
+    this.q(
+      `INSERT OR REPLACE INTO jira(key, path, summary, status, status_category, issue_type,
            priority, assignee, reporter, sprint, sprint_id, epic, parent, labels_json,
            estimate, created, updated, resolved, synced, profile)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        key,
-        path,
-        str(fm.summary),
-        str(fm.status),
-        str(fm.status_category),
-        str(fm.issue_type),
-        str(fm.priority),
-        str(fm.assignee),
-        str(fm.reporter),
-        str(fm.sprint),
-        num(fm.sprint_id),
-        unwrapWikilink(str(fm.epic)),
-        unwrapWikilink(str(fm.parent)),
-        JSON.stringify(fm.labels ?? []),
-        num(fm.estimate),
-        str(fm.created),
-        str(fm.updated),
-        str(fm.resolved),
-        str(jiraMeta.synced),
-        str(jiraMeta.profile),
-      );
+    ).run(
+      key,
+      path,
+      str(fm.summary),
+      str(fm.status),
+      str(fm.status_category),
+      str(fm.issue_type),
+      str(fm.priority),
+      str(fm.assignee),
+      str(fm.reporter),
+      str(fm.sprint),
+      num(fm.sprint_id),
+      unwrapWikilink(str(fm.epic)),
+      unwrapWikilink(str(fm.parent)),
+      JSON.stringify(fm.labels ?? []),
+      num(fm.estimate),
+      str(fm.created),
+      str(fm.updated),
+      str(fm.resolved),
+      str(jiraMeta.synced),
+      str(jiraMeta.profile),
+    );
     this.indexTransitions(key);
     const plan = (fm.plan ?? {}) as Record<string, unknown>;
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO plan(key, sprint, assignee, rank, effort, risk, confidence,
+    this.q(
+      `INSERT OR REPLACE INTO plan(key, sprint, assignee, rank, effort, risk, confidence,
            bucket, blocked_on_json, note, project, start) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        key,
-        str(plan.sprint),
-        str(plan.assignee),
-        num(plan.rank),
-        num(plan.effort),
-        str(plan.risk),
-        str(plan.confidence),
-        str(plan.bucket),
-        JSON.stringify(
-          (Array.isArray(plan.blocked_on) ? plan.blocked_on : [])
-            .map((x) => unwrapWikilink(str(x)))
-            .filter(Boolean),
-        ),
-        str(plan.note),
-        str(plan.project),
-        str(plan.start),
-      );
+    ).run(
+      key,
+      str(plan.sprint),
+      str(plan.assignee),
+      num(plan.rank),
+      num(plan.effort),
+      str(plan.risk),
+      str(plan.confidence),
+      str(plan.bucket),
+      JSON.stringify(
+        (Array.isArray(plan.blocked_on) ? plan.blocked_on : [])
+          .map((x) => unwrapWikilink(str(x)))
+          .filter(Boolean),
+      ),
+      str(plan.note),
+      str(plan.project),
+      str(plan.start),
+    );
   }
 
   /**
@@ -425,7 +497,7 @@ export class Indexer {
    * part of what the index is rebuilt from.
    */
   private indexTransitions(key: string): void {
-    this.db.prepare('DELETE FROM transitions WHERE key = ?').run(key);
+    this.q('DELETE FROM transitions WHERE key = ?').run(key);
     const file = join(this.root, '.corpobrain', 'jira-cache', 'issues', `${key}.json`);
     let raw: { changelog?: { histories?: never[] } };
     try {
@@ -433,7 +505,7 @@ export class Indexer {
     } catch {
       return;
     }
-    const ins = this.db.prepare(
+    const ins = this.q(
       'INSERT INTO transitions(key, at, author, field, from_value, to_value) VALUES (?, ?, ?, ?, ?, ?)',
     );
     for (const t of normalizeHistory(raw.changelog?.histories, this.config.jira.estimateField)) {
@@ -469,111 +541,124 @@ export class Indexer {
       : str(fm.jira)
         ? [fm.jira as string]
         : [];
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO people(path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json, color, sort_order, country)
+    this.q(
+      `INSERT OR REPLACE INTO people(path, jira_id, name, capacity, overrides_json, active, region, team, load_overrides_json, color, sort_order, country)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        path,
-        JSON.stringify(jiraIds),
-        title,
-        num(fm.capacity),
-        JSON.stringify(fm.capacity_overrides ?? {}),
-        fm.active === false ? 0 : 1,
-        str(fm.region),
-        str(fm.team),
-        JSON.stringify(fm.load_overrides ?? {}),
-        str(fm.color),
-        num(fm.order),
-        str(fm.country),
-      );
-    const identity = this.db.prepare(
-      'INSERT INTO person_identities(path, kind, value) VALUES (?, ?, ?)',
+    ).run(
+      path,
+      JSON.stringify(jiraIds),
+      title,
+      num(fm.capacity),
+      JSON.stringify(fm.capacity_overrides ?? {}),
+      fm.active === false ? 0 : 1,
+      str(fm.region),
+      str(fm.team),
+      JSON.stringify(fm.load_overrides ?? {}),
+      str(fm.color),
+      num(fm.order),
+      str(fm.country),
     );
+    const identity = this.q('INSERT INTO person_identities(path, kind, value) VALUES (?, ?, ?)');
     for (const kind of IDENTITY_KINDS)
       for (const value of identitiesOf(fm, kind)) identity.run(path, kind, value);
   }
 
   // ---------------------------------------------------------------- resolve
 
+  /** Alias rows (title included) of these notes, as the index has them now. */
+  private aliasesOf(paths: string[]): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    for (const chunk of chunks(paths, 400)) {
+      const rows = this.db
+        .prepare(`SELECT path, alias FROM aliases WHERE path IN (${marks(chunk.length)})`)
+        .all(...chunk) as { path: string; alias: string }[];
+      for (const r of rows) {
+        const list = out.get(r.path);
+        if (list) list.push(r.alias);
+        else out.set(r.path, [r.alias]);
+      }
+    }
+    return out;
+  }
+
   /**
    * Every lower-cased name a set of notes can be linked by: the extension-less
-   * path, its basename, and every alias row (title included). Read from the
-   * index, so call it before rows are deleted to get the pre-change names.
+   * path, its basename, and every alias row (title included).
    */
-  private resolutionKeys(paths: string[]): string[] {
+  private resolutionKeys(paths: string[], aliases: Map<string, string[]>): string[] {
     const keys: string[] = [];
     for (const p of paths) {
       const noExt = p.replace(/\.md$/, '').toLowerCase();
-      keys.push(noExt, basename(noExt));
-    }
-    for (const chunk of chunks(paths, 400)) {
-      const rows = this.db
-        .prepare(`SELECT alias FROM aliases WHERE path IN (${marks(chunk.length)})`)
-        .all(...chunk) as { alias: string }[];
-      for (const r of rows) keys.push(r.alias);
+      keys.push(noExt, basename(noExt), ...(aliases.get(p) ?? []));
     }
     return keys;
   }
 
-  /** Link resolution rules (SPEC §5.2) over the current notes + aliases tables. */
-  private buildResolver(): (
-    src: string,
-    target: string,
-  ) => { dst: string | null; ambiguous: 0 | 1 } {
-    const notes = this.db.prepare('SELECT path, protected FROM notes').all() as {
+  /** The name index, built from the tables on first use and then kept in step. */
+  private loadNames(): NameIndex {
+    if (this.names) return this.names;
+    const names: NameIndex = { path: new Map(), base: new Map(), alias: new Map() };
+    for (const n of this.q('SELECT path FROM notes WHERE protected = 0').all() as {
       path: string;
-      protected: number;
-    }[];
-    const byBase = new Map<string, string[]>();
-    const pathByLower = new Map<string, string>();
-    for (const n of notes) {
-      if (n.protected) continue;
-      const noExt = n.path.replace(/\.md$/, '');
-      pathByLower.set(noExt.toLowerCase(), n.path);
-      const base = basename(noExt).toLowerCase();
-      const arr = byBase.get(base) ?? [];
-      arr.push(n.path);
-      byBase.set(base, arr);
-    }
-    const byAlias = new Map<string, Set<string>>();
-    for (const a of this.db.prepare('SELECT path, alias FROM aliases').all() as {
+    }[])
+      addPathName(names, n.path);
+    for (const a of this.q('SELECT path, alias FROM aliases').all() as {
       path: string;
       alias: string;
-    }[]) {
-      const set = byAlias.get(a.alias) ?? new Set();
-      set.add(a.path);
-      byAlias.set(a.alias, set);
+    }[])
+      addTo(names.alias, a.alias, a.path);
+    this.names = names;
+    return names;
+  }
+
+  private forgetNames(paths: string[], aliases: Map<string, string[]>): void {
+    const names = this.names;
+    if (!names) return;
+    for (const p of paths) {
+      const noExt = p.replace(/\.md$/, '');
+      if (names.path.get(noExt.toLowerCase()) === p) names.path.delete(noExt.toLowerCase());
+      removeFrom(names.base, basename(noExt).toLowerCase(), p);
+      for (const a of aliases.get(p) ?? []) removeFrom(names.alias, a, p);
     }
-    const jiraFolder = this.config.folders.jira;
-    return (src, target) => {
-      if (target === '') return { dst: src, ambiguous: 0 }; // within-note fragment link
-      if (JIRA_KEY_RE.test(target)) return { dst: `${jiraFolder}/${target}.md`, ambiguous: 0 };
-      const lower = target.toLowerCase().replace(/\.md$/, '');
-      const exact = pathByLower.get(lower);
-      if (exact) return { dst: exact, ambiguous: 0 };
-      const viaAlias = byAlias.get(lower);
-      if (viaAlias?.size === 1) return { dst: [...viaAlias][0] as string, ambiguous: 0 };
-      if (viaAlias && viaAlias.size > 1) return { dst: null, ambiguous: 1 };
-      const viaBase = byBase.get(lower);
-      if (viaBase?.length === 1) return { dst: viaBase[0] as string, ambiguous: 0 };
-      if (viaBase && viaBase.length > 1) return { dst: null, ambiguous: 1 };
-      return { dst: null, ambiguous: 0 };
-    };
+  }
+
+  private learnNames(files: VaultFile[], aliases: Map<string, string[]>): void {
+    const names = this.names;
+    if (!names) return;
+    for (const f of files) {
+      if (!f.protected) addPathName(names, f.path);
+      for (const a of aliases.get(f.path) ?? []) addTo(names.alias, a, f.path);
+    }
+  }
+
+  /** Link resolution rules (SPEC §5.2) over the in-memory name index. */
+  resolveName(target: string, src = ''): { dst: string | null; ambiguous: 0 | 1 } {
+    if (target === '') return { dst: src || null, ambiguous: 0 }; // within-note fragment link
+    if (JIRA_KEY_RE.test(target))
+      return { dst: `${this.config.folders.jira}/${target}.md`, ambiguous: 0 };
+    const names = this.loadNames();
+    const lower = target.toLowerCase().replace(/\.md$/, '');
+    const exact = names.path.get(lower);
+    if (exact) return { dst: exact, ambiguous: 0 };
+    const viaAlias = names.alias.get(lower);
+    if (viaAlias?.size === 1) return { dst: [...viaAlias][0] as string, ambiguous: 0 };
+    if (viaAlias && viaAlias.size > 1) return { dst: null, ambiguous: 1 };
+    const viaBase = names.base.get(lower);
+    if (viaBase?.size === 1) return { dst: [...viaBase][0] as string, ambiguous: 0 };
+    if (viaBase && viaBase.size > 1) return { dst: null, ambiguous: 1 };
+    return { dst: null, ambiguous: 0 };
   }
 
   /** Recompute dst_path for every link row (SPEC §5.2). */
   resolveAll(): void {
-    const resolve = this.buildResolver();
-    const links = this.db.prepare('SELECT rowid, src_path, dst_target FROM links').all() as {
+    const links = this.q('SELECT rowid, src_path, dst_target FROM links').all() as {
       rowid: number;
       src_path: string;
       dst_target: string;
     }[];
-    const upd = this.db.prepare('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
+    const upd = this.q('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
     for (const l of links) {
-      const r = resolve(l.src_path, l.dst_target);
+      const r = this.resolveName(l.dst_target, l.src_path);
       upd.run(r.dst, r.ambiguous, l.rowid);
     }
   }
@@ -609,10 +694,9 @@ export class Indexer {
       );
     }
     if (!rows.size) return;
-    const resolve = this.buildResolver();
-    const upd = this.db.prepare('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
+    const upd = this.q('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
     for (const l of rows.values()) {
-      const r = resolve(l.src_path, l.dst_target);
+      const r = this.resolveName(l.dst_target, l.src_path);
       if (r.dst !== l.dst_path || r.ambiguous !== l.ambiguous) upd.run(r.dst, r.ambiguous, l.rowid);
     }
   }
@@ -668,6 +752,25 @@ export class Indexer {
 /** `key: {{name}}` → `key: "{{name}}"` (only unquoted, whole-value placeholders). */
 function quotePlaceholders(text: string): string {
   return text.replace(/^([^\S\n]*[^\s#:][^:\n]*:[ \t]+)(\{\{\w+\}\})[ \t]*$/gm, '$1"$2"');
+}
+
+function addTo(map: Map<string, Set<string>>, key: string, path: string): void {
+  const set = map.get(key);
+  if (set) set.add(path);
+  else map.set(key, new Set([path]));
+}
+
+function removeFrom(map: Map<string, Set<string>>, key: string, path: string): void {
+  const set = map.get(key);
+  if (!set) return;
+  set.delete(path);
+  if (!set.size) map.delete(key);
+}
+
+function addPathName(names: NameIndex, path: string): void {
+  const noExt = path.replace(/\.md$/, '');
+  names.path.set(noExt.toLowerCase(), path);
+  addTo(names.base, basename(noExt).toLowerCase(), path);
 }
 
 function marks(n: number): string {
