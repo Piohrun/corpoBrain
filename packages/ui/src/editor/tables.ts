@@ -332,12 +332,10 @@ class TableWidget extends WidgetType {
   ) {
     super();
   }
+  // Position is deliberately not compared: typing above a table shifts it, and
+  // that must not rebuild the table's DOM. Clicks resolve the live position.
   override eq(other: TableWidget) {
-    return (
-      other.text === this.text &&
-      other.revealSig === this.revealSig &&
-      other.tableFrom === this.tableFrom
-    );
+    return other.text === this.text && other.revealSig === this.revealSig;
   }
   toDOM(view: EditorView) {
     const config = view.state.facet(livePreviewConfig);
@@ -371,7 +369,7 @@ class TableWidget extends WidgetType {
         warn.title = `${pendingInCol} new unencrypted cell(s) in this encrypted column — click to encrypt`;
         warn.onmousedown = (e) => {
           e.preventDefault();
-          config.onEncryptPending?.(this.tableFrom, i);
+          config.onEncryptPending?.(livePos(view, wrap, this.tableFrom), i);
         };
         th.appendChild(warn);
       }
@@ -420,11 +418,27 @@ class TableWidget extends WidgetType {
   }
 }
 
-function buildTableDecorations(state: EditorState): DecorationSet {
+/** Where the widget's table starts now (it moves as text above it changes). */
+function livePos(view: EditorView, dom: HTMLElement, fallback: number): number {
+  try {
+    return view.posAtDOM(dom);
+  } catch {
+    return fallback;
+  }
+}
+
+interface TablesState {
+  deco: DecorationSet;
+  /** every table's range, rendered or not, to tell when the cursor crosses one */
+  tables: { from: number; to: number }[];
+}
+
+function buildTableDecorations(state: EditorState): TablesState {
   const config = state.facet(livePreviewConfig);
   const cursor = state.selection.main.head;
   const builder = new RangeSetBuilder<Decoration>();
-  for (const block of findTables(state)) {
+  const blocks = findTables(state);
+  for (const block of blocks) {
     if (cursor >= block.from && cursor <= block.to) continue; // raw for editing
     const text = block.lines.join('\n');
     const ciphers: string[] = [];
@@ -441,16 +455,27 @@ function buildTableDecorations(state: EditorState): DecorationSet {
       Decoration.replace({ widget: new TableWidget(text, sig, block.from), block: true }),
     );
   }
-  return builder.finish();
+  return { deco: builder.finish(), tables: blocks.map((b) => ({ from: b.from, to: b.to })) };
 }
 
-export const tablesField = StateField.define<DecorationSet>({
+const tableAt = (tables: TablesState['tables'], pos: number) =>
+  tables.findIndex((t) => pos >= t.from && pos <= t.to);
+
+export const tablesField = StateField.define<TablesState>({
   create: buildTableDecorations,
   update(value, tr) {
-    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(linksUpdated))) {
+    if (tr.docChanged || tr.effects.some((e) => e.is(linksUpdated))) {
       return buildTableDecorations(tr.state);
     }
-    return value.map(tr.changes);
+    // A cursor move only matters when it enters or leaves a table (which then
+    // switches between rendered and raw); moving elsewhere keeps everything.
+    if (
+      tr.selection &&
+      tableAt(value.tables, tr.startState.selection.main.head) !==
+        tableAt(value.tables, tr.state.selection.main.head)
+    )
+      return buildTableDecorations(tr.state);
+    return value;
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
 });

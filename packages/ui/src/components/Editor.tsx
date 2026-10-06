@@ -1,7 +1,7 @@
 import { Annotation, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type React from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { api, privateApi, type TrackKind, trackedApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { clearFind, type FindMatch, findMatches, selectMatch, setFind } from '../editor/find.ts';
@@ -34,10 +34,20 @@ function selectedEvidence(view: EditorView): TrackSelection | null {
   const from = selection.from + leading;
   const to = selection.to - trailing;
   const documentText = view.state.doc.toString();
+  if (!/cb-track/i.test(documentText)) return evidenceAt(view, excerpt, from, to);
   TRACK_RANGE.lastIndex = 0;
   for (let match = TRACK_RANGE.exec(documentText); match; match = TRACK_RANGE.exec(documentText)) {
     if (from < match.index + match[0].length && to > match.index) return null;
   }
+  return evidenceAt(view, excerpt, from, to);
+}
+
+function evidenceAt(
+  view: EditorView,
+  excerpt: string,
+  from: number,
+  to: number,
+): TrackSelection | null {
   const start = view.coordsAtPos(from);
   const end = view.coordsAtPos(to);
   if (!start || !end) return null;
@@ -98,7 +108,7 @@ export interface EditorApi {
 /** marks a doc replacement that came FROM the server (SSE), so it is not saved back */
 const externalChange = Annotation.define<boolean>();
 
-export function Editor({
+export const Editor = memo(function Editor({
   path,
   content,
   completions,
@@ -409,7 +419,10 @@ export function Editor({
   }, [foldFrontmatter]);
 
   const saveInFlight = useRef<Promise<unknown>>(Promise.resolve());
-  const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, text: string) => {
+  // Receives the editor state, not its text: stringifying a long note on every
+  // keystroke was wasted work, only the state the debounce settles on is saved.
+  const [save, flushSave, cancelSave] = useDebouncedCallback((p: string, state: EditorState) => {
+    const text = state.doc.toString();
     latest.current.onSaveState(p, 'saving');
     const pending = saveInFlight.current.catch(() => undefined).then(() => api.save(p, text));
     saveInFlight.current = pending;
@@ -535,7 +548,7 @@ export function Editor({
           // content pushed in from the vault watcher is already on disk;
           // echoing it back would overwrite a newer external edit
           if (u.transactions.some((t) => t.annotation(externalChange))) return;
-          save(path, u.state.doc.toString());
+          save(path, u.state);
           scheduleAutoEncrypt();
         }),
       ],
@@ -723,4 +736,4 @@ export function Editor({
       )}
     </>
   );
-}
+});

@@ -13,6 +13,7 @@ import {
   StateEffect,
   StateField,
   type Text,
+  type Transaction,
 } from '@codemirror/state';
 import {
   Decoration,
@@ -528,11 +529,17 @@ function findSecretBlocks(state: EditorState): SecretRange[] {
   return out;
 }
 
-function buildSecretDecorations(state: EditorState): DecorationSet {
+interface SecretState {
+  deco: DecorationSet;
+  blocks: { from: number; to: number }[];
+}
+
+function buildSecretDecorations(state: EditorState): SecretState {
   const config = state.facet(livePreviewConfig);
   const cursor = state.selection.main.head;
   const builder = new RangeSetBuilder<Decoration>();
-  for (const block of findSecretBlocks(state)) {
+  const blocks = findSecretBlocks(state);
+  for (const block of blocks) {
     // cursor inside → show the raw fence so it can be edited or deleted
     if (!state.readOnly && cursor >= block.from && cursor <= block.to) continue;
     builder.add(
@@ -544,23 +551,42 @@ function buildSecretDecorations(state: EditorState): DecorationSet {
       }),
     );
   }
-  return builder.finish();
+  return { deco: builder.finish(), blocks: blocks.map((b) => ({ from: b.from, to: b.to })) };
 }
 
-const secretField = StateField.define<DecorationSet>({
+const blockAt = (blocks: { from: number; to: number }[], pos: number) =>
+  blocks.findIndex((b) => pos >= b.from && pos <= b.to);
+
+const secretField = StateField.define<SecretState>({
   create: buildSecretDecorations,
   update(value, tr) {
-    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(linksUpdated))) {
+    if (tr.docChanged || tr.effects.some((e) => e.is(linksUpdated))) {
       return buildSecretDecorations(tr.state);
     }
-    return value.map(tr.changes);
+    // only entering or leaving a secret block switches it between raw and widget
+    if (
+      tr.selection &&
+      blockAt(value.blocks, tr.startState.selection.main.head) !==
+        blockAt(value.blocks, tr.state.selection.main.head)
+    )
+      return buildSecretDecorations(tr.state);
+    return value;
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
 });
 
-function buildTrackDecorations(state: EditorState): DecorationSet {
+interface TrackState {
+  /** badges + highlighted passages */
+  deco: DecorationSet;
+  /** the hidden markers, which the cursor steps over as single units */
+  atomic: DecorationSet;
+}
+
+/** One scan of the document for tracked passages, feeding both decoration sets. */
+function buildTrack(state: EditorState): TrackState {
   const text = state.doc.toString();
-  const builder = new RangeSetBuilder<Decoration>();
+  const deco = new RangeSetBuilder<Decoration>();
+  const atomic = new RangeSetBuilder<Decoration>();
   TRACK_RANGE.lastIndex = 0;
   for (let match = TRACK_RANGE.exec(text); match; match = TRACK_RANGE.exec(text)) {
     const whole = match[0];
@@ -570,13 +596,9 @@ function buildTrackDecorations(state: EditorState): DecorationSet {
     const openTo = match.index + whole.indexOf('-->') + 3;
     const closeFrom = match.index + whole.lastIndexOf('<!--');
     const to = match.index + whole.length;
-    builder.add(
-      match.index,
-      openTo,
-      Decoration.replace({ widget: new TrackBadgeWidget(id, kind) }),
-    );
+    deco.add(match.index, openTo, Decoration.replace({ widget: new TrackBadgeWidget(id, kind) }));
     if (openTo < closeFrom) {
-      builder.add(
+      deco.add(
         openTo,
         closeFrom,
         Decoration.mark({
@@ -585,45 +607,47 @@ function buildTrackDecorations(state: EditorState): DecorationSet {
         }),
       );
     }
-    builder.add(closeFrom, to, Decoration.replace({}));
+    deco.add(closeFrom, to, Decoration.replace({}));
+    atomic.add(match.index, openTo, Decoration.mark({}));
+    atomic.add(closeFrom, to, Decoration.mark({}));
   }
-  return builder.finish();
+  return { deco: deco.finish(), atomic: atomic.finish() };
 }
 
-const trackField = StateField.define<DecorationSet>({
-  create: buildTrackDecorations,
-  update(value, transaction) {
-    return transaction.docChanged
-      ? buildTrackDecorations(transaction.state)
-      : value.map(transaction.changes);
-  },
-  provide: (field) => EditorView.decorations.from(field),
-});
-
-function buildTrackAtomicRanges(state: EditorState): DecorationSet {
-  const text = state.doc.toString();
-  const builder = new RangeSetBuilder<Decoration>();
-  TRACK_RANGE.lastIndex = 0;
-  for (let match = TRACK_RANGE.exec(text); match; match = TRACK_RANGE.exec(text)) {
-    const whole = match[0];
-    if (!whole) continue;
-    const openTo = match.index + whole.indexOf('-->') + 3;
-    const closeFrom = match.index + whole.lastIndexOf('<!--');
-    const to = match.index + whole.length;
-    builder.add(match.index, openTo, Decoration.mark({}));
-    builder.add(closeFrom, to, Decoration.mark({}));
-  }
-  return builder.finish();
+/**
+ * Does this edit touch anything that could start, end or break a tracked
+ * passage? Only then is the document rescanned; any other edit just shifts
+ * the existing ranges (a keystroke in a long note no longer copies the text).
+ */
+function touchesTrackMarkers(tr: Transaction): boolean {
+  let hit = false;
+  tr.changes.iterChangedRanges((_fromA, _toA, fromB, toB) => {
+    if (hit) return;
+    const doc = tr.state.doc;
+    const around = doc.sliceString(Math.max(0, fromB - 64), Math.min(doc.length, toB + 64));
+    if (/<!--|-->|cb-track/i.test(around)) hit = true;
+  });
+  // a deletion can remove a marker without leaving one in the new text
+  if (!hit)
+    tr.changes.iterChangedRanges((fromA, toA) => {
+      if (hit || fromA === toA) return;
+      const old = tr.startState.doc.sliceString(fromA, toA);
+      if (/[<>-]|cb-track/i.test(old)) hit = true;
+    });
+  return hit;
 }
 
-const trackAtomicField = StateField.define<DecorationSet>({
-  create: buildTrackAtomicRanges,
-  update(value, transaction) {
-    return transaction.docChanged
-      ? buildTrackAtomicRanges(transaction.state)
-      : value.map(transaction.changes);
+const trackField = StateField.define<TrackState>({
+  create: buildTrack,
+  update(value, tr) {
+    if (!tr.docChanged) return value;
+    if (touchesTrackMarkers(tr)) return buildTrack(tr.state);
+    return { deco: value.deco.map(tr.changes), atomic: value.atomic.map(tr.changes) };
   },
-  provide: (field) => EditorView.atomicRanges.of((view) => view.state.field(field)),
+  provide: (field) => [
+    EditorView.decorations.from(field, (v) => v.deco),
+    EditorView.atomicRanges.of((view) => view.state.field(field).atomic),
+  ],
 });
 
 const plugin = ViewPlugin.fromClass(
@@ -710,7 +734,6 @@ export function livePreview(config: LivePreviewConfig): Extension {
     frontmatterFoldField,
     plugin,
     trackField,
-    trackAtomicField,
     secretField,
     tablesField,
     // mousedown so the editor does not move the cursor first
