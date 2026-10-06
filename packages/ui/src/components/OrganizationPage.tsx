@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useMemo, useRef, useState } from 'react';
 import {
   ORG_KINDS,
   ORG_LABELS,
@@ -199,7 +199,24 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
   }, [model, onOpenNote]);
   useFinderSections('organization', finderSections);
 
-  if (!model || !reportTotals)
+  // The filtered structure, headcounts and counted groups are rebuilt only when
+  // the model or a filter changes, not on every selection click; typing in
+  // the query box updates them in the background.
+  const deferredQuery = useDeferredValue(query);
+  const view = useMemo(
+    () =>
+      model
+        ? orgFilteredView(model, { query: deferredQuery, country, department, showInactive })
+        : null,
+    [model, deferredQuery, country, department, showInactive],
+  );
+  const overallCount = useMemo(
+    () => (model ? orgHeadcount(model, department || undefined, showInactive) : null),
+    [model, department, showInactive],
+  );
+  const anonymousGroups = useMemo(() => (model ? orgAnonymousGroups(model) : []), [model]);
+
+  if (!model || !reportTotals || !view || !overallCount)
     return (
       <div className="organization-page">
         <p className={error ? 'error' : 'muted'}>{error ?? 'Loading organization…'}</p>
@@ -221,10 +238,10 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
     primaryUnplaced,
     visibleUnits,
     structure,
-  } = orgFilteredView(model, { query, country, department, showInactive });
-  const overall = orgHeadcount(model, department || undefined, showInactive);
+  } = view;
+  const overall = overallCount;
   const totals = reportTotals[chain];
-  const allAnonymous = orgAnonymousGroups(model);
+  const allAnonymous = anonymousGroups;
   const missingReporting = allAnonymous
     .filter((group) =>
       chain === 'both'

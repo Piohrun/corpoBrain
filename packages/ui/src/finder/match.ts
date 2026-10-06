@@ -1,3 +1,19 @@
+/** Patterns for one query, compiled once and reused for every row it scores. */
+interface Compiled {
+  q: string;
+  wordStart: RegExp;
+  terms: RegExp[];
+}
+let compiled: Compiled | null = null;
+function compile(query: string): Compiled {
+  const q = query.trim().toLowerCase();
+  if (compiled?.q === q) return compiled;
+  const word = (s: string) => new RegExp(`(^|[\\s/_\\-—–.:(\\[])${escapeRegExp(s)}`);
+  const terms = q.split(/\s+/).filter(Boolean);
+  compiled = { q, wordStart: word(q), terms: terms.length > 1 ? terms.map(word) : [] };
+  return compiled;
+}
+
 /**
  * Ranking shared by every Finder section: exact title, then prefix, then
  * word-start, then substring, then subsequence. Lower score is better; null
@@ -5,22 +21,21 @@
  * over a few thousand rows.
  */
 export function scoreMatch(query: string, text: string): number | null {
-  const q = query.trim().toLowerCase();
+  const c = compile(query);
+  const q = c.q;
   if (!q) return 100;
   const t = text.toLowerCase();
   if (t === q) return 0;
   if (t.startsWith(q)) return 1 + (t.length - q.length) / 1000;
-  const wordStart = t.search(new RegExp(`(^|[\\s/_\\-—–.:(\\[])${escapeRegExp(q)}`));
-  if (wordStart >= 0) return 2 + wordStart / 1000;
   const at = t.indexOf(q);
-  if (at >= 0) return 3 + at / 1000;
+  if (at >= 0) {
+    // a word-start match is also a substring match, so only then is the regex worth running
+    const wordStart = t.search(c.wordStart);
+    if (wordStart >= 0) return 2 + wordStart / 1000;
+    return 3 + at / 1000;
+  }
   // every query term as a word-start somewhere ("gw arch" → Gateway architecture)
-  const terms = q.split(/\s+/).filter(Boolean);
-  if (
-    terms.length > 1 &&
-    terms.every((term) => new RegExp(`(^|[\\s/_\\-—–.:(\\[])${escapeRegExp(term)}`).test(t))
-  )
-    return 4;
+  if (c.terms.length && c.terms.every((re) => re.test(t))) return 4;
   return null;
 }
 

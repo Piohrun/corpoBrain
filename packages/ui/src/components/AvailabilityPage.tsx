@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type AvailabilityEntry,
   type AvailabilityResponse,
@@ -97,6 +97,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   };
   const addEntryRef = useRef(addEntry);
   addEntryRef.current = addEntry;
+  const addEntryStable = useCallback((e: AvailabilityEntry) => addEntryRef.current(e), []);
 
   // ---- Ctrl+F here: people → jump to their row or add an entry for today ----
   const finderSections = useMemo<FinderSection[]>(() => {
@@ -277,7 +278,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
 
       <div className="planning-scroll">
         <WeekStrip data={data} entries={draft} onOpenNote={onOpenNote} />
-        <MonthGrid data={data} entries={draft} onAdd={addEntry} onOpenNote={onOpenNote} />
+        <MonthGrid data={data} entries={draft} onAdd={addEntryStable} onOpenNote={onOpenNote} />
 
         <h2 className="plan-h2">Entries</h2>
         <div className="grid-wrap">
@@ -683,12 +684,10 @@ function MonthGrid({
       window.removeEventListener('pointerup', onUp);
     };
   }, [drag, dayAt, days, drawKind, onAdd]);
-  const inDrag = (path: string, idx: number) =>
-    drag !== null &&
-    drag.path === path &&
-    idx >= Math.min(drag.from, drag.to) &&
-    idx <= Math.max(drag.from, drag.to);
 
+  // Typing in the draft table stays responsive: the 16k-cell grid follows in
+  // the background rather than on every keystroke.
+  const deferredEntries = useDeferredValue(entries);
   // person path → date → entry; precedence: leave > bank holiday > support
   const cover = useMemo(() => {
     const RANK = { ooo: 3, holiday: 2, support: 1 } as const;
@@ -704,12 +703,13 @@ function MonthGrid({
       }
       m.set(path, per);
     };
-    for (const e of entries) {
-      const n = norm(e.person);
-      const person = data.people.find(
-        (p) => norm(p.name) === n || norm(p.path) === n || norm(basename(p.path)) === n,
-      );
-      if (person) put(person.path, e);
+    // name, path or file name → person, built once instead of a scan per entry
+    const byKey = new Map<string, string>();
+    for (const p of [...data.people].reverse())
+      for (const k of [norm(basename(p.path)), norm(p.path), norm(p.name)]) byKey.set(k, p.path);
+    for (const e of deferredEntries) {
+      const path = byKey.get(norm(e.person));
+      if (path) put(path, e);
     }
     for (const h of data.holidays) {
       const c = norm(h.country);
@@ -719,7 +719,7 @@ function MonthGrid({
       }
     }
     return m;
-  }, [data, entries, days]);
+  }, [data, deferredEntries, days]);
 
   const label = new Date(Date.UTC(month.y, month.m, 1)).toLocaleDateString(undefined, {
     month: 'long',
@@ -732,10 +732,18 @@ function MonthGrid({
     });
   const today = localISODate();
   // the same order as everywhere else: the notes-tree position, then name
-  const people = [...data.people].sort(
-    (a, b) =>
-      (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
-      a.name.localeCompare(b.name),
+  const people = useMemo(
+    () =>
+      [...data.people].sort(
+        (a, b) =>
+          (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
+          a.name.localeCompare(b.name),
+      ),
+    [data.people],
+  );
+  const startDraw = useCallback(
+    (path: string, name: string, idx: number) => setDrag({ path, name, from: idx, to: idx }),
+    [],
   );
 
   return (
@@ -793,47 +801,97 @@ function MonthGrid({
             ))}
           </div>
           {people.map((p) => (
-            <div className="av-row" key={p.path} data-path={p.path}>
-              <span className="av-name">
-                <button type="button" className="key-link" onClick={() => onOpenNote(p.path)}>
-                  {p.name}
-                </button>
-              </span>
-              {days.map((d, idx) => {
-                const e = cover.get(p.path)?.get(d.date);
-                const drawing = inDrag(p.path, idx);
-                return (
-                  <span
-                    key={d.date}
-                    className={`av-cell${d.weekend ? ' weekend' : ''}${d.date === today ? ' today' : ''}${
-                      d.outside ? ' outside' : ''
-                    }${e ? ` ${e.kind}` : ''}${drawing ? ` drawing ${drawKind}` : ''}`}
-                    title={
-                      e
-                        ? `${p.name} · ${
-                            e.kind === 'ooo'
-                              ? 'out of office'
-                              : e.kind === 'holiday'
-                                ? 'bank holiday'
-                                : 'support rota'
-                          } ${e.from} → ${e.to}${e.note ? ` · ${e.note}` : ''}`
-                        : `${p.name} · ${d.date} — drag to add ${drawKind === 'ooo' ? 'time off' : 'support rota'}`
-                    }
-                    onPointerDown={(ev) => {
-                      if (ev.button !== 0) return;
-                      ev.preventDefault();
-                      setDrag({ path: p.path, name: p.name, from: idx, to: idx });
-                    }}
-                  />
-                );
-              })}
-            </div>
+            <AvRow
+              key={p.path}
+              person={p}
+              days={days}
+              cover={cover.get(p.path)}
+              today={today}
+              drawKind={drawKind}
+              drawRange={
+                drag?.path === p.path
+                  ? `${Math.min(drag.from, drag.to)}:${Math.max(drag.from, drag.to)}`
+                  : null
+              }
+              onStart={startDraw}
+              onOpenNote={onOpenNote}
+            />
           ))}
         </div>
       </div>
     </section>
   );
 }
+
+/**
+ * One person's row of the month grid. Memoized: drawing on a row, or editing
+ * the table below, re-renders that row only, not all of them.
+ */
+const AvRow = memo(function AvRow({
+  person,
+  days,
+  cover,
+  today,
+  drawKind,
+  drawRange,
+  onStart,
+  onOpenNote,
+}: {
+  person: { path: string; name: string };
+  days: { date: string; day: number; weekend: boolean; outside: boolean }[];
+  cover: Map<string, AvailabilityEntry> | undefined;
+  today: string;
+  drawKind: DrawKind;
+  /** "from:to" while this row is being drawn on */
+  drawRange: string | null;
+  onStart: (path: string, name: string, idx: number) => void;
+  onOpenNote: (path: string) => void;
+}) {
+  const [from, to] = drawRange ? drawRange.split(':').map(Number) : [-1, -2];
+  return (
+    <div
+      className="av-row"
+      data-path={person.path}
+      // one handler for the row instead of one per day cell
+      onPointerDown={(ev) => {
+        const idx = Number((ev.target as HTMLElement).dataset.idx);
+        if (ev.button !== 0 || Number.isNaN(idx)) return;
+        ev.preventDefault();
+        onStart(person.path, person.name, idx);
+      }}
+    >
+      <span className="av-name">
+        <button type="button" className="key-link" onClick={() => onOpenNote(person.path)}>
+          {person.name}
+        </button>
+      </span>
+      {days.map((d, idx) => {
+        const e = cover?.get(d.date);
+        const drawing = idx >= (from as number) && idx <= (to as number);
+        return (
+          <span
+            key={d.date}
+            data-idx={idx}
+            className={`av-cell${d.weekend ? ' weekend' : ''}${d.date === today ? ' today' : ''}${
+              d.outside ? ' outside' : ''
+            }${e ? ` ${e.kind}` : ''}${drawing ? ` drawing ${drawKind}` : ''}`}
+            title={
+              e
+                ? `${person.name} · ${
+                    e.kind === 'ooo'
+                      ? 'out of office'
+                      : e.kind === 'holiday'
+                        ? 'bank holiday'
+                        : 'support rota'
+                  } ${e.from} → ${e.to}${e.note ? ` · ${e.note}` : ''}`
+                : `${person.name} · ${d.date} — drag to add ${drawKind === 'ooo' ? 'time off' : 'support rota'}`
+            }
+          />
+        );
+      })}
+    </div>
+  );
+});
 
 // -------------------------------------------------------------- this week
 

@@ -4,6 +4,7 @@ import { api, type TaskItem } from '../api.ts';
 import { localISODate } from '../dates.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { lsGet, lsSet } from '../storage.ts';
+import { useProgressive } from './progressive.tsx';
 import { WikiText } from './WikiText.tsx';
 
 type Kind = 'task' | 'jira';
@@ -12,7 +13,11 @@ type Kind = 'task' | 'jira';
 /** one group per source note, alphabetical, open tasks first inside each */
 function groupByNote(items: TaskItem[]): [string, TaskItem[]][] {
   const m = new Map<string, TaskItem[]>();
-  for (const t of items) m.set(t.title, [...(m.get(t.title) ?? []), t]);
+  for (const t of items) {
+    const list = m.get(t.title);
+    if (list) list.push(t);
+    else m.set(t.title, [t]);
+  }
   return [...m.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([title, list]) => [title, [...list].sort((a, b) => a.done - b.done || a.line - b.line)]);
@@ -88,12 +93,13 @@ export function TasksPage({
   const [newKind, setNewKind] = useState<Kind>('task');
   const [error, setError] = useState<string | null>(null);
 
+  // Done tasks are most of the list and only shown on request: fetch them only then.
   const refresh = useCallback(() => {
     api
-      .tasks()
+      .tasks(showDone ? undefined : false)
       .then(setTasks)
       .catch(() => {});
-  }, []);
+  }, [showDone]);
 
   const addTask = useCallback(() => {
     const text = newText.trim();
@@ -171,13 +177,27 @@ export function TasksPage({
     };
   }, [tasks, showDone, groupMode]);
   const byKey = useMemo(() => new Map(tasks.map((t) => [`${t.path}:${t.line}`, t])), [tasks]);
+  // each column renders progressively: thousands of task rows at once froze the page
+  const total = (kind: Kind) => columns[kind].reduce((n, [, items]) => n + items.length, 0);
+  const progress = {
+    task: useProgressive(total('task'), 200, columns.task),
+    jira: useProgressive(total('jira'), 200, columns.jira),
+  };
 
   const openCount = (kind: Kind) =>
     tasks.filter((t) => !t.done && (kind === 'jira' ? t.kind === 'jira' : t.kind !== 'jira'))
       .length;
 
   const column = (kind: Kind, title: string, hint: string) => {
-    const groups = columns[kind];
+    const { shown, sentinel } = progress[kind];
+    let budget = shown;
+    const groups: [string, TaskItem[]][] = [];
+    for (const [label, items] of columns[kind]) {
+      if (budget <= 0) break;
+      groups.push([label, items.length > budget ? items.slice(0, budget) : items]);
+      budget -= items.length;
+    }
+    const remaining = total(kind) - shown;
     return (
       // biome-ignore lint/a11y/noStaticElementInteractions: keyboard handling for the rows' own checkboxes
       <section
@@ -254,6 +274,11 @@ export function TasksPage({
               ))}
             </div>
           ))
+        )}
+        {remaining > 0 && (
+          <div ref={sentinel as React.RefObject<HTMLDivElement>} className="muted small">
+            {remaining} more…
+          </div>
         )}
       </section>
     );

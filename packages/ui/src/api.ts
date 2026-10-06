@@ -145,7 +145,9 @@ export const api = {
   tags: () => reqStable<TagCount[]>('/api/tags'),
   tag: (tag: string) =>
     req<{ path: string; title: string }[]>(`/api/tag?tag=${encodeURIComponent(tag)}`),
-  tasks: () => req<TaskItem[]>('/api/tasks'),
+  /** done: false = open tasks only (much smaller); omitted = open and done */
+  tasks: (done?: boolean) =>
+    req<TaskItem[]>(done === undefined ? '/api/tasks' : `/api/tasks?done=${done}`),
   captureFollowUp: (source: string, text: string, due: string) =>
     req<{ path: string }>('/api/follow-up', {
       method: 'POST',

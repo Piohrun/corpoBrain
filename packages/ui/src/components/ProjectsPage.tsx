@@ -609,9 +609,12 @@ function Calendar({
     [DAY],
   );
 
-  // window-level move/up so dragging works from the rail and past the edges
+  // window-level move/up so dragging works from the rail and past the edges;
+  // attached once per drag (not per move), reading the drag through its ref
+  const dragging = drag !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `dragging` is the trigger; the handlers read dragRef
   useEffect(() => {
-    if (!drag) return;
+    if (!dragging) return;
     const onMove = (e: PointerEvent) => {
       const { day, row } = pointToCell(e);
       setDrag((d) => {
@@ -622,6 +625,8 @@ function Calendar({
         );
         const nr = Math.max(0, Math.min(row, model.rows.length - 1));
         const moved = d.moved || nd !== d.origin.day || (d.mode === 'move' && nr !== d.origin.row);
+        // same cell: keep the object so nothing re-renders on sub-cell movement
+        if (nd === d.day && nr === d.row && moved === d.moved) return d;
         return { ...d, day: nd, row: nr, moved };
       });
     };
@@ -657,7 +662,7 @@ function Calendar({
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
-  }, [drag, model, onOpenNote, onPatch, pointToCell, sprintAt]);
+  }, [dragging, model, onOpenNote, onPatch, pointToCell, sprintAt]);
 
   const startDrag = (
     e: React.PointerEvent,

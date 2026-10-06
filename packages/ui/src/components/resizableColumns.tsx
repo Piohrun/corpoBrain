@@ -27,7 +27,11 @@ export function usePersistentColumnWidths(storageKey: string) {
     normalizeColumnWidths(lsJson<unknown>(storageKey, {})),
   );
 
-  useEffect(() => lsSetJson(storageKey, widths), [storageKey, widths]);
+  // persist once a drag settles, not on every pointer move
+  useEffect(() => {
+    const t = setTimeout(() => lsSetJson(storageKey, widths), 300);
+    return () => clearTimeout(t);
+  }, [storageKey, widths]);
 
   const setWidth = useCallback((key: string, width: number) => {
     setWidths((current) => ({ ...current, [key]: Math.round(width) }));
@@ -63,6 +67,23 @@ export function ColumnResizeHandle({
 }) {
   const drag = useRef<{ pointerId: number; x: number; width: number } | null>(null);
   const resize = (next: number) => onResize(boundedColumnWidth(next, width, min, max));
+  // pointer moves arrive faster than frames: apply at most one resize per frame
+  const frame = useRef<number | null>(null);
+  const pending = useRef(0);
+  const resizeNextFrame = (next: number) => {
+    pending.current = next;
+    if (frame.current !== null) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null;
+      resize(pending.current);
+    });
+  };
+  useEffect(
+    () => () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
 
   return (
     <hr
@@ -83,7 +104,7 @@ export function ColumnResizeHandle({
       }}
       onPointerMove={(event) => {
         if (!drag.current || event.pointerId !== drag.current.pointerId) return;
-        resize(drag.current.width + event.clientX - drag.current.x);
+        resizeNextFrame(drag.current.width + event.clientX - drag.current.x);
       }}
       onPointerUp={(event) => {
         if (drag.current?.pointerId === event.pointerId) drag.current = null;

@@ -8,6 +8,7 @@ import {
 } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { useProgressive } from './progressive.tsx';
 import { SyncHistory } from './SyncHistory.tsx';
 import { lastSyncSummary, SyncProgressBar } from './SyncProgressBar.tsx';
 import { WritebackSection } from './WritebackSection.tsx';
@@ -610,6 +611,20 @@ function IssuesSection({
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [filtered, groupByEpic]);
 
+  // Rows render progressively: thousands of issues at once took ~300 ms of
+  // layout before the page showed anything.
+  const { shown, sentinel } = useProgressive(filtered.length, 200, groups);
+  const visibleGroups = useMemo(() => {
+    let budget = shown;
+    const out: [string, JiraIssueRow[]][] = [];
+    for (const [g, items] of groups) {
+      if (budget <= 0) break;
+      out.push([g, items.length > budget ? items.slice(0, budget) : items]);
+      budget -= items.length;
+    }
+    return out;
+  }, [groups, shown]);
+
   const row = (i: JiraIssueRow) => (
     <tr key={i.key}>
       <td>
@@ -696,7 +711,7 @@ function IssuesSection({
             </tr>
           </thead>
           <tbody>
-            {groups.map(([g, items]) => (
+            {visibleGroups.map(([g, items]) => (
               <FragmentRows
                 key={g || '(all)'}
                 group={groupByEpic ? g : null}
@@ -704,6 +719,13 @@ function IssuesSection({
                 row={row}
               />
             ))}
+            {shown < filtered.length && (
+              <tr ref={sentinel as React.RefObject<HTMLTableRowElement>}>
+                <td colSpan={9} className="muted small">
+                  {filtered.length - shown} more…
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

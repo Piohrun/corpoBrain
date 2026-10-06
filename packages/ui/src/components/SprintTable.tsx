@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { statusColor } from '../colors.ts';
+import { useProgressive } from './progressive.tsx';
 
 interface Option {
   value: string;
@@ -235,20 +236,7 @@ export const SprintTable = memo(function SprintTable({
   }, [board.people, board.columns]);
 
   // Progressive rendering: grow the rendered slice as its end comes into view.
-  const [shown, setShown] = useState(PAGE);
-  const sentinel = useRef<HTMLTableRowElement>(null);
-  useEffect(() => {
-    const el = sentinel.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((e) => e.isIntersecting)) setShown((n) => n + PAGE);
-      },
-      { root: el.closest('.planning-scroll'), rootMargin: '800px' },
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  });
+  const { shown, sentinel } = useProgressive(sorted.length, PAGE, sorted);
   const visible = sorted.length > shown ? sorted.slice(0, shown) : sorted;
 
   return (
@@ -283,7 +271,7 @@ export const SprintTable = memo(function SprintTable({
               />
             ))}
             {visible.length < sorted.length && (
-              <tr ref={sentinel}>
+              <tr ref={sentinel as React.RefObject<HTMLTableRowElement>}>
                 <td colSpan={10} className="muted small">
                   {sorted.length - visible.length} more…
                 </td>
