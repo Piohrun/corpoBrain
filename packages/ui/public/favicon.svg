@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>corpoBrain</title>
   <rect width="32" height="32" rx="7" fill="#5b6ee1" />
   <path
     d="M16 8C14 4 9 5 9 9C5 9 4 13 6.5 16C3.5 19 5.5 23 9 23C9 27 14 28 16 24C18 28 23 27 23 23C26.5 23 28.5 19 25.5 16C28 13 27 9 23 9C23 5 18 4 16 8Z"

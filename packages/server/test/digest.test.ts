@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import type { DigestResponse } from '../src/digest-routes.ts';
 import { VaultService } from '../src/vault-service.ts';
@@ -81,9 +81,15 @@ describe('GET /api/digest', () => {
   });
 
   it('filters by a time window', async () => {
-    expect((await get('?range=30d')).events.length).toBeGreaterThanOrEqual(2);
-    const today = await get('?range=today');
-    expect(today.events.every((e) => e.at >= (today.since as string))).toBe(true);
+    // The fixture is dated; pin the clock so the 30-day window keeps covering it.
+    vi.useFakeTimers({ now: new Date('2026-09-05T12:00:00Z'), toFake: ['Date'] });
+    try {
+      expect((await get('?range=30d')).events.length).toBeGreaterThanOrEqual(2);
+      const today = await get('?range=today');
+      expect(today.events.every((e) => e.at >= (today.since as string))).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('groups refreshes and reports when each profile last synced', async () => {
