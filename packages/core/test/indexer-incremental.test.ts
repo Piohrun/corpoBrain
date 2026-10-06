@@ -125,6 +125,21 @@ describe('incremental indexing matches a full rebuild', () => {
     }
   });
 
+  it('stays correct when a multi-file batch arrives before names were ever loaded', () => {
+    const db = openDb(':memory:');
+    new Indexer(root, config, db).rebuild();
+    // a new process on an existing index: names are loaded lazily
+    const ix = new Indexer(root, config, db);
+    write('notes/alpha.md', '# Alpha\n\n[[Bee]] [[Beta]] [[Zed]]\n');
+    write('notes/beta.md', '---\naliases: [Zed]\n---\n# Beta\n');
+    ix.updatePaths(['notes/alpha.md', 'notes/beta.md']);
+    expect(snapshot(ix)).toEqual(fresh());
+    // and the old alias is really gone from the names in memory
+    write('notes/gamma.md', '[[Bee]]\n');
+    ix.updatePaths(['notes/gamma.md']);
+    expect(snapshot(ix)).toEqual(fresh());
+  });
+
   it('skips files the index already has when asked, and resolves names like the index', () => {
     const ix = new Indexer(root, config, openDb(':memory:'));
     ix.rebuild();

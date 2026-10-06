@@ -251,6 +251,10 @@ export class Indexer {
       // Names these notes answered to before the change (old aliases, paths)…
       const before = fresh ? new Map<string, string[]>() : this.aliasesOf(touched);
       const keys = new Set(this.resolutionKeys(touched, before));
+      // Links are resolved while the batch is written, so the names must be
+      // loaded now, before any of the batch's rows are deleted; loading them
+      // half-way would keep the old names of files later in the batch.
+      if (!opts.full) this.loadNames();
       this.forgetNames(touched, before);
       let jiraRemoved = false;
       let planning = fresh || touched.some((p) => this.isPlanningPath(p));
@@ -265,7 +269,10 @@ export class Indexer {
           jiraRemoved ||= type === 'jira';
           planning ||= PLANNING_TYPES.has(type ?? '');
         }
-        const indexed = this.indexFile(f);
+        // Outside a full pass, links are resolved as they are written (against
+        // the names known before this batch); only names that changed in the
+        // batch are re-checked afterwards.
+        const indexed = this.indexFile(f, !opts.full);
         summary.idsAssigned += indexed.assignedId ? 1 : 0;
         planning ||= PLANNING_TYPES.has(indexed.type);
         summary.indexed.push(f.path);
@@ -283,7 +290,7 @@ export class Indexer {
       ))
         keys.add(k);
       if (opts.full) this.resolveAll();
-      else if (touched.length) this.resolveLinks(touched, keys);
+      else if (touched.length) this.resolveLinks(keys);
       this.db.exec('COMMIT');
       if (touched.length) this.version++;
       if (planning) this.planningVersion++;
@@ -329,7 +336,7 @@ export class Indexer {
   }
 
   /** The type the note was indexed with, and whether an id was assigned (file rewritten). */
-  private indexFile(fIn: VaultFile): { type: string; assignedId: boolean } {
+  private indexFile(fIn: VaultFile, resolveNow: boolean): { type: string; assignedId: boolean } {
     let f = fIn;
     if (f.protected) {
       this.q(
@@ -407,10 +414,15 @@ export class Indexer {
       ...(inJiraFolder ? { skipUntilMarker: JIRA_MARKER } : {}),
     });
     const insLink = this.q(
-      'INSERT INTO links(src_path, dst_target, kind, fragment, alias, line, col) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO links(src_path, dst_target, kind, fragment, alias, line, col, dst_path, ambiguous) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
+    const dst = (target: string): [string | null, 0 | 1] => {
+      if (!resolveNow) return [null, 0];
+      const r = this.resolveName(target, f.path);
+      return [r.dst, r.ambiguous];
+    };
     for (const l of scan.links)
-      insLink.run(f.path, l.target, l.kind, l.fragment, l.alias, l.line, l.col);
+      insLink.run(f.path, l.target, l.kind, l.fragment, l.alias, l.line, l.col, ...dst(l.target));
 
     // Tags come exclusively from frontmatter (SPEC §3.2). Inline #tags in the
     // body are styling only; the scanner still reports them for rendering.
@@ -450,7 +462,7 @@ export class Indexer {
       if (!RESERVED_KEYS.has(k)) insProp.run(f.path, k, JSON.stringify(v ?? null));
     }
     for (const target of collectWikilinkValues(fm)) {
-      insLink.run(f.path, target, 'property', null, null, 0, 0);
+      insLink.run(f.path, target, 'property', null, null, 0, 0, ...dst(target));
     }
 
     if (type === 'jira') this.indexJira(f.path, fm);
@@ -701,13 +713,14 @@ export class Indexer {
   }
 
   /**
-   * Incremental resolution: only links written by `srcPaths` and links whose
-   * target is one of `targetKeys` (lower-cased names that just appeared or
-   * disappeared) can have changed. Rows are updated only when the answer
-   * differs, so a save in a large vault costs a handful of statements
-   * instead of one per link in the vault.
+   * Incremental resolution. Links written in this batch were resolved as
+   * they were inserted, against the names known before the batch; the only
+   * answers that can differ now are for links aimed at a name that appeared
+   * or disappeared in the batch (`targetKeys`, lower-cased). Rows are updated
+   * only when the answer differs, so a save costs a handful of statements
+   * instead of one per link.
    */
-  private resolveLinks(srcPaths: string[], targetKeys: Set<string>): void {
+  private resolveLinks(targetKeys: Set<string>): void {
     type Row = {
       rowid: number;
       src_path: string;
@@ -715,26 +728,20 @@ export class Indexer {
       dst_path: string | null;
       ambiguous: number;
     };
-    const rows = new Map<number, Row>();
-    const collect = (sql: string, params: string[]) => {
-      for (const r of this.db.prepare(sql).all(...params) as Row[]) rows.set(r.rowid, r);
-    };
-    const cols = 'rowid, src_path, dst_target, dst_path, ambiguous';
-    for (const chunk of chunks(srcPaths, 400)) {
-      collect(`SELECT ${cols} FROM links WHERE src_path IN (${marks(chunk.length)})`, chunk);
-    }
     const keys = [...targetKeys].flatMap((k) => [k, `${k}.md`]);
-    for (const chunk of chunks(keys, 400)) {
-      collect(
-        `SELECT ${cols} FROM links WHERE lower(dst_target) IN (${marks(chunk.length)})`,
-        chunk,
-      );
-    }
-    if (!rows.size) return;
     const upd = this.q('UPDATE links SET dst_path = ?, ambiguous = ? WHERE rowid = ?');
-    for (const l of rows.values()) {
-      const r = this.resolveName(l.dst_target, l.src_path);
-      if (r.dst !== l.dst_path || r.ambiguous !== l.ambiguous) upd.run(r.dst, r.ambiguous, l.rowid);
+    for (const chunk of chunks(keys, 400)) {
+      const rows = this.db
+        .prepare(
+          `SELECT rowid, src_path, dst_target, dst_path, ambiguous FROM links
+           WHERE lower(dst_target) IN (${marks(chunk.length)})`,
+        )
+        .all(...chunk) as Row[];
+      for (const l of rows) {
+        const r = this.resolveName(l.dst_target, l.src_path);
+        if (r.dst !== l.dst_path || r.ambiguous !== l.ambiguous)
+          upd.run(r.dst, r.ambiguous, l.rowid);
+      }
     }
   }
 
