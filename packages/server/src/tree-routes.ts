@@ -365,34 +365,50 @@ interface Row {
   path: string;
   title: string;
   type: string;
-  frontmatter_json: string;
+  parent: unknown;
+  ord: unknown;
 }
 
+const collator = new Intl.Collator();
+/** One tree per index version: the sidebar asks for it after every change. */
+const treeCache = new WeakMap<VaultService, { version: number; tree: TreeModel }>();
+
 export function buildTree(v: VaultService): TreeModel {
+  const hit = treeCache.get(v);
+  if (hit && hit.version === v.indexer.version) return hit.tree;
+  const tree = computeTree(v);
+  treeCache.set(v, { version: v.indexer.version, tree });
+  return tree;
+}
+
+function computeTree(v: VaultService): TreeModel {
   const db = v.indexer.db;
   const jiraFolder = `${v.config.folders.jira}/`;
-  const rows = (
-    db
-      .prepare(
-        `SELECT path, title, type, frontmatter_json FROM notes
-         WHERE protected = 0 ORDER BY path`,
-      )
-      .all() as unknown as Row[]
-  ).filter((r) => !r.path.startsWith(jiraFolder) && r.type !== 'jira');
+  // Only `parent` and `order` are needed: SQLite extracts them, so the
+  // frontmatter of thousands of notes is never parsed in JS.
+  const rows = db
+    .prepare(
+      `SELECT path, title, type,
+         json_extract(frontmatter_json, '$.parent') AS parent,
+         json_extract(frontmatter_json, '$.order') AS ord
+       FROM notes
+       WHERE protected = 0 AND type != 'jira' AND substr(path, 1, ?) != ?
+       ORDER BY path`,
+    )
+    .all(jiraFolder.length, jiraFolder) as unknown as Row[];
 
   // parent resolution reuses the links table: kind='property' rows exist for
   // every wikilink-valued property; we need specifically the `parent` key,
   // so resolve from frontmatter through the same resolver the vault uses.
   const nodes = new Map<string, TreeNode & { parentTarget: string | null }>();
   for (const r of rows) {
-    const fm = JSON.parse(r.frontmatter_json) as Record<string, unknown>;
-    const rawParent = typeof fm.parent === 'string' ? fm.parent : null;
+    const rawParent = typeof r.parent === 'string' ? r.parent : null;
     const m = rawParent ? /^\[\[([^[\]|#]+)(?:\|[^[\]]*)?\]\]$/.exec(rawParent.trim()) : null;
     nodes.set(r.path, {
       path: r.path,
       title: r.title,
       type: r.type,
-      order: typeof fm.order === 'number' ? fm.order : null,
+      order: typeof r.ord === 'number' ? r.ord : null,
       children: [],
       parentTarget: m ? (m[1] as string).trim() : rawParent,
     });
@@ -429,7 +445,7 @@ export function buildTree(v: VaultService): TreeModel {
     list.sort(
       (a, b) =>
         (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
-        a.title.localeCompare(b.title),
+        collator.compare(a.title, b.title),
     );
     for (const n of list) sortRec(n.children);
   };
@@ -446,7 +462,7 @@ export function buildTree(v: VaultService): TreeModel {
   return {
     dailyFolder: v.config.folders.daily,
     folders: [...byFolder.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
+      .sort(([a], [b]) => collator.compare(a, b))
       .map(([folder, list]) => ({ folder, roots: list })),
   };
 }

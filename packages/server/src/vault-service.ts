@@ -87,7 +87,9 @@ export class VaultService {
     mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
     writeFileSync(cfgPath, `${JSON.stringify(onDisk, null, 2)}\n`);
     Object.assign(this.config[section], partial);
-    this.indexer.version++; // derived models (the board) depend on config too
+    // derived models (the board) depend on config too
+    this.indexer.version++;
+    this.indexer.planningVersion++;
   }
 
   /** Store Jira credentials in the gitignored secrets file (0600). */

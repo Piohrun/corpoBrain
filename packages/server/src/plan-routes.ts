@@ -136,14 +136,14 @@ function peopleTreeRank(v: VaultService): Map<string, number> {
 
 /**
  * The board is rebuilt from the index on every request that needs it (board,
- * availability, projects, timeline, person…). Between two index changes the
- * answer is identical, so it is memoised per vault on the index version —
- * and on the day, since risk flags look at today.
+ * availability, projects, timeline, person…). It only reads planning inputs,
+ * so it is memoised per vault on the planning version — a daily-note save
+ * keeps it — and on the day, since risk flags look at today.
  */
 const boardCache = new WeakMap<VaultService, { key: string; board: BoardModel }>();
 
 export function buildBoard(v: VaultService, now = new Date()): BoardModel {
-  const key = `${v.indexer.version}|${now.toISOString().slice(0, 10)}`;
+  const key = `${v.indexer.planningVersion}|${now.toISOString().slice(0, 10)}`;
   const hit = boardCache.get(v);
   if (hit && hit.key === key) return hit.board;
   const board = computeBoard(v, now);

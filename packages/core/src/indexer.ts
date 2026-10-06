@@ -62,6 +62,9 @@ const NOTE_TABLES = [
   'person_identities',
 ];
 
+/** Note types the planning models read (see Indexer.planningVersion). */
+const PLANNING_TYPES = new Set(['jira', 'person', 'sprint']);
+
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
 
@@ -78,6 +81,13 @@ interface NameIndex {
 export class Indexer {
   /** Moves whenever the index content changes; cheap cache key for derived models. */
   version = 0;
+  /**
+   * Moves only when something the planning models read changes: Jira, person
+   * and sprint notes, anything in the Jira or people folders, the
+   * availability and holiday notes, sprints.json, or config. A daily-note save
+   * leaves the board cached.
+   */
+  planningVersion = 0;
   /**
    * Called with each path the indexer itself rewrites (assigning an id), so
    * the owner can ignore the watcher event for its own write.
@@ -202,6 +212,7 @@ export class Indexer {
     }
     this.db.exec("DELETE FROM sprints WHERE source = 'jira'");
     this.version++;
+    this.planningVersion++;
     const ins = this.db.prepare(
       `INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal, source, path)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'jira', NULL)`,
@@ -242,10 +253,21 @@ export class Indexer {
       const keys = new Set(this.resolutionKeys(touched, before));
       this.forgetNames(touched, before);
       let jiraRemoved = false;
-      for (const p of removed) jiraRemoved = this.deleteRows(p) || jiraRemoved;
+      let planning = fresh || touched.some((p) => this.isPlanningPath(p));
+      for (const p of removed) {
+        const type = this.deleteRows(p);
+        jiraRemoved ||= type === 'jira';
+        planning ||= PLANNING_TYPES.has(type ?? '');
+      }
       for (const f of files) {
-        if (!fresh) jiraRemoved = this.deleteRows(f.path) || jiraRemoved;
-        summary.idsAssigned += this.indexFile(f) ? 1 : 0;
+        if (!fresh) {
+          const type = this.deleteRows(f.path);
+          jiraRemoved ||= type === 'jira';
+          planning ||= PLANNING_TYPES.has(type ?? '');
+        }
+        const indexed = this.indexFile(f);
+        summary.idsAssigned += indexed.assignedId ? 1 : 0;
+        planning ||= PLANNING_TYPES.has(indexed.type);
         summary.indexed.push(f.path);
       }
       // A re-indexed issue re-inserts its own plan row; only plan rows whose
@@ -264,6 +286,7 @@ export class Indexer {
       else if (touched.length) this.resolveLinks(touched, keys);
       this.db.exec('COMMIT');
       if (touched.length) this.version++;
+      if (planning) this.planningVersion++;
     } catch (e) {
       this.db.exec('ROLLBACK');
       this.names = null; // rebuilt from the database on next use
@@ -272,33 +295,47 @@ export class Indexer {
     return summary;
   }
 
-  /** Delete every row a note produced. Returns true when it was a Jira issue. */
-  private deleteRows(path: string): boolean {
+  /** Planning inputs identified by where they live (see planningVersion). */
+  private isPlanningPath(path: string): boolean {
+    const { folders, availability } = this.config;
+    return (
+      path.startsWith(`${folders.jira}/`) ||
+      path.startsWith(`${folders.people}/`) ||
+      path === availability.file ||
+      path === availability.holidaysFile
+    );
+  }
+
+  /** Delete every row a note produced. Returns the type it was indexed with. */
+  private deleteRows(path: string): string | null {
     const old = this.q('SELECT rowid, type FROM notes WHERE path = ?').get(path) as
       | { rowid: number; type: string }
       | undefined;
     // Every row below is written after the notes row, in one transaction.
-    if (!old) return false;
+    if (!old) return null;
     this.q('DELETE FROM notes_fts WHERE rowid = ?').run(old.rowid);
     for (const t of NOTE_TABLES)
       this.q(`DELETE FROM ${t} WHERE ${t === 'links' ? 'src_path' : 'path'} = ?`).run(path);
     if (old.type === 'person') this.q('DELETE FROM people WHERE path = ?').run(path);
     if (old.type === 'sprint')
       this.q("DELETE FROM sprints WHERE source = 'local' AND path = ?").run(path);
-    if (old.type !== 'jira') return false;
-    this.q('DELETE FROM transitions WHERE key IN (SELECT key FROM jira WHERE path = ?)').run(path);
-    this.q('DELETE FROM jira WHERE path = ?').run(path);
-    return true;
+    if (old.type === 'jira') {
+      this.q('DELETE FROM transitions WHERE key IN (SELECT key FROM jira WHERE path = ?)').run(
+        path,
+      );
+      this.q('DELETE FROM jira WHERE path = ?').run(path);
+    }
+    return old.type;
   }
 
-  /** Returns true when an id was assigned (file rewritten). */
-  private indexFile(fIn: VaultFile): boolean {
+  /** The type the note was indexed with, and whether an id was assigned (file rewritten). */
+  private indexFile(fIn: VaultFile): { type: string; assignedId: boolean } {
     let f = fIn;
     if (f.protected) {
       this.q(
         'INSERT INTO notes(path, title, mtime, size, hash, protected) VALUES (?, ?, ?, ?, ?, 1)',
       ).run(f.path, 'Protected note', Math.trunc(f.mtimeMs), f.size, '');
-      return false;
+      return { type: 'note', assignedId: false };
     }
 
     const abs = join(this.root, f.path);
@@ -419,7 +456,7 @@ export class Indexer {
     if (type === 'jira') this.indexJira(f.path, fm);
     if (type === 'sprint') this.indexLocalSprint(f.path, title, fm);
     if (type === 'person') this.indexPerson(f.path, title, fm);
-    return assignedId;
+    return { type, assignedId };
   }
 
   /** Category = top-level folder. Derived type when frontmatter has none. */
