@@ -5,9 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <title>corpoBrain</title>
+    <script>
+      try {
+        const t = localStorage.getItem('cb.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <style>
+      /* shown until React replaces #root; matches the server's loading screen (boot.ts) */
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #fafaf8; color: #6f6f68; font: 13px system-ui, "Segoe UI", sans-serif; text-align: center; }
+      @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) #boot { background: #1e1e20; color: #96968e; } }
+      :root[data-theme="dark"] #boot { background: #1e1e20; color: #96968e; }
+      #boot img { display: block; width: 56px; height: 56px; margin: 0 auto 14px; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="boot"><div><img src="/favicon.svg?v=2" alt="" />Loading corpoBrain…</div></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

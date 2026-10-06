@@ -14,7 +14,8 @@ if not exist "%CORPOBRAIN_VAULT%\.corpobrain" (
   node "%HERE%\dist\corpobrain-cli.js" init --vault "%CORPOBRAIN_VAULT%"
 )
 echo corpoBrain vault:  %CORPOBRAIN_VAULT%
-echo Opening http://127.0.0.1:%CORPOBRAIN_PORT% ...
-start "" "http://127.0.0.1:%CORPOBRAIN_PORT%"
-node --disable-warning=ExperimentalWarning "%HERE%\dist\corpobrain.js" "%CORPOBRAIN_VAULT%"
+echo Starting corpoBrain at http://127.0.0.1:%CORPOBRAIN_PORT% ...
+rem --open: the server opens the browser itself once it answers, on a loading
+rem screen that switches to the app when the vault is ready.
+node --disable-warning=ExperimentalWarning "%HERE%\dist\corpobrain.js" "%CORPOBRAIN_VAULT%" --open
 endlocal

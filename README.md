@@ -50,7 +50,10 @@ node dist\corpobrain.js %USERPROFILE%\corpobrain-vault
 
 Open http://127.0.0.1:4747 — or just double-click `scripts\start.cmd`, which does
 the init-if-missing and launch for you (set `CORPOBRAIN_VAULT` to override the
-vault location, `CORPOBRAIN_PORT` for the port).
+vault location, `CORPOBRAIN_PORT` for the port). It passes `--open`: the server
+opens your browser as soon as it answers, on a loading screen that turns into
+the app once the vault is indexed. Started again while running, it just opens
+the browser on the running one.
 
 **Connect Jira** from the app: ⚙ page → Connection settings → URL, auth
 (Bearer PAT for Data Center, email + API token for Cloud), token, project keys,

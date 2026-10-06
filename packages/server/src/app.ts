@@ -83,6 +83,9 @@ export function createApp(vault?: VaultService) {
     return c.json({ error: 'internal error' }, 500);
   });
 
+  // the loading screen (boot.ts) reloads into the app once this says ready
+  app.get('/api/boot', (c) => c.json({ ready: true }, 200, { 'Cache-Control': 'no-store' }));
+
   app.get('/api/health', (c) =>
     c.json({ ok: true, spec: SPEC_VERSION, vault: vault ? vault.root : null }),
   );

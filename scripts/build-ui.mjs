@@ -1,7 +1,7 @@
 // Rollup/Vite-free UI build for restricted machines: esbuild only.
 // Content-hashed asset names so browsers can never serve a stale bundle.
 
-import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { build } from 'esbuild';
 
 mkdirSync('dist/ui/assets', { recursive: true });
@@ -36,22 +36,18 @@ if (!entry) throw new Error('esbuild produced no entry bundle');
 const js = asset(entry[0]);
 const css = entry[1].cssBundle ? asset(entry[1].cssBundle) : null;
 
+// the page is packages/ui/index.html (splash included) with the bundles swapped in
+const template = readFileSync('packages/ui/index.html', 'utf8');
+const devScript = '<script type="module" src="/src/main.tsx"></script>';
+if (!template.includes(devScript) || !template.includes('</head>'))
+  throw new Error('packages/ui/index.html no longer has the expected script tag or </head>');
 writeFileSync(
   'dist/ui/index.html',
-  `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
-    <title>corpoBrain</title>
-    ${css ? `<link rel="stylesheet" href="/assets/${css}" />` : ''}
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/assets/${js}"></script>
-  </body>
-</html>
-`,
+  template
+    .replace(devScript, `<script type="module" src="/assets/${js}"></script>`)
+    .replace(
+      '</head>',
+      css ? `  <link rel="stylesheet" href="/assets/${css}" />\n  </head>` : '</head>',
+    ),
 );
 console.log(`dist/ui written (esbuild, ${js}, ${outputs.length} files)`);
