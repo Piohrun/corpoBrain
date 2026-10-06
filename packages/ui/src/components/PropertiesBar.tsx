@@ -6,6 +6,7 @@ const HIDDEN = new Set([
   'order',
   'title',
   'jira',
+  'outlook',
   'track_id',
   'source_path',
   'source_line',
@@ -19,9 +20,17 @@ const fmt = (v: unknown): string => {
   return String(v);
 };
 
-const link = (v: unknown): string | null => {
-  const m = typeof v === 'string' ? /^\[\[([^\]|#]+)/.exec(v) : null;
-  return m ? (m[1] as string).trim() : null;
+const link = (v: unknown): string | null => linkOf(v)?.target ?? null;
+
+/** `[[target|label]]` → its target and the text to show (the alias, else the target). */
+const linkOf = (v: unknown): { target: string; label: string } | null => {
+  const m =
+    typeof v === 'string'
+      ? /^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]$/.exec(v.trim())
+      : null;
+  if (!m) return null;
+  const target = (m[1] as string).trim();
+  return { target, label: m[2]?.trim() || target };
 };
 
 /**
@@ -122,16 +131,37 @@ export function PropertiesBar({
         </span>
       )}
       {rest.map(([k, v]) => {
-        const target = link(v);
-        return target ? (
+        const single = linkOf(v);
+        const many = Array.isArray(v) && v.length > 0 ? v.map(linkOf) : null;
+        if (many?.every(Boolean)) {
+          return (
+            <span key={k} className="prop-chip" title={k}>
+              <span className="prop-key">{k}</span>{' '}
+              {(many as { target: string; label: string }[]).map((l, i) => (
+                <span key={l.target}>
+                  {i > 0 && ', '}
+                  <button
+                    type="button"
+                    className="prop-inline-link"
+                    onClick={() => onNavigate(l.target)}
+                    title={l.target}
+                  >
+                    {l.label}
+                  </button>
+                </span>
+              ))}
+            </span>
+          );
+        }
+        return single ? (
           <button
             type="button"
             key={k}
             className="prop-chip link"
-            onClick={() => onNavigate(target)}
-            title={k}
+            onClick={() => onNavigate(single.target)}
+            title={`${k}: ${single.target}`}
           >
-            <span className="prop-key">{k}</span> {target}
+            <span className="prop-key">{k}</span> {single.label}
           </button>
         ) : (
           <button
