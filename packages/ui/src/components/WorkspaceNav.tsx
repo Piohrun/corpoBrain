@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { lsGet, lsSet } from '../storage.ts';
 import { Icon, type IconName } from './Icon.tsx';
 
@@ -48,7 +48,7 @@ const groups: { label: string; items: { view: View; label: string; key: string }
 /** Navigation and keyboard traversal share one order and one set of labels. */
 export const NAV_VIEWS = groups.flatMap((group) => group.items);
 
-export function WorkspaceNav({
+export const WorkspaceNav = memo(function WorkspaceNav({
   view,
   onView,
   onFind,
@@ -129,4 +129,4 @@ export function WorkspaceNav({
       </button>
     </nav>
   );
-}
+});

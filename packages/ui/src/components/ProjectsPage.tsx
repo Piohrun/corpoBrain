@@ -9,7 +9,7 @@ import {
 } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { rankBy } from '../finder/match.ts';
-import { useFinder, useFinderSections } from '../finder/registry.tsx';
+import { useFinderActions, useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { lsGet, lsSet } from '../storage.ts';
@@ -32,7 +32,7 @@ const shortDate = (iso: string | null): string =>
 /** Projects: rollup cards on the left, the day-grid calendar on the right. */
 export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const dlg = useDialogs();
-  const finder = useFinder();
+  const finder = useFinderActions();
   const [board, setBoard] = useState<BoardModel | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [untagged, setUntagged] = useState(0);

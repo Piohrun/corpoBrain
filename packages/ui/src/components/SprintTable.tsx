@@ -244,7 +244,7 @@ export const SprintTable = memo(function SprintTable({
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) setShown((n) => n + PAGE);
       },
-      { rootMargin: '800px' },
+      { root: el.closest('.planning-scroll'), rootMargin: '800px' },
     );
     io.observe(el);
     return () => io.disconnect();

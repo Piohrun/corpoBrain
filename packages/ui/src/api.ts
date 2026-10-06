@@ -90,9 +90,29 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * GET a JSON list that is refetched often but rarely changes. When the body is
+ * byte-identical to the last answer, the previous parsed object is returned,
+ * so `setState` sees the same reference and React skips the re-render.
+ */
+const lastBody = new Map<string, { text: string; value: unknown }>();
+async function reqStable<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
+  }
+  const text = await res.text();
+  const last = lastBody.get(url);
+  if (last && last.text === text) return last.value as T;
+  const value = JSON.parse(text) as T;
+  lastBody.set(url, { text, value });
+  return value;
+}
+
 export const api = {
   health: () => req<{ ok: boolean; spec: string; vault: string | null }>('/api/health'),
-  notes: () => req<NoteListItem[]>('/api/notes'),
+  notes: () => reqStable<NoteListItem[]>('/api/notes'),
   note: (path: string, context = false) =>
     req<NoteResponse>(
       `/api/note?path=${encodeURIComponent(path)}${context ? '&context=true' : ''}`,
@@ -122,7 +142,7 @@ export const api = {
     }),
   search: (q: string, limit = 20) =>
     req<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),
-  tags: () => req<TagCount[]>('/api/tags'),
+  tags: () => reqStable<TagCount[]>('/api/tags'),
   tag: (tag: string) =>
     req<{ path: string; title: string }[]>(`/api/tag?tag=${encodeURIComponent(tag)}`),
   tasks: () => req<TaskItem[]>('/api/tasks'),
@@ -969,7 +989,7 @@ export interface TreeModel {
 }
 
 export const treeApi = {
-  get: () => req<TreeModel>('/api/tree'),
+  get: () => reqStable<TreeModel>('/api/tree'),
   rename: (path: string, title: string) =>
     req<{ ok: boolean; path: string; title: string }>('/api/tree/rename', {
       method: 'POST',

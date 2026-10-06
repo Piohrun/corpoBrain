@@ -17,6 +17,25 @@ export function notifyVaultChanges(paths: string[]): void {
   for (const fn of [...listeners]) fn(paths);
 }
 
+/**
+ * Server events arrive in bursts (a Jira sync touches many files); subscribers
+ * get one batch per burst, with the union of the paths, instead of refetching
+ * once per message.
+ */
+const COALESCE_MS = 100;
+let pendingPaths: Set<string> | null = null;
+function queueVaultChanges(paths: string[]): void {
+  if (!pendingPaths) {
+    pendingPaths = new Set();
+    setTimeout(() => {
+      const batch = [...(pendingPaths ?? [])];
+      pendingPaths = null;
+      if (batch.length) notifyVaultChanges(batch);
+    }, COALESCE_MS);
+  }
+  for (const p of paths) pendingPaths.add(p);
+}
+
 function ensureStream(): void {
   if (stream) return;
   stream = new EventSource('/api/events'); // reconnects on its own after errors
@@ -28,7 +47,7 @@ function ensureStream(): void {
       return;
     }
     if (!paths?.length) return;
-    notifyVaultChanges(paths);
+    queueVaultChanges(paths);
   };
 }
 

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { NoteResponse } from '../api.ts';
 
 /** keys that are bookkeeping, not something a person wants to read */
@@ -38,7 +39,7 @@ const linkOf = (v: unknown): { target: string; label: string } | null => {
  * `---` block can stay folded. Tags and links are live; anything else opens
  * the raw block for editing.
  */
-export function PropertiesBar({
+export const PropertiesBar = memo(function PropertiesBar({
   note,
   folded,
   onToggleFold,
@@ -194,4 +195,4 @@ export function PropertiesBar({
       </button>
     </div>
   );
-}
+});

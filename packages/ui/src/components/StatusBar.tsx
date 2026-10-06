@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { api, type GitStatus, gitApi, type JiraStatus, planApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { useVaultEvents } from '../hooks.ts';
+import { useSaveState } from '../save-state.ts';
 
 const POLL_MS = 60_000;
 
@@ -13,20 +14,19 @@ const clock = (iso: string | null): string =>
  * It also raises the toasts for background events (sync finished / failed),
  * because it is the one component that always sees them.
  */
-export function StatusBar({
-  saveState,
+export const StatusBar = memo(function StatusBar({
   notePath,
   onOpenJira,
   onOpenSettings,
   onHelp,
 }: {
-  saveState: 'saved' | 'saving' | 'error';
   notePath: string | null;
   onOpenJira: () => void;
   onOpenSettings: () => void;
   onHelp: () => void;
 }) {
   const dlg = useDialogs();
+  const saveState = useSaveState();
   const [vault, setVault] = useState<string | null>(null);
   const [jira, setJira] = useState<JiraStatus | null>(null);
   const [git, setGit] = useState<GitStatus | null>(null);
@@ -137,4 +137,4 @@ export function StatusBar({
       </button>
     </div>
   );
-}
+});

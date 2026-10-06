@@ -122,6 +122,9 @@ button {
   color: var(--fg);
   font: inherit;
 }
+.tree-more {
+  padding: 4px 8px 4px 22px;
+}
 .sidebar-scroll {
   flex: 1;
   overflow-y: auto;

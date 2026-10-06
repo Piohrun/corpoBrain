@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import {
   type CategoryField,
   fieldsApi,
@@ -23,7 +23,7 @@ interface Props {
   onClose?: () => void;
 }
 
-export function RightPanel({
+export const RightPanel = memo(function RightPanel({
   note,
   notes,
   onOpen,
@@ -36,12 +36,15 @@ export function RightPanel({
   const outline = useMemo(() => (note ? headingsOf(note.content) : []), [note]);
   const [mentions, setMentions] = useState<UnlinkedMention[]>([]);
   const [mentionsSeq, setMentionsSeq] = useState(0);
+  // Mentions are other notes naming this one, so they depend on the path, not
+  // on this note's text: an autosave must not refetch them.
+  const notePath = note?.path ?? null;
   // biome-ignore lint/correctness/useExhaustiveDependencies: mentionsSeq is the manual refetch trigger after linking
   useEffect(() => {
-    if (!note) return;
+    if (!notePath) return;
     let cancelled = false;
     mentionsApi
-      .list(note.path)
+      .list(notePath)
       .then((r) => {
         if (!cancelled) setMentions(r.mentions);
       })
@@ -51,8 +54,17 @@ export function RightPanel({
     return () => {
       cancelled = true;
     };
-  }, [note, mentionsSeq]);
+  }, [notePath, mentionsSeq]);
   const [error, setError] = useState<string | null>(null);
+  /** the parent picker's datalist (every note) exists only while it is in use */
+  const [parentListOn, setParentListOn] = useState(false);
+  const categories = useMemo(
+    () =>
+      [...new Set(notes.map((n) => categoryOf(n.path)))]
+        .filter((c) => c !== 'jira' && c !== 'private')
+        .sort(),
+    [notes],
+  );
   const [fields, setFields] = useState<CategoryField[]>([]);
   const [sprintOverrides, setSprintOverrides] = useState<string[] | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: clear stale errors when switching notes
@@ -96,9 +108,6 @@ export function RightPanel({
     .map((t) => t.trim());
 
   const isJira = note.meta?.type === 'jira';
-  const categories = [...new Set(notes.map((n) => categoryOf(n.path)))]
-    .filter((c) => c !== 'jira' && c !== 'private')
-    .sort();
   const parentValue = typeof fm.parent === 'string' ? fm.parent.replace(/^\[\[|\]\]$/g, '') : '';
 
   const patch = (body: {
@@ -166,6 +175,7 @@ export function RightPanel({
               <input
                 key={`parent:${note.path}`}
                 list="cb-parents"
+                onFocus={() => setParentListOn(true)}
                 defaultValue={parentValue}
                 placeholder="none (top level)"
                 onBlur={(e) => {
@@ -175,11 +185,10 @@ export function RightPanel({
               />
             </label>
             <datalist id="cb-parents">
-              {notes
-                .filter((n) => !n.protected && n.type !== 'jira' && n.path !== note.path)
-                .map((n) => (
-                  <option key={n.path} value={n.title} />
-                ))}
+              {parentListOn &&
+                notes
+                  .filter((n) => !n.protected && n.type !== 'jira' && n.path !== note.path)
+                  .map((n) => <option key={n.path} value={n.title} />)}
             </datalist>
             <label>
               order among siblings
@@ -359,7 +368,7 @@ export function RightPanel({
       )}
     </div>
   );
-}
+});
 
 function formatValue(v: unknown): string {
   if (v === null || v === undefined) return '—';

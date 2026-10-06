@@ -19,7 +19,18 @@ interface Registry {
   isOpen: boolean;
 }
 
-const Ctx = createContext<Registry | null>(null);
+interface Actions {
+  register: Registry['register'];
+  open: Registry['open'];
+  close: Registry['close'];
+}
+
+/**
+ * Two contexts: the actions never change, so pages that only register sections
+ * or open the Finder do not re-render when it opens, closes or gains sections.
+ */
+const ActionsCtx = createContext<Actions | null>(null);
+const StateCtx = createContext<Registry | null>(null);
 
 /** Holds every section the mounted pages contribute, and the open/close state. */
 export function FinderProvider({ children }: { children: ReactNode }) {
@@ -51,21 +62,34 @@ export function FinderProvider({ children }: { children: ReactNode }) {
     [version],
   );
 
+  const actions = useMemo<Actions>(() => ({ register, open, close }), [register, open, close]);
   const value = useMemo<Registry>(
     () => ({ sections, register, open, close, request, isOpen }),
     [sections, register, open, close, request, isOpen],
   );
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <ActionsCtx.Provider value={actions}>
+      <StateCtx.Provider value={value}>{children}</StateCtx.Provider>
+    </ActionsCtx.Provider>
+  );
 }
 
+/** open/close/register — stable for the life of the app. */
+export function useFinderActions(): Actions {
+  const r = useContext(ActionsCtx);
+  if (!r) throw new Error('useFinderActions outside FinderProvider');
+  return r;
+}
+
+/** Actions plus whether the Finder is open (re-renders on open/close). */
 export function useFinder(): Pick<Registry, 'open' | 'close' | 'isOpen'> {
-  const r = useContext(Ctx);
+  const r = useContext(StateCtx);
   if (!r) throw new Error('useFinder outside FinderProvider');
   return r;
 }
 
 export function useFinderRegistry(): Registry {
-  const r = useContext(Ctx);
+  const r = useContext(StateCtx);
   if (!r) throw new Error('useFinderRegistry outside FinderProvider');
   return r;
 }
@@ -75,8 +99,7 @@ export function useFinderRegistry(): Registry {
  * by the caller (useMemo) so registration does not churn on every render.
  */
 export function useFinderSections(owner: string, sections: FinderSection[]): void {
-  // depend on the stable register function, not the whole context value —
-  // otherwise every open/close re-registers, which restarts in-flight searches
-  const { register } = useFinderRegistry();
+  // the stable actions context: registering must not re-render the caller
+  const { register } = useFinderActions();
   useEffect(() => register(owner, sections), [register, owner, sections]);
 }

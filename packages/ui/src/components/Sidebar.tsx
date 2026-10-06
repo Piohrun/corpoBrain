@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { api, type TagCount, type TreeModel } from '../api.ts';
 import { isMac } from '../shortcuts.ts';
 import { Icon } from './Icon.tsx';
@@ -28,7 +28,7 @@ interface Props {
 
 const ERROR_TTL = 6000;
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   tree,
   tags,
   tagFilter,
@@ -218,7 +218,7 @@ export function Sidebar({
       </div>
     </div>
   );
-}
+});
 
 /** ↑/↓ walk the focusable rows of a list or tree; Enter is the button's own click. */
 export function moveBetweenRows(e: React.KeyboardEvent<HTMLElement>): void {

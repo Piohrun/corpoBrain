@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type TreeModel, type TreeNode, treeApi } from '../api.ts';
 import { dailyGroupKeysForPath, groupDailyNotes } from '../daily-notes.ts';
 import { lsJson, lsSetJson } from '../storage.ts';
@@ -24,6 +24,10 @@ const LS_EXPANDED = 'corpobrain.expanded';
 /** groups with more rows than this start collapsed until opened once */
 const BIG = 40;
 
+/** Sibling lists longer than this render a window of rows, grown as it scrolls. */
+const WINDOW_MIN = 150;
+const WINDOW_STEP = 200;
+
 /** Where a drag is hovering relative to a row. */
 type DropPos = 'before' | 'into' | 'after';
 
@@ -41,7 +45,7 @@ function reallyLeft(e: React.DragEvent): boolean {
 const loadCollapsed = (): Set<string> => new Set(lsJson<string[]>(LS_KEY, []));
 const loadExpanded = (): Set<string> => new Set(lsJson<string[]>(LS_EXPANDED, []));
 
-export function NoteTree({
+export const NoteTree = memo(function NoteTree({
   tree,
   currentPath,
   openSequence,
@@ -67,6 +71,28 @@ export function NoteTree({
   const revealFolder = folders.find(
     ({ daily }) => dailyGroupKeysForPath(daily.groups, currentPath).length > 0,
   )?.folder;
+  // parent and folder of every note, so "does this hold the open note?" is a
+  // walk up from the open note rather than a search through every subtree
+  const { parentOf, folderOf } = useMemo(() => {
+    const parentOf = new Map<string, string | null>();
+    const folderOf = new Map<string, string>();
+    for (const { folder, roots } of tree.folders) {
+      const stack: [TreeNode, string | null][] = roots.map((r) => [r, null]);
+      while (stack.length) {
+        const [node, parent] = stack.pop() as [TreeNode, string | null];
+        parentOf.set(node.path, parent);
+        folderOf.set(node.path, folder);
+        for (const c of node.children) stack.push([c, node.path]);
+      }
+    }
+    return { parentOf, folderOf };
+  }, [tree]);
+  const holdsCurrent = useMemo(() => {
+    const set = new Set<string>();
+    for (let at = currentPath; at; at = parentOf.get(at) ?? null) set.add(at);
+    return set;
+  }, [currentPath, parentOf]);
+  const currentFolder = currentPath ? folderOf.get(currentPath) : undefined;
   const revealSelection = currentPath ? `${openSequence}:${currentPath}` : null;
 
   useEffect(() => {
@@ -148,7 +174,7 @@ export function NoteTree({
     const isCollapsed = isCollapsedKey(
       node.path,
       node.children.length,
-      currentPath !== null && contains(node, currentPath),
+      holdsCurrent.has(node.path),
     );
     const highlight = spot?.key === node.path ? spot.pos : null;
     return (
@@ -229,21 +255,29 @@ export function NoteTree({
         </div>
         {hasKids &&
           !isCollapsed &&
-          ordered(node.children).map((c, i) => renderNode(c, depth + 1, folder, node.path, i))}
+          renderList(ordered(node.children), (c, i) =>
+            renderNode(c, depth + 1, folder, node.path, i),
+          )}
       </div>
     );
   };
+
+  const renderList = (
+    nodes: TreeNode[],
+    render: (node: TreeNode, index: number) => React.ReactNode,
+  ): React.ReactNode =>
+    nodes.length < WINDOW_MIN ? (
+      nodes.map(render)
+    ) : (
+      <WindowedRows nodes={nodes} render={render} holdsCurrent={holdsCurrent} />
+    );
 
   return (
     <div>
       {folders.map(({ folder, roots, daily }) => {
         const key = `folder:${folder}`;
         const size = daily.groups.length ? 0 : roots.length;
-        const isCollapsed = isCollapsedKey(
-          key,
-          size,
-          currentPath !== null && roots.some((r) => contains(r, currentPath)),
-        );
+        const isCollapsed = isCollapsedKey(key, size, currentFolder === folder);
         return (
           <div key={key}>
             <button
@@ -288,7 +322,7 @@ export function NoteTree({
                   )}
                 </>
               ) : (
-                ordered(roots).map((r, i) => renderNode(r, 0, folder, null, i))
+                renderList(ordered(roots), (r, i) => renderNode(r, 0, folder, null, i))
               ))}
           </div>
         );
@@ -300,10 +334,76 @@ export function NoteTree({
       )}
     </div>
   );
-}
+});
 
-function contains(node: TreeNode, path: string): boolean {
-  return node.path === path || node.children.some((c) => contains(c, path));
+/**
+ * A long sibling list (thousands of notes in one folder) renders a window of
+ * rows around the open note and grows it as either edge scrolls into view, so
+ * opening a note in a big folder does not build every row. The open note's
+ * neighbours are always rendered (Alt+Shift+↑/↓ walks the rows on screen).
+ */
+function WindowedRows({
+  nodes,
+  render,
+  holdsCurrent,
+}: {
+  nodes: TreeNode[];
+  render: (node: TreeNode, index: number) => React.ReactNode;
+  holdsCurrent: Set<string>;
+}) {
+  const focus = nodes.findIndex((n) => holdsCurrent.has(n.path));
+  const around = (i: number) => ({
+    start: Math.max(0, i - WINDOW_STEP / 2),
+    end: Math.min(nodes.length, Math.max(i, 0) + WINDOW_STEP / 2 + 1),
+  });
+  const [range, setRange] = useState(() =>
+    focus >= 0 ? around(focus) : { start: 0, end: WINDOW_STEP },
+  );
+  // a note opened outside the window moves the window to it
+  if (focus >= 0 && (focus < range.start + 1 || focus > range.end - 2)) {
+    const next = around(focus);
+    if (next.start !== range.start || next.end !== range.end) setRange(next);
+  }
+  const top = useRef<HTMLDivElement>(null);
+  const bottom = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          if (e.target === top.current)
+            setRange((r) => ({ ...r, start: Math.max(0, r.start - WINDOW_STEP) }));
+          if (e.target === bottom.current)
+            setRange((r) => ({ ...r, end: Math.min(nodes.length, r.end + WINDOW_STEP) }));
+        }
+      },
+      // the sidebar scrolls, not the page: margins apply to that box
+      {
+        root: (top.current ?? bottom.current)?.closest('.sidebar-scroll') ?? null,
+        rootMargin: '600px',
+      },
+    );
+    if (top.current) io.observe(top.current);
+    if (bottom.current) io.observe(bottom.current);
+    return () => io.disconnect();
+  });
+  const start = Math.min(range.start, nodes.length);
+  const end = Math.min(range.end, nodes.length);
+  return (
+    <>
+      {start > 0 && (
+        <div ref={top} className="tree-more muted small">
+          {start} more…
+        </div>
+      )}
+      {nodes.slice(start, end).map((n, i) => render(n, start + i))}
+      {end < nodes.length && (
+        <div ref={bottom} className="tree-more muted small">
+          {nodes.length - end} more…
+        </div>
+      )}
+    </>
+  );
 }
 
 function countDesc(node: TreeNode): number {

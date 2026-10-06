@@ -31,10 +31,16 @@ import { ContextPreview } from './context-preview.tsx';
 import { DialogProvider, useDialogs } from './dialogs.tsx';
 import { Finder } from './finder/Finder.tsx';
 import { rankBy } from './finder/match.ts';
-import { FinderProvider, useFinder, useFinderSections } from './finder/registry.tsx';
+import {
+  FinderProvider,
+  useFinder,
+  useFinderActions,
+  useFinderSections,
+} from './finder/registry.tsx';
 import { type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
 import { emptyPreview, previewPath, previewReducer } from './preview-state.ts';
+import { getSaveState, setSaveState } from './save-state.ts';
 import { installShortcuts, isMac, type Shortcut } from './shortcuts.ts';
 import { lsGet, lsJson, lsSet, lsSetJson } from './storage.ts';
 
@@ -79,6 +85,22 @@ const TasksPage = memo(
 const TrackedPage = memo(
   lazy(() => import('./components/TrackedPage.tsx').then((m) => ({ default: m.TrackedPage }))),
 );
+
+/** True when two loads of the same note differ in nothing but the body text. */
+function sameExceptContent(a: NoteResponse, b: NoteResponse): boolean {
+  const { content: _a, ...restA } = a;
+  const { content: _b, ...restB } = b;
+  return JSON.stringify(restA) === JSON.stringify(restB);
+}
+
+/** Clears the editor's in-note find highlights when the Finder closes. */
+function ClearFindOnClose({ editorApi }: { editorApi: React.RefObject<EditorApi | null> }) {
+  const { isOpen } = useFinder();
+  useEffect(() => {
+    if (!isOpen) editorApi.current?.clearFind();
+  }, [isOpen, editorApi]);
+  return null;
+}
 
 /** `#/<note path>` — the Notes panel with that note open. */
 function hashPath(): string {
@@ -184,7 +206,7 @@ export function App() {
 }
 
 function AppShell() {
-  const finder = useFinder();
+  const finder = useFinderActions();
   const [preview, dispatchPreview] = useReducer(previewReducer, emptyPreview);
   const previewResolveSeq = useRef(0);
   const openPreview = useCallback((path: string) => {
@@ -215,7 +237,7 @@ function AppShell() {
   const [tags, setTags] = useState<TagCount[]>([]);
   const [note, setNote] = useState<NoteResponse | null>(null);
   const [noteOpenSequence, setNoteOpenSequence] = useState(0);
-  const [saveState, setSaveState] = useState<'saved' | 'saving' | 'error'>('saved');
+
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<View>('notes');
   const viewRef = useRef<View>('notes');
@@ -233,22 +255,38 @@ function AppShell() {
   const noteHistoryMax = useRef(0);
   const [canGoForward, setCanGoForward] = useState(false);
 
-  const refreshLists = useCallback(() => {
+  // Bursts of vault events (a sync touching many files, a save plus its
+  // echo) coalesce into one refetch; a slower older answer never overwrites
+  // a newer one; unchanged lists keep their identity (see reqStable).
+  const listsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listsSeq = useRef(0);
+  const fetchLists = useCallback(() => {
+    listsTimer.current = null;
+    const seq = ++listsSeq.current;
+    const keep =
+      <T,>(set: (v: T) => void) =>
+      (v: T) => {
+        if (seq === listsSeq.current) set(v);
+      };
     api
       .notes()
-      .then(setNotes)
+      .then(keep(setNotes))
       .catch(() => {});
     api
       .tags()
-      .then(setTags)
+      .then(keep(setTags))
       .catch(() => {});
     treeApi
       .get()
-      .then(setTree)
+      .then(keep(setTree))
       .catch(() => {});
   }, []);
+  const refreshLists = useCallback(() => {
+    if (listsTimer.current) clearTimeout(listsTimer.current);
+    listsTimer.current = setTimeout(fetchLists, 120);
+  }, [fetchLists]);
 
-  useEffect(refreshLists, [refreshLists]);
+  useEffect(fetchLists, [fetchLists]);
 
   const openPath = useCallback((path: string, historyMode: NoteHistoryMode = 'push') => {
     const seq = ++loadSeq.current;
@@ -457,6 +495,9 @@ function AppShell() {
         const prev = noteRef.current;
         if (!prev || prev.path !== fresh.path) return refreshLists();
         if (listsAffected(prev, fresh)) refreshLists();
+        // A body-only save usually changes nothing else (backlinks, links,
+        // properties): keep the same object so nothing downstream re-renders.
+        if (sameExceptContent(prev, fresh)) return;
         setNote({ ...fresh, content: prev.content }); // do not clobber the editor
       })
       .catch(() => refreshLists());
@@ -670,9 +711,6 @@ function AppShell() {
   useEffect(() => installShortcuts(() => shortcutsRef.current, setChord), []);
 
   // in-note find highlights go away with the Finder
-  useEffect(() => {
-    if (!finder.isOpen) editorApi.current?.clearFind();
-  }, [finder.isOpen]);
 
   // ---- Finder sections the shell owns: this note, notes, commands ----
   const notesSections = useMemo<FinderSection[]>(() => {
@@ -874,11 +912,23 @@ function AppShell() {
     [goView],
   );
 
+  // keyed on the links' content, not the array's identity: a refetch with the
+  // same links must not make the editor restyle every link again
+  const linksKey = useMemo(
+    () =>
+      (note?.links ?? [])
+        .map((l) => `${l.target.toLowerCase()}\u0000${l.resolved ? 1 : 0}`)
+        .join('\u0001'),
+    [note?.links],
+  );
   const resolveMap = useMemo(() => {
     const m = new Map<string, boolean>();
-    for (const l of note?.links ?? []) m.set(l.target.toLowerCase(), l.resolved);
+    for (const entry of linksKey ? linksKey.split('\u0001') : []) {
+      const [target, resolved] = entry.split('\u0000');
+      m.set(target as string, resolved === '1');
+    }
     return m;
-  }, [note?.links]);
+  }, [linksKey]);
 
   const openFromPlanning = openPreview;
   const openPreviewInEditor = useCallback(
@@ -916,17 +966,87 @@ function AppShell() {
     [refreshLists],
   );
 
+  // Stable props, so memoized panels skip re-rendering when the shell does.
+  const openFinder = useCallback(() => finder.open(), [finder]);
+  const openFinderNotes = useCallback(() => finder.open({ section: 'notes' }), [finder]);
+  const showTracked = useCallback(() => goView('tracked'), [goView]);
+  const closeDetails = useCallback(() => setDetailsOpen(false), []);
+  const saveBeforeMetaChange = useCallback(async () => {
+    await editorApi.current?.saveNow();
+  }, []);
+  const jumpTo = useCallback((pos: number) => editorApi.current?.goTo({ from: pos, to: pos }), []);
+  const reloadOpenNote = useCallback(
+    (newPath?: string | null) => {
+      const current = noteRef.current;
+      if (!current) return;
+      if (newPath && newPath !== current.path) openPath(newPath, 'replace');
+      else
+        api
+          .note(current.path)
+          .then(setNote)
+          .catch(() => setNote(null));
+    },
+    [openPath],
+  );
+  const onMetaChanged = useCallback(
+    (newPath?: string) => {
+      refreshLists();
+      reloadOpenNote(newPath);
+    },
+    [refreshLists, reloadOpenNote],
+  );
+  const onTreeChanged = useCallback(
+    (moved?: { from: string; to: string }) => {
+      refreshLists();
+      reloadOpenNote(moved && noteRef.current?.path === moved.from ? moved.to : null);
+    },
+    [refreshLists, reloadOpenNote],
+  );
+  const onSnapshot = useCallback((path: string, content: string) => {
+    setNote((prev) =>
+      prev && prev.path === path && prev.content !== content ? { ...prev, content } : prev,
+    );
+  }, []);
+  const onSaveState = useCallback(
+    (p: string, st: 'saved' | 'saving' | 'error') => {
+      // a save for the previous note must not relabel this one
+      if (noteRef.current?.path !== p) return;
+      if (st === 'error' && getSaveState() !== 'error')
+        dlg.toast({ kind: 'error', message: `Could not save ${p}` });
+      setSaveState(st);
+    },
+    [dlg],
+  );
+  const openNotePath = note?.path;
+  const recentList = useMemo(
+    () =>
+      recentPaths
+        .filter((p) => p !== openNotePath && titleOf.has(p))
+        .map((p) => ({ path: p, title: titleOf.get(p) ?? p })),
+    [recentPaths, openNotePath, titleOf],
+  );
+  const pinnedList = useMemo(
+    () => pinnedPaths.map((p) => ({ path: p, title: titleOf.get(p) ?? p })),
+    [pinnedPaths, titleOf],
+  );
+  const navPinned = useMemo(
+    () => pinnedList.filter((p) => titleOf.has(p.path)),
+    [pinnedList, titleOf],
+  );
+  const previewContext = useMemo(
+    () => ({ open: openPreview, resolve: navigate }),
+    [openPreview, navigate],
+  );
+
   return (
-    <ContextPreview value={{ open: openPreview, resolve: navigate }}>
+    <ContextPreview value={previewContext}>
       <div className="app-shell">
         <div className={`app${preview.pinned || previewPath(preview) ? ' has-preview' : ''}`}>
           <WorkspaceNav
             view={view}
             onView={goView}
-            onFind={() => finder.open()}
-            pinned={pinnedPaths
-              .filter((p) => titleOf.has(p))
-              .map((path) => ({ path, title: titleOf.get(path) ?? path }))}
+            onFind={openFinder}
+            pinned={navPinned}
             onPreview={openPreview}
           />
           <div className="workspace-content">
@@ -964,28 +1084,15 @@ function AppShell() {
                     currentPath={note?.path ?? null}
                     onOpen={openPath}
                     onDaily={openDaily}
-                    onNew={() => finder.open({ section: 'notes' })}
-                    onFind={() => finder.open()}
-                    recent={recentPaths
-                      .filter((p) => p !== note?.path)
-                      .map((p) => ({ path: p, title: titleOf.get(p) ?? p }))
-                      .filter((r) => titleOf.has(r.path))}
-                    pinned={pinnedPaths.map((p) => ({ path: p, title: titleOf.get(p) ?? p }))}
+                    onNew={openFinderNotes}
+                    onFind={openFinder}
+                    recent={recentList}
+                    pinned={pinnedList}
                     onUnpin={togglePin}
                     sort={treeSort}
                     onSort={setTreeSort}
                     mtimeOf={mtimeOf}
-                    onTreeChanged={(moved) => {
-                      refreshLists();
-                      const current = noteRef.current;
-                      if (!current) return;
-                      if (moved && current.path === moved.from) openPath(moved.to, 'replace');
-                      else
-                        api
-                          .note(current.path)
-                          .then(setNote)
-                          .catch(() => setNote(null));
-                    }}
+                    onTreeChanged={onTreeChanged}
                   />
                   <div className="main">
                     {note ? (
@@ -1138,26 +1245,14 @@ function AppShell() {
                           completions={completions}
                           resolveMap={resolveMap}
                           onNavigate={navigate}
-                          onSnapshot={(path, content) =>
-                            setNote((prev) =>
-                              prev && prev.path === path ? { ...prev, content } : prev,
-                            )
-                          }
-                          onSaveState={(p, st) => {
-                            // a save for the previous note must not relabel this one
-                            if (noteRef.current?.path !== p) return;
-                            setSaveState((prev) => {
-                              if (st === 'error' && prev !== 'error')
-                                dlg.toast({ kind: 'error', message: `Could not save ${p}` });
-                              return st;
-                            });
-                          }}
+                          onSnapshot={onSnapshot}
+                          onSaveState={onSaveState}
                           onSaved={onSaved}
                           onTrackedCreated={trackedCreated}
-                          onShowTracked={() => goView('tracked')}
+                          onShowTracked={showTracked}
                           discardRef={discardRef}
                           apiRef={editorApi}
-                          onFind={() => finder.open()}
+                          onFind={openFinder}
                           foldFrontmatter={foldFrontmatter}
                         />
                         {note.tags.length > 0 && (
@@ -1194,23 +1289,11 @@ function AppShell() {
                       note={note}
                       notes={notes}
                       onOpen={openPreview}
-                      onClose={() => setDetailsOpen(false)}
+                      onClose={closeDetails}
                       onTag={openTag}
-                      beforeMetaChange={async () => {
-                        await editorApi.current?.saveNow();
-                      }}
-                      onJump={(pos) => editorApi.current?.goTo({ from: pos, to: pos })}
-                      onMetaChanged={(newPath) => {
-                        refreshLists();
-                        const current = noteRef.current;
-                        if (!current) return;
-                        if (newPath && newPath !== current.path) openPath(newPath, 'replace');
-                        else
-                          api
-                            .note(current.path)
-                            .then(setNote)
-                            .catch(() => setNote(null));
-                      }}
+                      beforeMetaChange={saveBeforeMetaChange}
+                      onJump={jumpTo}
+                      onMetaChanged={onMetaChanged}
                     />
                   )}
                 </>
@@ -1237,13 +1320,13 @@ function AppShell() {
           />
         </div>
         <StatusBar
-          saveState={saveState}
           notePath={view === 'notes' ? (note?.path ?? null) : null}
           onOpenJira={() => goView('jira')}
           onOpenSettings={() => goView('settings')}
           onHelp={() => setHelpOpen(true)}
         />
         <Finder />
+        <ClearFindOnClose editorApi={editorApi} />
         {helpOpen && <ShortcutHelp shortcuts={shortcuts} onClose={() => setHelpOpen(false)} />}
         {chord && <div className="chord-pending">{chord} … then a letter (? for the list)</div>}
       </div>
