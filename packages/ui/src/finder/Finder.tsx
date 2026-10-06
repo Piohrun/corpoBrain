@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { keyLabel } from '../shortcuts.ts';
 import { splitMatches } from './match.ts';
 import { useFinderRegistry } from './registry.tsx';
@@ -34,8 +34,10 @@ export function Finder() {
   const listRef = useRef<HTMLDivElement>(null);
   const asyncSeq = useRef(0);
 
-  // reset on open
-  useEffect(() => {
+  // Reset and focus on open, synchronously with the render that shows the
+  // Finder: keys typed right after the shortcut must land in the input, and a
+  // later (deferred) reset would wipe what was already typed.
+  useLayoutEffect(() => {
     if (!isOpen) return;
     setQuery(request?.query ?? '');
     setCursor(0);
@@ -44,11 +46,8 @@ export function Finder() {
     setActionsOpen(false);
     setFollowUp(null);
     setBusy(null);
-    const t = setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 0);
-    return () => clearTimeout(t);
+    inputRef.current?.focus();
+    inputRef.current?.select();
   }, [isOpen, request]);
 
   // which sections apply: a follow-up pick, a requested section, a prefix, or all
