@@ -26,6 +26,11 @@ await build({
   entryPoints: ['packages/cli/src/index.ts'],
   outfile: 'dist/corpobrain-cli.js',
 });
+await build({
+  ...common,
+  entryPoints: ['packages/server/src/bench.ts'],
+  outfile: 'dist/corpobrain-bench.js',
+});
 
 // Connector helpers that run outside Node (Outlook COM via Python).
 cpSync('packages/server/python', 'dist/python', {

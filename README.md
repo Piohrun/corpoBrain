@@ -189,6 +189,17 @@ bindings come from. The ones worth knowing:
 Bare keys and `g` sequences only fire when you are not typing; modifier chords work
 everywhere, including inside the editor.
 
+## Benchmark on your machine
+
+`scripts\bench.cmd` (or `node dist\corpobrain-bench.js --vault <path>`) times a
+full index, a warm start, every main API endpoint, opening notes and saving,
+using a **temporary copy** of your vault (without `.git`, `.trash`, protected
+notes, the index or secrets) that is deleted afterwards — your vault is only
+read. Add `--with-jira` to also time a full Jira sync into that copy (it only
+reads from Jira). The JSON report it writes holds counts and timings only, no
+titles, paths, text or the Jira address, so it can be shared as is. From a
+checkout: `npm run bench -- --vault <path>`.
+
 ## Develop
 
 ```sh
