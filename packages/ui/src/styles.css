@@ -1050,6 +1050,14 @@ button {
   border-color: var(--border);
   outline: none;
 }
+.cell-choice {
+  cursor: pointer;
+  text-align: left;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .cell-input.overridden {
   border-color: var(--accent);
   border-style: dashed;

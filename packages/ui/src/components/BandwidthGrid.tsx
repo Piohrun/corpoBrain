@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
@@ -15,7 +15,7 @@ const PERSON_WIDTH = { fallback: 160, min: 120, max: 360 };
 const SPRINT_WIDTH = { fallback: 190, min: 120, max: 520 };
 const BACKLOG_FALLBACK_WIDTH = 140;
 
-export function BandwidthGrid({
+export const BandwidthGrid = memo(function BandwidthGrid({
   board,
   issues,
   columns,
@@ -164,14 +164,14 @@ export function BandwidthGrid({
     return (name: string | null) => (name && map.get(name)) || nameColor(name);
   }, [board]);
 
-  const rowIdOf = useCallback(
-    (assignee: string | null): string => {
-      if (!assignee) return UNASSIGNED;
-      const person = board.people.find((p) => p.jiraIds.includes(assignee));
-      return person ? person.path : assignee;
-    },
-    [board],
-  );
+  const rowIdOf = useMemo(() => {
+    // one lookup table instead of a scan over everyone per issue
+    const byJiraId = new Map<string, string>();
+    for (const p of board.people)
+      for (const id of p.jiraIds) if (!byJiraId.has(id)) byJiraId.set(id, p.path);
+    return (assignee: string | null): string =>
+      !assignee ? UNASSIGNED : (byJiraId.get(assignee) ?? assignee);
+  }, [board]);
 
   const colSet = useMemo(() => new Set(columns), [columns]);
   const colOf = useCallback(
@@ -733,7 +733,7 @@ export function BandwidthGrid({
       </p>
     </section>
   );
-}
+});
 
 function FragmentGroup({ children }: { children: React.ReactNode }) {
   return <>{children}</>;

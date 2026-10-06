@@ -1,8 +1,9 @@
+import { memo } from 'react';
 import type { BoardModel, PlanPatch } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { personName } from './planningShared.ts';
 
-export function ChangesPanel({
+export const ChangesPanel = memo(function ChangesPanel({
   board,
   onPatch,
   onOpenNote,
@@ -76,4 +77,4 @@ export function ChangesPanel({
       </div>
     </section>
   );
-}
+});

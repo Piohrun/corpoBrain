@@ -108,7 +108,9 @@ export function useJiraSync(onDone: () => void): {
     const watcher = watchJiraSync(
       planApi.jiraStatus,
       (st) => {
-        setStatus(st);
+        // An idle poll returns the same status every few seconds; keeping the
+        // previous object stops it from re-rendering the whole page each time.
+        setStatus((prev) => (prev && JSON.stringify(prev) === JSON.stringify(st) ? prev : st));
         setError(st.lastSyncError);
       },
       () => doneRef.current(),

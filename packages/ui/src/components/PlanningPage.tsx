@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   type BoardModel,
   type JiraStatus,
@@ -271,9 +271,11 @@ export function PlanningPage({ onOpenNote }: Props) {
   }, [board, patch, onOpenNote]);
   useFinderSections('planning', finderSections);
 
+  // Typing in the filter stays responsive; the grid catches up in the background.
+  const deferredFilter = useDeferredValue(filter);
   const issues = useMemo(() => {
     if (!board) return [];
-    const q = filter.trim().toLowerCase();
+    const q = deferredFilter.trim().toLowerCase();
     return board.issues
       .filter((i) => i.statusCategory !== 'done')
       .filter(
@@ -286,7 +288,7 @@ export function PlanningPage({ onOpenNote }: Props) {
       )
       .filter((i) => !flagFilter || i.riskFlags.includes(flagFilter))
       .filter((i) => !sprintFilter || i.effectiveSprint === sprintFilter);
-  }, [board, filter, flagFilter, sprintFilter]);
+  }, [board, deferredFilter, flagFilter, sprintFilter]);
 
   if (!board) {
     return (
