@@ -25,6 +25,7 @@ import {
   type VaultWatcher,
   watchVault,
   writeFileAtomic,
+  writeSecrets,
 } from '@corpobrain/core';
 
 export interface NoteListItem {
@@ -89,17 +90,7 @@ export class VaultService {
 
   /** Store Jira credentials in the gitignored secrets file (0600). */
   saveJiraSecrets(update: { token?: string; email?: string }): void {
-    const file = join(this.root, '.corpobrain', 'secrets.json');
-    let secrets: Record<string, string> = {};
-    try {
-      secrets = JSON.parse(readFileSync(file, 'utf8')) as Record<string, string>;
-    } catch {
-      /* fresh */
-    }
-    if (update.token !== undefined) secrets.jiraToken = update.token;
-    if (update.email !== undefined) secrets.jiraEmail = update.email;
-    mkdirSync(join(this.root, '.corpobrain'), { recursive: true });
-    writeFileSync(file, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600 });
+    writeSecrets(this.root, { jiraToken: update.token, jiraEmail: update.email });
   }
 
   startWatching(): void {

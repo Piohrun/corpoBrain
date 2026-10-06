@@ -169,6 +169,8 @@ export type {
   TrackAnchor,
 } from './scan.ts';
 export { maskInlineCode, scanMarkdown, stripTrackMarkers, trackAnchors } from './scan.ts';
+export type { SecretName } from './secrets.ts';
+export { readSecret, readSecretsFile, SECRET_ENV, writeSecrets } from './secrets.ts';
 export { generateUlid } from './ulid.ts';
 export type { VaultFile } from './vault.ts';
 export { matchesGlob, toPosix, walkVault, writeFileAtomic } from './vault.ts';
