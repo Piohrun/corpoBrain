@@ -77,6 +77,13 @@ export {
   renderHolidaysTable,
   replaceHolidaysTable,
 } from './holidays.ts';
+export type { IdentityKind, IdentityMatch } from './identities.ts';
+export {
+  IDENTITY_KINDS,
+  IdentityIndex,
+  identitiesOf,
+  normalizeIdentity,
+} from './identities.ts';
 export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
 export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
 export type {

@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-export const SCHEMA_VERSION = '0.3.1/12';
+export const SCHEMA_VERSION = '0.3.1/13';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -78,6 +78,11 @@ CREATE TABLE IF NOT EXISTS people(
   region TEXT, team TEXT, load_overrides_json TEXT, color TEXT,
   sort_order REAL, country TEXT
 );
+CREATE TABLE IF NOT EXISTS person_identities(
+  path TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS person_identities_value ON person_identities(kind, value);
+CREATE INDEX IF NOT EXISTS person_identities_path ON person_identities(path);
 `;
 
 export function openDb(dbPath: string): DatabaseSync {

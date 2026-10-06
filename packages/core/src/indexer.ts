@@ -5,6 +5,7 @@ import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { VaultConfig } from './config.ts';
 import { parseFrontmatter, setFrontmatterKey } from './frontmatter.ts';
+import { IDENTITY_KINDS, identitiesOf } from './identities.ts';
 import { normalizeHistory } from './jira/render.ts';
 import { scanMarkdown, stripTrackMarkers, trackAnchors } from './scan.ts';
 import { generateUlid } from './ulid.ts';
@@ -195,6 +196,7 @@ export class Indexer {
       'headings',
       'blocks',
       'track_anchors',
+      'person_identities',
     ])
       this.db
         .prepare(`DELETE FROM ${t} WHERE ${t === 'links' ? 'src_path' : 'path'} = ?`)
@@ -486,6 +488,11 @@ export class Indexer {
         num(fm.order),
         str(fm.country),
       );
+    const identity = this.db.prepare(
+      'INSERT INTO person_identities(path, kind, value) VALUES (?, ?, ?)',
+    );
+    for (const kind of IDENTITY_KINDS)
+      for (const value of identitiesOf(fm, kind)) identity.run(path, kind, value);
   }
 
   // ---------------------------------------------------------------- resolve

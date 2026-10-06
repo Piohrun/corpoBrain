@@ -364,7 +364,8 @@ A sync report lists created / updated / unchanged / skipped files.
 type: person
 title: Anna Kowalska
 jira: akowalska            # Jira account id or username; MAY be a list
-email: anna@example.com
+email: anna@example.com    # MAY be a list (aliases, old addresses)
+github: akowalska          # GitHub login; MAY be a list
 role: Senior Engineer
 capacity: 8                # per sprint, in config.capacity.unit
 capacity_overrides:
@@ -375,6 +376,13 @@ active: true
 The sync creates missing person files for any assignee seen (with `capacity`
 left unset) unless `config.jira.createPeople` is false. Issues refer to people
 by the Jira account id; the UI resolves to the person note via `jira:`.
+
+`email:` and `github:` are **external identities**: the keys other connectors
+(Outlook, GitHub) use to attribute outside data to a person. Values are
+matched case-insensitively after normalisation (`mailto:` and a leading `@` or
+`https://github.com/` are stripped); values that cannot be an address or a
+login are ignored. If two person notes declare the same identity, records for
+it are treated as unattributed rather than guessed.
 
 ---
 
@@ -501,6 +509,7 @@ plan(key PRIMARY KEY, sprint, assignee, rank REAL, effort REAL, risk,
      confidence, bucket, blocked_on_json, note, project, start);
 sprints(id PRIMARY KEY, name, state, start, end, board_id, goal);
 people(path PRIMARY KEY, jira_id, name, capacity REAL, overrides_json, active);
+person_identities(path, kind, value);    -- kind: email | github; value normalised
 meta(key PRIMARY KEY, value);
 ```
 
