@@ -6,6 +6,7 @@ import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { useProgressive } from './progressive.tsx';
 
 const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
 
@@ -225,6 +226,20 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [rows, groupBy]);
 
+  // Thousands of objects (every Jira issue): rows arrive as the table scrolls
+  // into view; one budget across the groups, in display order.
+  const { shown, sentinel } = useProgressive(rows.length, 200, groups);
+  const visibleGroups = useMemo(() => {
+    let budget = shown;
+    const out: [string, ObjectRow[]][] = [];
+    for (const [group, items] of groups) {
+      if (budget <= 0) break;
+      out.push([group, items.slice(0, budget)]);
+      budget -= items.length;
+    }
+    return out;
+  }, [groups, shown]);
+
   return (
     <div className="planning">
       <div className="planning-header">
@@ -290,7 +305,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
         </select>
       </div>
       <div className="planning-scroll">
-        {groups.map(([group, items]) => (
+        {visibleGroups.map(([group, items]) => (
           <section key={group || '(all)'}>
             {group && <h2 className="plan-h2">{group}</h2>}
             <div className="grid-wrap">
@@ -327,6 +342,11 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
             </div>
           </section>
         ))}
+        {shown < rows.length && (
+          <div ref={sentinel as React.RefObject<HTMLDivElement>} className="muted small">
+            {rows.length - shown} more…
+          </div>
+        )}
         {rows.length === 0 && <div className="empty-state">No objects of this type yet.</div>}
       </div>
     </div>
