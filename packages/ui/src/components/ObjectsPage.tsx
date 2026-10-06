@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api, type ObjectRow, objectsApi, type TypeCount } from '../api.ts';
+import { api, type ObjectRow, objectsApi, type TypeCount, treeApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
+import { rankBy } from '../finder/match.ts';
+import { useFinderSections } from '../finder/registry.tsx';
+import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
 
 const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
@@ -69,6 +73,145 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
       .slice(0, 8)
       .map(([k]) => k);
   }, [rows]);
+
+  // re-read the current type's rows after an edit made from here
+  const reloadRows = useCallback(() => {
+    if (!selected) return;
+    objectsApi
+      .list(selected)
+      .then(setRows)
+      .catch((e: Error) => setError(e.message));
+  }, [selected]);
+
+  // ---- Ctrl+F and right-click: the objects of the selected type ----
+  const finderSections = useMemo<FinderSection[]>(() => {
+    if (!selected) return [];
+    const itemOf = (r: ObjectRow) => ({
+      id: r.path,
+      label: r.title,
+      detail: r.path,
+      data: r,
+    });
+    const edit = (r: ObjectRow, body: { type?: string; set?: Record<string, unknown> }) =>
+      treeApi
+        .meta({ path: r.path, ...body })
+        .then(() => {
+          setError(null);
+          refresh();
+          reloadRows();
+        })
+        .catch((e: Error) => setError(e.message));
+    return [
+      section<ObjectRow>({
+        id: 'objects',
+        title: `Objects · ${selected}`,
+        order: 10,
+        limit: 10,
+        search: (q) =>
+          rankBy(rows, q, (r) => [r.title, r.path], 40).map(({ row, score }) => ({
+            ...itemOf(row),
+            score,
+          })),
+        resolve: (id) => {
+          const r = rows.find((x) => x.path === id);
+          return r ? itemOf(r) : null;
+        },
+        actions: [
+          {
+            id: 'open',
+            label: 'open',
+            run: ([r], ctx) => {
+              ctx.close();
+              if (r) onOpenNote(r.data.path);
+            },
+          },
+          {
+            id: 'set',
+            label: 'set a property…',
+            when: (list) => list.length === 1,
+            run: ([r]) => {
+              if (!r) return;
+              const row = r.data;
+              // the table's columns first, then any property this object already has
+              const keys = [
+                ...new Set([
+                  ...columns,
+                  ...Object.keys(row.frontmatter).filter((k) => !HIDDEN_KEYS.has(k)),
+                ]),
+              ];
+              return {
+                pick: {
+                  title: `Property of “${row.title}”`,
+                  section: section<{ key: string; isNew: boolean }>({
+                    id: 'objects-property',
+                    title: 'Property',
+                    order: 0,
+                    search: (q) => {
+                      const hits = rankBy(keys, q, (k) => [k]).map(({ row: key }) => ({
+                        id: key,
+                        label: key,
+                        hint: formatValue(row.frontmatter[key]) || undefined,
+                        data: { key, isNew: false },
+                      }));
+                      const typed = q
+                        .trim()
+                        .toLowerCase()
+                        .replace(/[^a-z0-9_-]+/g, '_');
+                      if (typed && !keys.includes(typed) && !HIDDEN_KEYS.has(typed))
+                        hits.push({
+                          id: `new:${typed}`,
+                          label: `new property “${typed}”`,
+                          hint: undefined,
+                          data: { key: typed, isNew: true },
+                        });
+                      return hits;
+                    },
+                    actions: [],
+                  }),
+                  onPick: async (picked) => {
+                    const { key } = picked.data as { key: string };
+                    const current = formatValue(row.frontmatter[key]);
+                    const value = await dlg.prompt({
+                      title: `Set ${key}`,
+                      label: `${key} of ${row.title} (empty removes it)`,
+                      initial: current,
+                      confirmLabel: 'Set',
+                    });
+                    if (value === null || value.trim() === current) return;
+                    await edit(row, { set: { [key]: value.trim() || null } });
+                  },
+                },
+              };
+            },
+          },
+          {
+            id: 'type',
+            label: 'change type…',
+            when: (list) => list.length === 1,
+            run: async ([r], ctx) => {
+              ctx.close();
+              if (!r) return;
+              const type = await dlg.prompt({
+                title: 'Change type',
+                label: `New type for ${r.data.title} (e.g. ${types
+                  .map((t) => t.type)
+                  .slice(0, 4)
+                  .join(', ')})`,
+                initial: selected,
+                confirmLabel: 'Change',
+              });
+              const t = type
+                ?.trim()
+                .toLowerCase()
+                .replace(/[^a-z0-9-]+/g, '-');
+              if (t && t !== selected) await edit(r.data, { type: t });
+            },
+          },
+        ],
+      }),
+    ];
+  }, [selected, rows, columns, types, onOpenNote, dlg, refresh, reloadRows]);
+  useFinderSections('objects', finderSections);
 
   const groups = useMemo(() => {
     if (!groupBy) return [['', rows]] as [string, ObjectRow[]][];
@@ -162,7 +305,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                 </thead>
                 <tbody>
                   {items.map((r) => (
-                    <tr key={r.path}>
+                    <tr key={r.path} data-path={r.path} {...ctxTarget('objects', r.path)}>
                       <td>
                         <button
                           type="button"

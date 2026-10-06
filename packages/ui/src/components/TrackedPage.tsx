@@ -7,6 +7,8 @@ import {
   treeApi,
 } from '../api.ts';
 import { localISODate } from '../dates.ts';
+import { useDialogs } from '../dialogs.tsx';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -77,66 +79,8 @@ export function TrackedPage({
   const [kind, setKind] = useState<TrackKind | 'all'>('all');
   const [showClosed, setShowClosed] = useState(false);
   const [query, setQuery] = useState('');
+  const dlg = useDialogs();
 
-  // ---- Ctrl+F here: tracked items → open the record or its source, or filter the list ----
-  const finderSections = useMemo<FinderSection[]>(
-    () => [
-      section<TrackedItem>({
-        id: 'tracked-items',
-        title: 'Tracked items',
-        order: 10,
-        limit: 10,
-        search: (q) =>
-          rankBy(items, q, (t) => [t.title, t.owner, t.sourceTitle, t.status], 60).map(
-            ({ row, score }) => ({
-              id: row.path,
-              label: row.title,
-              detail: `${row.kind} · ${row.status}${row.owner ? ` · ${row.owner}` : ''}`,
-              hint: row.due ?? row.review ?? undefined,
-              icon:
-                row.kind === 'commitment'
-                  ? '✓'
-                  : row.kind === 'decision'
-                    ? '◆'
-                    : row.kind === 'risk'
-                      ? '▲'
-                      : '≈',
-              data: row,
-              score,
-            }),
-          ),
-        actions: [
-          {
-            id: 'open',
-            label: 'open record',
-            run: ([t], ctx) => {
-              ctx.close();
-              if (t) onOpenNote(t.data.path);
-            },
-          },
-          {
-            id: 'source',
-            label: 'open the source note',
-            when: (list) => list.some((t) => t.data.sourcePath),
-            run: ([t], ctx) => {
-              ctx.close();
-              if (t?.data.sourcePath) onOpenNote(t.data.sourcePath);
-            },
-          },
-          {
-            id: 'filter',
-            label: 'filter the list',
-            run: (_, ctx) => {
-              ctx.close();
-              setQuery(ctx.query);
-            },
-          },
-        ],
-      }),
-    ],
-    [items, onOpenNote],
-  );
-  useFinderSections('tracked', finderSections);
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -180,6 +124,135 @@ export function TrackedPage({
     },
     [onNoteChanged, refresh],
   );
+
+  // ---- Ctrl+F and right-click: tracked items → open, change status/date, attach, filter ----
+  const finderSections = useMemo<FinderSection[]>(() => {
+    const itemOf = (row: TrackedItem) => ({
+      id: row.path,
+      label: row.title,
+      detail: `${row.kind} · ${row.status}${row.owner ? ` · ${row.owner}` : ''}`,
+      hint: row.due ?? row.review ?? undefined,
+      icon:
+        row.kind === 'commitment'
+          ? '✓'
+          : row.kind === 'decision'
+            ? '◆'
+            : row.kind === 'risk'
+              ? '▲'
+              : '≈',
+      data: row,
+    });
+    return [
+      section<TrackedItem>({
+        id: 'tracked-items',
+        title: 'Tracked items',
+        order: 10,
+        limit: 10,
+        search: (q) =>
+          rankBy(items, q, (t) => [t.title, t.owner, t.sourceTitle, t.status], 60).map(
+            ({ row, score }) => ({ ...itemOf(row), score }),
+          ),
+        resolve: (id) => {
+          const row = items.find((t) => t.path === id);
+          return row ? itemOf(row) : null;
+        },
+        actions: [
+          {
+            id: 'open',
+            label: 'open record',
+            run: ([t], ctx) => {
+              ctx.close();
+              if (t) onOpenNote(t.data.path);
+            },
+          },
+          {
+            id: 'source',
+            label: 'open the source note',
+            when: (list) => list.some((t) => t.data.sourcePath),
+            run: ([t], ctx) => {
+              ctx.close();
+              if (t?.data.sourcePath) onOpenNote(t.data.sourcePath);
+            },
+          },
+          {
+            id: 'status',
+            label: 'set status…',
+            when: (list) => list.length === 1,
+            run: ([t]) => {
+              if (!t) return;
+              const item = t.data;
+              return {
+                pick: {
+                  title: `Status of “${item.title}”`,
+                  section: section<{ value: string }>({
+                    id: 'tracked-status',
+                    title: 'Status',
+                    order: 0,
+                    search: (q) =>
+                      rankBy(STATUSES[item.kind], q, (s) => [s.label]).map(({ row }) => ({
+                        id: row.value,
+                        label: row.label,
+                        hint: row.value === item.status ? 'current' : undefined,
+                        data: row,
+                      })),
+                    actions: [],
+                  }),
+                  onPick: (picked) => {
+                    const value = (picked.data as { value: string }).value;
+                    if (value !== item.status) update(item, { status: value });
+                  },
+                },
+              };
+            },
+          },
+          {
+            id: 'date',
+            label: 'set due / review date…',
+            when: (list) => list.length === 1,
+            run: async ([t], ctx) => {
+              ctx.close();
+              if (!t) return;
+              const item = t.data;
+              const key = item.kind === 'commitment' ? 'due' : 'review';
+              const current = item.kind === 'commitment' ? item.due : item.review;
+              const value = await dlg.prompt({
+                title: item.kind === 'commitment' ? 'Due date' : 'Review date',
+                label: 'YYYY-MM-DD (empty clears it)',
+                initial: current ?? localISODate(),
+                confirmLabel: 'Set',
+              });
+              if (value === null) return;
+              const d = value.trim();
+              if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+                setError('Use the form YYYY-MM-DD.');
+                return;
+              }
+              if (d !== (current ?? '')) update(item, { [key]: d || null });
+            },
+          },
+          {
+            id: 'attach',
+            label: 'attach change trace',
+            when: (list) => list.length === 1 && list[0]?.data.sourceState === 'unanchored',
+            run: ([t], ctx) => {
+              ctx.close();
+              if (t) attach(t.data);
+            },
+          },
+          {
+            id: 'filter',
+            label: 'filter the list',
+            run: ([t], ctx) => {
+              ctx.close();
+              // from the Finder: what was typed; from a right-click: this item
+              setQuery(ctx.query || (t?.data.title ?? ''));
+            },
+          },
+        ],
+      }),
+    ];
+  }, [items, onOpenNote, update, attach, dlg]);
+  useFinderSections('tracked', finderSections);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -252,6 +325,8 @@ export function TrackedPage({
             <article
               key={item.path}
               className={`tracked-card ${item.kind}${isClosed(item) ? ' closed' : ''}`}
+              data-path={item.path}
+              {...ctxTarget('tracked-items', item.path)}
             >
               <div className="tracked-card-main">
                 <div className="tracked-card-top">
