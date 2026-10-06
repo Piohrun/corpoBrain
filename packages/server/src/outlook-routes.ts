@@ -8,6 +8,7 @@ import {
   outlookService,
   resolvePython,
 } from './outlook-sync-service.ts';
+import { pythonSetup } from './python-setup.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
 
 type OutlookConfig = VaultConfig['outlook'];
@@ -130,6 +131,20 @@ export function outlookRoutes(v: VaultService): Hono {
   });
 
   app.get('/status', (c) => c.json(jobs.status));
+
+  /** The Python environment the exporter needs: is it there, and set it up in one click. */
+  app.get('/python', async (c) => {
+    const setup = pythonSetup();
+    const resolved = resolvePython(v.config.outlook.python);
+    return c.json({
+      ...setup.status,
+      ready: setup.status.running ? false : await setup.ready(),
+      configured: resolved.source === 'configured',
+      python: resolved.python,
+    });
+  });
+
+  app.post('/python/setup', (c) => c.json(pythonSetup().start(), 202));
 
   app.post('/sync/start', (c) => {
     try {

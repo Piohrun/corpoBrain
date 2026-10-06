@@ -643,7 +643,7 @@ Everything in this schema is derivable from vault files plus
   },
   "outlook": {
     "enabled": false,              // scheduled sync; "Sync now" works regardless
-    "python": "",                  // "" = .venv from scripts/setup-outlook.cmd, else python
+    "python": "",                  // "" = the app's .venv (Settings → Set up Python), else python
     "intervalMinutes": 30, "timeoutSeconds": 300,
     "calendar": { "enabled": true, "folder": "meetings", "daysBack": 7, "daysAhead": 14,
                   "onlyCategories": [], "onlySubjects": [], "withPeople": true,

@@ -90,16 +90,13 @@ sprints. Incremental sync also supports profile queries ending in `ORDER BY`.
 the schema changes.
 
 **Outlook: meetings and flagged email** (classic Outlook on Windows; PowerShell
-is not involved, so ConstrainedLanguage mode does not matter). Once, from the
-repo root, create corpoBrain's own Python environment with uv:
-
-```bat
-scripts\setup-outlook.cmd
-```
-
-It runs `uv venv .venv --system-certs` and installs `comtypes` into it; the app
-finds `.venv` by itself. (Without uv: any Python with `comtypes`, set in
-Settings.) Then ⚙ Settings → Outlook:
+is not involved, so ConstrainedLanguage mode does not matter). In ⚙ Settings →
+Outlook, click **Set up Python for Outlook** once: it creates corpoBrain's own
+`.venv` next to `dist\` and installs `comtypes` into it, with uv when uv is on
+PATH (`--system-certs`, falling back to `--native-tls` on older uv) and
+otherwise with `py -m venv` + pip. The app finds `.venv` by itself. The same
+thing from a terminal: `scripts\setup-outlook.cmd`. (Or set any Python that has
+`comtypes` in the Python field.) Then, still in Settings → Outlook:
 
 - **Calendar → meeting notes**: how far back and ahead to look, and which
   meetings deserve a note — any of: someone with a person note attends

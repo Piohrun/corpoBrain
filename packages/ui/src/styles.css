@@ -1549,6 +1549,31 @@ button {
 .outlook-card {
   margin-top: 10px;
 }
+.python-env {
+  margin-top: 6px;
+}
+.python-env-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+.python-env-ok {
+  color: var(--st-done);
+}
+.python-env-log {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
 .outlook-h3 {
   font-size: 13.5px;
   font-weight: 600;

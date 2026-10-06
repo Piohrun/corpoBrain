@@ -398,6 +398,20 @@ export interface OutlookPreview {
   }[];
 }
 
+/** The .venv the Outlook connector runs in, and its one-click setup. */
+export interface PythonEnvStatus {
+  running: boolean;
+  /** the last setup's outcome; null before the first */
+  ok: boolean | null;
+  log: string[];
+  venv: string;
+  /** the .venv exists and imports comtypes (only on GET) */
+  ready?: boolean;
+  /** a Python path is set in the config, so the .venv is not used */
+  configured?: boolean;
+  python?: string;
+}
+
 export const outlookApi = {
   config: () => req<OutlookConfig>('/api/outlook/config'),
   saveConfig: (patch: OutlookConfigPatch) =>
@@ -411,6 +425,8 @@ export const outlookApi = {
       },
     ),
   status: () => req<OutlookStatus>('/api/outlook/status'),
+  python: () => req<PythonEnvStatus>('/api/outlook/python'),
+  setupPython: () => req<PythonEnvStatus>('/api/outlook/python/setup', { method: 'POST' }),
   start: () => req<{ id: string }>('/api/outlook/sync/start', { method: 'POST' }),
   cancel: (id: string) =>
     req<{ ok: boolean }>('/api/outlook/sync/cancel', {

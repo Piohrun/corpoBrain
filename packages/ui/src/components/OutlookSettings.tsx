@@ -7,6 +7,7 @@ import {
   type OutlookReport,
   type OutlookStatus,
   outlookApi,
+  type PythonEnvStatus,
 } from '../api.ts';
 
 const list = (s: string) =>
@@ -91,6 +92,77 @@ function NumberSetting({
   );
 }
 
+/** errors that a fresh .venv with comtypes fixes */
+const PYTHON_TROUBLE = /comtypes|No module named|python.*(not found|ENOENT)|ENOENT.*python/i;
+
+/**
+ * The .venv next to the app with comtypes in it: shows whether it is ready and
+ * builds it in one click (uv with the system certificates when available,
+ * otherwise python -m venv + pip). The setup runs on the server; this polls.
+ */
+function PythonEnv({ onFinished }: { onFinished: () => void }) {
+  const [env, setEnv] = useState<PythonEnvStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = useCallback(() => {
+    outlookApi
+      .python()
+      .then(setEnv)
+      .catch((e: Error) => setError(e.message));
+  }, []);
+  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    if (!env?.running) return;
+    const timer = setInterval(refresh, 1000);
+    return () => clearInterval(timer);
+  }, [env?.running, refresh]);
+  const finished = env && !env.running && env.ok !== null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only when a run finishes
+  useEffect(() => {
+    if (finished) onFinished();
+  }, [finished]);
+
+  if (error) return <div className="plan-error small wrap">{error}</div>;
+  if (!env) return null;
+  return (
+    <div className="python-env">
+      <div className="python-env-row">
+        <span className={env.ready ? 'python-env-ok' : 'muted'}>
+          {env.running
+            ? 'setting up…'
+            : env.ready
+              ? `✓ .venv ready with comtypes${env.configured ? ' (not used: a Python path is set above)' : ''}`
+              : '.venv with comtypes not set up yet'}
+        </span>
+        {!env.running && (
+          <button
+            type="button"
+            className="plan-btn"
+            title={`Creates ${env.venv} and installs comtypes into it`}
+            onClick={() =>
+              outlookApi
+                .setupPython()
+                .then(setEnv)
+                .catch((e: Error) => setError(e.message))
+            }
+          >
+            {env.ready ? 'Reinstall' : 'Set up Python for Outlook'}
+          </button>
+        )}
+      </div>
+      {(env.running || env.ok === false) && env.log.length > 0 && (
+        <pre
+          className="python-env-log"
+          ref={(el) => {
+            if (el) el.scrollTop = el.scrollHeight; // the outcome is at the end
+          }}
+        >
+          {env.log.join('\n')}
+        </pre>
+      )}
+    </div>
+  );
+}
+
 /** Settings → Outlook: calendar → meeting notes, flagged email → tasks. */
 export function OutlookSettings() {
   const [cfg, setCfg] = useState<OutlookConfig | null>(null);
@@ -144,8 +216,8 @@ export function OutlookSettings() {
       <h2 className="plan-h2">Outlook</h2>
       <div className="settings-card">
         <p className="muted small">
-          Reads your local classic Outlook through Python (<code>comtypes</code>). Set up once with{' '}
-          <code>scripts\setup-outlook.cmd</code> (uv). Nothing is ever sent to Outlook.
+          Reads your local classic Outlook through Python (<code>comtypes</code>). Nothing is ever
+          sent to Outlook.
         </p>
         {!cfg.exporterFound && (
           <p className="plan-error wrap">outlook_export.py is missing from this build.</p>
@@ -180,9 +252,17 @@ export function OutlookSettings() {
               {cfg.pythonSource === 'venv'
                 ? `using the corpoBrain .venv: ${cfg.pythonResolved}`
                 : cfg.pythonSource === 'path'
-                  ? 'no .venv found: using python from PATH (run setup-outlook.cmd)'
+                  ? 'no .venv found: using python from PATH'
                   : `using ${cfg.pythonResolved}`}
             </div>
+            <PythonEnv
+              onFinished={() =>
+                outlookApi
+                  .config()
+                  .then(setCfg)
+                  .catch(() => {})
+              }
+            />
           </div>
         </div>
       </div>
@@ -360,7 +440,14 @@ export function OutlookSettings() {
                   text: `connected to Outlook ${r.outlookVersion ?? '?'} as ${r.me ?? 'unknown'} · ${r.today} item(s) today`,
                 }),
               )
-              .catch((e: Error) => setMsg({ ok: false, text: e.message }));
+              .catch((e: Error) =>
+                setMsg({
+                  ok: false,
+                  text: PYTHON_TROUBLE.test(e.message)
+                    ? `${e.message} · try “Set up Python for Outlook” above`
+                    : e.message,
+                }),
+              );
           }}
         >
           Test connection
