@@ -1,5 +1,5 @@
 """A stand-in for comtypes.client that fakes just enough of Outlook's object
-model for outlook_export.py. The calendar comes from FAKE_OUTLOOK_SCENARIO."""
+model for outlook_export.py. FAKE_OUTLOOK_SCENARIO selects failure modes."""
 
 import datetime as dt
 import os
@@ -88,6 +88,7 @@ class Items(list):
     IncludeRecurrences = False
 
     def Sort(self, key):
+        assert key == "[Start]"
         self.sort(key=lambda a: a.Start)
 
     def Restrict(self, _filter):
@@ -106,18 +107,63 @@ class Items(list):
         return self[self._i - 1]
 
 
+NONE = D(4501, 1, 1)
+
+
+class Mail:
+    Class = 43
+
+    def __init__(self, mid, subject, received, flag=2, due=NONE, sender=ANNA, importance=1):
+        self._mid = mid
+        self.EntryID = "E" + mid
+        self.Subject = subject
+        self.ReceivedTime = received
+        self.FlagStatus = flag
+        self.IsMarkedAsTask = flag != 0
+        self.TaskDueDate = due
+        self.TaskCompletedDate = received if flag == 1 else NONE
+        self.FlagRequest = "Follow up"
+        self.Importance = importance
+        self.Categories = ""
+        self.Body = "Hi,\r\n\r\nplease   review.\r\n"
+        self.SenderName = sender.Name
+        self.SenderEmailType = "EX" if sender.AddressEntryUserType == 0 else "SMTP"
+        self.SenderEmailAddress = sender.Address
+        self.Sender = sender
+        mid_value = self._mid
+        self.PropertyAccessor = type("PA", (), {"GetProperty": lambda _self, tag: mid_value})()
+
+
+class Task:
+    Class = 48
+    Subject = "A plain Outlook task"
+
+
+def todo():
+    return [
+        Mail("<m1@bank>", "Budget sign-off", D(2026, 10, 2, 9, 15), due=D(2026, 10, 9)),
+        Mail("<m2@vendor>", "Contract draft", D(2026, 10, 3, 11, 0), sender=VENDOR, importance=2),
+        Mail("<m3@bank>", "Done already", D(2026, 10, 4, 8, 0), flag=1),
+        Mail("<m4@bank>", "Too old", D(2026, 8, 1, 8, 0)),
+        Task(),
+    ]
+
+
 class Folder:
+    def __init__(self, items):
+        self._items = items
+
     @property
     def Items(self):
-        return Items(calendar())
+        return Items(self._items())
 
 
 class Namespace:
     CurrentUser = type("CU", (), {"AddressEntry": ME})()
 
     def GetDefaultFolder(self, n):
-        assert n == 9
-        return Folder()
+        assert n in (9, 28)
+        return Folder(calendar if n == 9 else todo)
 
 
 class Outlook:

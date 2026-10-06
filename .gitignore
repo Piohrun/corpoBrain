@@ -10,3 +10,4 @@ vault/
 .env
 .claude/worktrees/
 __pycache__/
+.venv/

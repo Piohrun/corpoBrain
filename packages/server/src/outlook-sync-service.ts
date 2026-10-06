@@ -1,6 +1,6 @@
 /**
- * The Outlook calendar connector: runs python/outlook_export.py against the
- * local classic Outlook, then writes meeting notes through core.
+ * The Outlook connector: runs python/outlook_export.py against the local
+ * classic Outlook, then writes meeting notes and email tasks through core.
  */
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -8,45 +8,59 @@ import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import {
+  applyMailTasks,
   applyMeetings,
   IdentityIndex,
   type KnownMeeting,
   localDay,
+  type MailTasksReport,
   type MeetingsReport,
-  type OutlookExport,
+  type OutlookMail,
   type OutlookMeeting,
+  planMail,
+  planMeeting,
+  readMailState,
   type VaultConfig,
 } from '@corpobrain/core';
 import { type JobProgress, type JobRun, perVault, SyncJobService } from './sync-jobs.ts';
 import type { VaultService } from './vault-service.ts';
 
+export type OutlookReport = MeetingsReport | MailTasksReport;
+
 export interface OutlookProgress extends JobProgress {
-  phase: 'export' | 'notes';
+  phase: 'export' | 'notes' | 'tasks';
 }
 
 interface OutlookSyncSettings {
-  from: string;
-  to: string;
-  folder: string;
+  calendar: { from: string; to: string } | null;
+  mailSince: string | null;
+  python: string;
 }
 
-export type OutlookSyncRun = JobRun<MeetingsReport, OutlookProgress, OutlookSyncSettings>;
+export type OutlookSyncRun = JobRun<OutlookReport, OutlookProgress, OutlookSyncSettings>;
 
 export interface ExportRequest {
   python: string;
-  from: string;
-  to: string;
+  calendar?: { from: string; to: string };
+  mailSince?: string;
   timeoutSeconds: number;
   signal: AbortSignal;
   /** called with the number of calendar items Outlook has handed over so far */
   onScanned?: (scanned: number) => void;
 }
 
-export interface ExportResult extends OutlookExport {
+export interface ExportResult {
+  me: string | null;
   outlookVersion: string | null;
-  scanned: number;
-  truncated: boolean;
   filter: string | null;
+  calendar: {
+    from: string;
+    to: string;
+    meetings: OutlookMeeting[];
+    scanned: number;
+    truncated: boolean;
+  } | null;
+  mail: { since: string; mails: OutlookMail[]; complete: boolean; source: string | null } | null;
 }
 
 export type Exporter = (req: ExportRequest) => Promise<ExportResult>;
@@ -62,6 +76,22 @@ export function exporterScript(): string | null {
   );
 }
 
+/**
+ * The Python to run: the configured one, else the `.venv` that
+ * scripts/setup-outlook.cmd creates next to dist/ (or at the repo root in
+ * development), else `python` from PATH.
+ */
+export function resolvePython(configured: string): { python: string; source: string } {
+  if (configured.trim()) return { python: configured.trim(), source: 'configured' };
+  for (const root of [join(here, '..'), join(here, '..', '..', '..')]) {
+    for (const exe of [join('Scripts', 'python.exe'), join('bin', 'python')]) {
+      const candidate = join(root, '.venv', exe);
+      if (existsSync(candidate)) return { python: candidate, source: 'venv' };
+    }
+  }
+  return { python: 'python', source: 'path' };
+}
+
 /** Run the Python exporter and collect its NDJSON. */
 export const pythonExporter: Exporter = (req) =>
   new Promise((resolve, reject) => {
@@ -71,20 +101,25 @@ export const pythonExporter: Exporter = (req) =>
       return;
     }
     req.signal.throwIfAborted();
-    const child = spawn(req.python, [script, '--from', req.from, '--to', req.to], {
+    const args = [script];
+    if (req.calendar)
+      args.push('--calendar-from', req.calendar.from, '--calendar-to', req.calendar.to);
+    if (req.mailSince) args.push('--mail-since', req.mailSince);
+    const child = spawn(req.python, args, {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
     });
     const result: ExportResult = {
       me: null,
-      from: req.from,
-      to: req.to,
-      meetings: [],
       outlookVersion: null,
-      scanned: 0,
-      truncated: false,
       filter: null,
+      calendar: req.calendar
+        ? { ...req.calendar, meetings: [], scanned: 0, truncated: false }
+        : null,
+      mail: req.mailSince
+        ? { since: req.mailSince, mails: [], complete: false, source: null }
+        : null,
     };
     let stderr = '';
     let ended = false;
@@ -118,16 +153,29 @@ export const pythonExporter: Exporter = (req) =>
           result.filter = typeof msg.mode === 'string' ? msg.mode : null;
           break;
         case 'progress':
-          result.scanned = Number(msg.scanned) || result.scanned;
-          req.onScanned?.(result.scanned);
+          if (result.calendar) result.calendar.scanned = Number(msg.scanned) || 0;
+          req.onScanned?.(Number(msg.scanned) || 0);
           break;
         case 'meeting':
-          result.meetings.push(msg as unknown as OutlookMeeting);
+          result.calendar?.meetings.push(msg as unknown as OutlookMeeting);
+          break;
+        case 'calendar-end':
+          if (result.calendar) {
+            result.calendar.scanned = Number(msg.scanned) || result.calendar.scanned;
+            result.calendar.truncated = msg.truncated === true;
+          }
+          break;
+        case 'mail':
+          result.mail?.mails.push(msg as unknown as OutlookMail);
+          break;
+        case 'mail-end':
+          if (result.mail) {
+            result.mail.complete = msg.truncated !== true;
+            result.mail.source = typeof msg.source === 'string' ? msg.source : null;
+          }
           break;
         case 'end':
           ended = true;
-          result.scanned = Number(msg.scanned) || result.scanned;
-          result.truncated = msg.truncated === true;
           break;
       }
     });
@@ -138,7 +186,9 @@ export const pythonExporter: Exporter = (req) =>
     child.on('error', (e: NodeJS.ErrnoException) =>
       fail(
         e.code === 'ENOENT'
-          ? new Error(`Python not found: "${req.python}". Set the Python path in Outlook settings.`)
+          ? new Error(
+              `Python not found: "${req.python}". Run scripts\\setup-outlook.cmd, or set the Python path in Outlook settings.`,
+            )
           : e,
       ),
     );
@@ -155,23 +205,49 @@ export const pythonExporter: Exporter = (req) =>
     });
   });
 
-/** The local-day export window for a config, ending exclusively. */
+const shiftDay = (now: Date, days: number) => {
+  const d = new Date(now);
+  d.setDate(d.getDate() + days);
+  return localDay(d);
+};
+
+/** The local-day calendar window for a config, ending exclusively. */
 export function exportWindow(
-  cfg: VaultConfig['outlook'],
+  cfg: Pick<VaultConfig['outlook']['calendar'], 'daysBack' | 'daysAhead'>,
   now = new Date(),
 ): { from: string; to: string } {
-  const shift = (days: number) => {
-    const d = new Date(now);
-    d.setDate(d.getDate() + days);
-    return localDay(d);
-  };
-  return { from: shift(-cfg.daysBack), to: shift(cfg.daysAhead + 1) };
+  return { from: shiftDay(now, -cfg.daysBack), to: shiftDay(now, cfg.daysAhead + 1) };
+}
+
+export function mailSince(cfg: VaultConfig['outlook']['mail'], now = new Date()): string {
+  return shiftDay(now, -cfg.daysBack);
+}
+
+export interface OutlookPreview {
+  me: string | null;
+  meetings: {
+    id: string;
+    day: string;
+    start: string;
+    subject: string;
+    attendeeCount: number;
+    action: 'create' | 'update' | 'skip';
+    reason: string | null;
+    path: string | null;
+  }[];
+  mails: {
+    received: string;
+    subject: string;
+    from: string;
+    action: 'add' | 'tick' | 'keep';
+    reason: string | null;
+  }[];
 }
 
 export const outlookService = perVault((v) => new OutlookSyncService(v));
 
 export class OutlookSyncService extends SyncJobService<
-  MeetingsReport,
+  OutlookReport,
   OutlookProgress,
   OutlookSyncSettings
 > {
@@ -182,66 +258,157 @@ export class OutlookSyncService extends SyncJobService<
     super(join(vault.root, '.corpobrain', 'outlook-cache', 'sync-history.json'));
   }
 
-  start(): { id: string; completion: Promise<MeetingsReport[]> } {
+  private request(config: VaultConfig) {
+    const o = config.outlook;
+    if (!o.calendar.enabled && !o.mail.enabled)
+      throw new Error('Turn on calendar or email sync first.');
+    return {
+      python: resolvePython(o.python).python,
+      ...(o.calendar.enabled ? { calendar: exportWindow(o.calendar) } : {}),
+      ...(o.mail.enabled ? { mailSince: mailSince(o.mail) } : {}),
+      timeoutSeconds: o.timeoutSeconds,
+    };
+  }
+
+  private resolver() {
+    const emails = IdentityIndex.load(this.vault.indexer.db, 'email');
+    return (email: string) => emails.match(email);
+  }
+
+  start(): { id: string; completion: Promise<OutlookReport[]> } {
     const config = structuredClone(this.vault.config);
-    const window = exportWindow(config.outlook);
+    const req = this.request(config);
     const plan = {
-      profiles: ['calendar'],
+      profiles: [...(req.calendar ? ['calendar'] : []), ...(req.mailSince ? ['mail'] : [])],
       full: false,
-      settings: { ...window, folder: config.outlook.folder },
+      settings: {
+        calendar: req.calendar ?? null,
+        mailSince: req.mailSince ?? null,
+        python: req.python,
+      },
     };
     return this.launch(plan, async (job) => {
-      job.progress({ profile: 'calendar', phase: 'export', current: 0, total: 0 });
+      job.progress({ profile: 'outlook', phase: 'export', current: 0, total: 0 });
       const data = await this.exporter({
-        python: config.outlook.python,
-        ...window,
-        timeoutSeconds: config.outlook.timeoutSeconds,
+        ...req,
         signal: job.signal,
         onScanned: (scanned) =>
           job.progress({ profile: 'calendar', phase: 'export', current: scanned, total: 0 }),
       });
       job.signal.throwIfAborted();
-      job.progress({
-        profile: 'calendar',
-        phase: 'notes',
-        current: 0,
-        total: data.meetings.length,
-      });
-      const db = this.vault.indexer.db;
-      const emails = IdentityIndex.load(db, 'email');
-      const report = applyMeetings(this.vault.root, config, data, {
-        known: knownMeetings(this.vault),
-        resolve: (email) => emails.match(email),
-        syncedAt: new Date().toISOString(),
-      });
-      if (data.truncated)
-        report.warnings.push(
-          `Outlook returned more than ${data.scanned} items; the window was cut short. Shorten the days back/ahead.`,
+      const resolve = this.resolver();
+      const reports: OutlookReport[] = [];
+      const touched: string[] = [];
+
+      if (data.calendar) {
+        const total = data.calendar.meetings.length;
+        job.progress({ profile: 'calendar', phase: 'notes', current: 0, total });
+        const report = applyMeetings(
+          this.vault.root,
+          config,
+          { me: data.me, ...data.calendar },
+          { known: knownMeetings(this.vault), resolve, syncedAt: new Date().toISOString() },
         );
-      const touched = [...report.created, ...report.updated, ...report.gone];
-      if (touched.length) this.vault.indexer.updatePaths(touched);
-      job.progress({
-        profile: 'calendar',
-        phase: 'notes',
-        current: data.meetings.length,
-        total: data.meetings.length,
-      });
-      job.report(report);
-      return [report];
+        if (data.calendar.truncated)
+          report.warnings.push(
+            `Outlook returned more than ${data.calendar.scanned} calendar items; the window was cut short. Fewer days back/ahead will fix it.`,
+          );
+        touched.push(...report.created, ...report.updated, ...report.gone);
+        job.report(report);
+        reports.push(report);
+      }
+      if (data.mail) {
+        job.progress({
+          profile: 'mail',
+          phase: 'tasks',
+          current: 0,
+          total: data.mail.mails.length,
+        });
+        const report = applyMailTasks(this.vault.root, config, data.mail, {
+          resolve,
+          locate: (key) => taskLocation(this.vault, key),
+        });
+        if (!data.mail.complete)
+          report.warnings.push(
+            'Outlook returned too many flagged items to read them all; unflagged mail was not ticked this time.',
+          );
+        touched.push(...report.touched);
+        job.report(report);
+        reports.push(report);
+      }
+      if (touched.length) this.vault.indexer.updatePaths([...new Set(touched)]);
+      return reports;
     });
   }
 
-  /** A quick look at today's calendar, without writing anything. */
-  async test(): Promise<{ outlookVersion: string | null; me: string | null; today: number }> {
-    const today = exportWindow({ ...this.vault.config.outlook, daysBack: 0, daysAhead: 0 });
+  /** What a sync would do, without writing anything. */
+  async preview(): Promise<OutlookPreview> {
+    const config = this.vault.config;
     const data = await this.exporter({
-      python: this.vault.config.outlook.python,
-      ...today,
-      timeoutSeconds: Math.min(60, this.vault.config.outlook.timeoutSeconds),
+      ...this.request(config),
+      signal: AbortSignal.timeout(config.outlook.timeoutSeconds * 1000),
+    });
+    const ctx = { me: data.me, resolve: this.resolver() };
+    const known = knownMeetings(this.vault);
+    const state = readMailState(this.vault.root);
+    return {
+      me: data.me,
+      meetings: (data.calendar?.meetings ?? []).map((m) => {
+        const plan = planMeeting(m, config.outlook.calendar, ctx, known);
+        return {
+          id: m.id,
+          day: m.day,
+          start: m.allDay ? 'all day' : m.startLocal,
+          subject: m.subject,
+          attendeeCount: m.attendeeCount,
+          action: plan.action,
+          reason: plan.action === 'skip' ? plan.reason : null,
+          path: plan.action === 'update' ? plan.path : null,
+        };
+      }),
+      mails: (data.mail?.mails ?? []).map((m) => {
+        const plan = planMail(m, state);
+        return {
+          received: m.received.slice(0, 10),
+          subject: m.subject,
+          from: m.from.name || m.from.email || '',
+          action: plan.action,
+          reason: plan.action === 'keep' ? plan.reason : null,
+        };
+      }),
+    };
+  }
+
+  /** A quick look at today's calendar, without writing anything. */
+  async test(): Promise<{
+    outlookVersion: string | null;
+    me: string | null;
+    today: number;
+    python: string;
+  }> {
+    const o = this.vault.config.outlook;
+    const python = resolvePython(o.python).python;
+    const data = await this.exporter({
+      python,
+      calendar: exportWindow({ daysBack: 0, daysAhead: 0 }),
+      timeoutSeconds: Math.min(60, o.timeoutSeconds),
       signal: AbortSignal.timeout(60_000),
     });
-    return { outlookVersion: data.outlookVersion, me: data.me, today: data.meetings.length };
+    return {
+      outlookVersion: data.outlookVersion,
+      me: data.me,
+      today: data.calendar?.meetings.length ?? 0,
+      python,
+    };
   }
+}
+
+/** Where the task line with this block id lives now, if the index knows it. */
+function taskLocation(v: VaultService, key: string): string | null {
+  const row = v.indexer.db.prepare('SELECT path FROM tasks WHERE block_id = ? LIMIT 1').get(key) as
+    | { path: string }
+    | undefined;
+  return row?.path ?? null;
 }
 
 /** Existing meeting notes by outlook id, wherever the user has moved them. */

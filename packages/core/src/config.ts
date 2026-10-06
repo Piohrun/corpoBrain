@@ -57,23 +57,45 @@ export interface VaultConfig {
     writeback: 'off' | 'dry-run' | 'on';
     profiles: JiraProfile[];
   };
-  /** calendar sync from the local classic Outlook (SPEC §6.4) */
+  /** sync from the local classic Outlook (SPEC §6.4, §6.5) */
   outlook: {
     /** run the scheduled sync (manual "Sync now" works either way) */
     enabled: boolean;
-    /** the Python that has `comtypes` installed */
+    /** the Python that has `comtypes`; empty = the setup script's .venv, else `python` */
     python: string;
-    /** where new meeting notes are created */
-    folder: string;
-    daysBack: number;
-    daysAhead: number;
-    /** also mirror appointments without attendees (focus time, reminders) */
-    includeAppointments: boolean;
-    skipCategories: string[];
-    /** case-insensitive substrings of subjects that never get a note */
-    skipSubjects: string[];
     intervalMinutes: number;
     timeoutSeconds: number;
+    calendar: {
+      enabled: boolean;
+      /** where new meeting notes are created */
+      folder: string;
+      daysBack: number;
+      daysAhead: number;
+      /**
+       * Which meetings get a note. When any of these three is set, a meeting
+       * must match at least one: an Outlook category, a subject substring, or
+       * an attendee (organizer included) who has a person note.
+       */
+      onlyCategories: string[];
+      onlySubjects: string[];
+      withPeople: boolean;
+      /** skip meetings with more attendees than this (0 = no limit) */
+      maxAttendees: number;
+      /** recurring series (1:1s, standups) get notes too */
+      recurring: boolean;
+      /** also mirror appointments without attendees (focus time, reminders) */
+      includeAppointments: boolean;
+      skipCategories: string[];
+      /** case-insensitive substrings of subjects that never get a note */
+      skipSubjects: string[];
+    };
+    mail: {
+      enabled: boolean;
+      /** flagged mail received this many days back or less becomes a task */
+      daysBack: number;
+      /** the note new tasks are appended to */
+      note: string;
+    };
   };
   /** out-of-office and support rota, feeding sprint bandwidth */
   availability: {
@@ -140,15 +162,24 @@ export const DEFAULT_CONFIG: VaultConfig = {
   },
   outlook: {
     enabled: false,
-    python: 'python',
-    folder: 'meetings',
-    daysBack: 7,
-    daysAhead: 14,
-    includeAppointments: false,
-    skipCategories: [],
-    skipSubjects: [],
+    python: '',
     intervalMinutes: 30,
     timeoutSeconds: 300,
+    calendar: {
+      enabled: true,
+      folder: 'meetings',
+      daysBack: 7,
+      daysAhead: 14,
+      onlyCategories: [],
+      onlySubjects: [],
+      withPeople: true,
+      maxAttendees: 15,
+      recurring: true,
+      includeAppointments: false,
+      skipCategories: [],
+      skipSubjects: [],
+    },
+    mail: { enabled: false, daysBack: 30, note: 'notes/Email follow-ups.md' },
   },
   availability: {
     file: 'planning/availability.md',

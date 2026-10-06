@@ -75,16 +75,82 @@ export interface KnownMeeting {
   day: string | null;
 }
 
-/** Why an occurrence does not get a note, or null when it does. */
-export function skipReason(m: OutlookMeeting, cfg: VaultConfig['outlook']): string | null {
+export type CalendarConfig = VaultConfig['outlook']['calendar'];
+export type PersonResolver = (email: string) => IdentityMatch;
+
+export interface MeetingContext {
+  /** the mailbox owner, never counted as "a person in the vault" */
+  me: string | null;
+  resolve: PersonResolver;
+}
+
+const lower = (xs: string[]) => xs.map((x) => x.trim().toLowerCase()).filter(Boolean);
+
+/** Person notes among the organizer and attendees (me and rooms excluded). */
+export function peopleIn(m: OutlookMeeting, ctx: MeetingContext): string[] {
+  const me = ctx.me?.toLowerCase() ?? null;
+  const paths = new Set<string>();
+  const everyone: OutlookPerson[] = [
+    ...(m.organizer ? [m.organizer] : []),
+    ...m.attendees.filter((a) => a.kind !== 'resource'),
+  ];
+  for (const p of everyone) {
+    if (!p.email || p.email.toLowerCase() === me) continue;
+    const match = ctx.resolve(p.email);
+    if (match.status === 'matched') paths.add(match.path);
+  }
+  return [...paths];
+}
+
+/**
+ * Why an occurrence does not get a new note, or null when it does. Exclusions
+ * win over the include rules; with no include rule set, everything left in.
+ */
+export function skipReason(
+  m: OutlookMeeting,
+  cfg: CalendarConfig,
+  ctx: MeetingContext,
+): string | null {
   if (m.response === 'declined') return 'declined';
-  if (!m.isMeeting && !cfg.includeAppointments) return 'not a meeting';
-  const skipCats = new Set(cfg.skipCategories.map((c) => c.toLowerCase()));
-  if (m.categories.some((c) => skipCats.has(c.toLowerCase()))) return 'skipped category';
+  if (m.cancelled) return 'cancelled';
+  if (!m.isMeeting && !cfg.includeAppointments) return 'no attendees';
+  if (m.recurring && !cfg.recurring) return 'recurring';
+  if (cfg.maxAttendees > 0 && m.attendeeCount > cfg.maxAttendees)
+    return `more than ${cfg.maxAttendees} attendees`;
+  const categories = lower(m.categories);
+  if (lower(cfg.skipCategories).some((c) => categories.includes(c))) return 'skipped category';
   const subject = m.subject.toLowerCase();
-  if (cfg.skipSubjects.some((s) => s.trim() && subject.includes(s.trim().toLowerCase())))
-    return 'skipped subject';
-  return null;
+  if (lower(cfg.skipSubjects).some((s) => subject.includes(s))) return 'skipped subject';
+
+  const onlyCategories = lower(cfg.onlyCategories);
+  const onlySubjects = lower(cfg.onlySubjects);
+  if (!onlyCategories.length && !onlySubjects.length && !cfg.withPeople) return null;
+  if (onlyCategories.some((c) => categories.includes(c))) return null;
+  if (onlySubjects.some((s) => subject.includes(s))) return null;
+  if (cfg.withPeople && peopleIn(m, ctx).length) return null;
+  return 'matches no include rule';
+}
+
+export type MeetingPlan =
+  | { action: 'create' }
+  | { action: 'update'; path: string }
+  | { action: 'skip'; reason: string };
+
+/**
+ * What a sync does with one occurrence. A note that already exists is always
+ * kept current, even if the rules would no longer create it: the user may
+ * have written in it.
+ */
+export function planMeeting(
+  m: OutlookMeeting,
+  cfg: CalendarConfig,
+  ctx: MeetingContext,
+  known: Map<string, KnownMeeting>,
+): MeetingPlan {
+  const existing = known.get(m.id);
+  if (existing) return { action: 'update', path: existing.path };
+  const reason = skipReason(m, cfg, ctx);
+  return reason ? { action: 'skip', reason } : { action: 'create' };
 }
 
 /** Escape anything in untrusted calendar text that this spec would interpret. */
@@ -121,8 +187,6 @@ function longDay(day: string): string {
   const d = new Date(`${day}T00:00:00Z`);
   return `${WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
-
-export type PersonResolver = (email: string) => IdentityMatch;
 
 interface Rendered {
   frontmatter: Record<string, unknown>;
@@ -229,7 +293,7 @@ export function mergeMeetingFile(existing: string, r: Rendered): Merge {
 
 /**
  * Write meeting notes for an export. `known` maps outlook ids to existing
- * notes (wherever the user moved them); new notes go to `cfg.outlook.folder`.
+ * notes (wherever the user moved them); new notes go to `outlook.calendar.folder`.
  */
 export function applyMeetings(
   root: string,
@@ -254,20 +318,16 @@ export function applyMeetings(
   };
   const seen = new Set<string>();
   const taken = new Set<string>();
+  const cfg = config.outlook.calendar;
+  const ctx = { me: data.me, resolve: opts.resolve };
   for (const m of data.meetings) {
     seen.add(m.id);
-    const known = opts.known.get(m.id);
-    const reason = skipReason(m, config.outlook);
-    // An existing note is kept current even if it would no longer be created
-    // (e.g. declined later): the user may have written in it.
-    if (reason && !known) {
-      report.skipped.push({ id: m.id, reason });
+    const plan = planMeeting(m, cfg, ctx, opts.known);
+    if (plan.action === 'skip') {
+      report.skipped.push({ id: m.id, reason: plan.reason });
       continue;
     }
-    if (m.cancelled && !known) {
-      report.skipped.push({ id: m.id, reason: 'cancelled' });
-      continue;
-    }
+    const known = plan.action === 'update' ? opts.known.get(m.id) : undefined;
     const rendered = renderMeeting(m, {
       me: data.me,
       resolve: opts.resolve,
@@ -294,7 +354,7 @@ export function applyMeetings(
       }
       continue;
     }
-    const path = freePath(root, config.outlook.folder, meetingBaseName(m), m.startLocal, taken);
+    const path = freePath(root, cfg.folder, meetingBaseName(m), m.startLocal, taken);
     taken.add(path);
     const abs = join(root, path);
     mkdirSync(dirname(abs), { recursive: true });

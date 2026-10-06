@@ -1527,6 +1527,44 @@ button {
   font: inherit;
   font-size: 12.5px;
 }
+.outlook-grid {
+  grid-template-columns: 170px 1fr;
+}
+.outlook-card {
+  margin-top: 10px;
+}
+.outlook-h3 {
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.outlook-rule-head {
+  font-size: 12.5px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+}
+.outlook-check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.outlook-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0 6px;
+}
+.outlook-preview {
+  margin-top: 10px;
+  max-width: 980px;
+}
+.outlook-preview tr.muted td {
+  color: var(--fg-muted);
+}
 .probe-result {
   font-size: 12.5px;
   margin-left: 8px;

@@ -2,12 +2,15 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { OutlookMeeting } from '@corpobrain/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import {
+  type ExportRequest,
   type ExportResult,
   OutlookSyncService,
   pythonExporter,
+  resolvePython,
 } from '../src/outlook-sync-service.ts';
 import { VaultService } from '../src/vault-service.ts';
 
@@ -39,46 +42,66 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const exportOf = (subject: string, location = 'Room 4'): ExportResult => ({
+const meeting = (subject: string, location = 'Room 4'): OutlookMeeting => ({
+  id: 'R',
+  subject,
+  startUtc: '2026-10-06T12:00:00Z',
+  endUtc: '2026-10-06T13:00:00Z',
+  day: '2026-10-06',
+  startLocal: '14:00',
+  endLocal: '15:00',
+  endDay: '2026-10-06',
+  allDay: false,
+  location,
+  organizer: { name: 'Anna Kowalska', email: 'anna@bank.com' },
+  attendees: [],
+  attendeeCount: 1,
+  busy: 'busy',
+  isMeeting: true,
+  cancelled: false,
+  response: 'accepted',
+  recurring: false,
+  categories: [],
+  private: false,
+});
+
+const result = (req: ExportRequest, meetings: OutlookMeeting[]): ExportResult => ({
   me: 'me@bank.com',
-  from: '2026-09-29',
-  to: '2026-10-21',
   outlookVersion: '16.0',
-  scanned: 1,
-  truncated: false,
   filter: 'restrict',
-  meetings: [
-    {
-      id: 'R',
-      subject,
-      startUtc: '2026-10-06T12:00:00Z',
-      endUtc: '2026-10-06T13:00:00Z',
-      day: '2026-10-06',
-      startLocal: '14:00',
-      endLocal: '15:00',
-      endDay: '2026-10-06',
-      allDay: false,
-      location,
-      organizer: { name: 'Anna Kowalska', email: 'anna@bank.com' },
-      attendees: [],
-      attendeeCount: 0,
-      busy: 'busy',
-      isMeeting: true,
-      cancelled: false,
-      response: 'accepted',
-      recurring: false,
-      categories: [],
-      private: false,
-    },
-  ],
+  calendar: req.calendar ? { ...req.calendar, meetings, scanned: 1, truncated: false } : null,
+  mail: req.mailSince
+    ? {
+        since: req.mailSince,
+        complete: true,
+        source: 'todo',
+        mails: [
+          {
+            id: '<m1@bank>',
+            subject: 'Budget sign-off',
+            from: { name: 'Anna Kowalska', email: 'anna@bank.com' },
+            received: `${req.mailSince}T09:00:00`,
+            due: null,
+            completed: false,
+            flag: 'Follow up',
+            importance: 'normal',
+            categories: [],
+            preview: '',
+          },
+        ],
+      }
+    : null,
 });
 
 describe('Outlook sync service', () => {
   it('writes notes, finds them again after the user moves them, and keeps history', async () => {
-    let next = exportOf('Roadmap');
-    const service = new OutlookSyncService(vault, async () => next);
+    let next = [meeting('Roadmap')];
+    const service = new OutlookSyncService(vault, async (req) => result(req, next));
     const [first] = await service.start().completion;
-    expect(first?.created).toEqual(['meetings/2026-10-06 Roadmap.md']);
+    expect(first).toMatchObject({
+      profile: 'calendar',
+      created: ['meetings/2026-10-06 Roadmap.md'],
+    });
     expect(
       vault.indexer.db
         .prepare("SELECT DISTINCT dst_path FROM links WHERE src_path = ? AND kind = 'property'")
@@ -92,7 +115,7 @@ describe('Outlook sync service', () => {
     writeFileSync(join(root, moved), `${readFileSync(join(root, moved), 'utf8')}My notes.\n`);
     vault.indexer.updatePaths(['meetings/2026-10-06 Roadmap.md', moved]);
 
-    next = exportOf('Roadmap', 'Teams');
+    next = [meeting('Roadmap', 'Teams')];
     const [second] = await service.start().completion;
     expect(second).toMatchObject({ created: [], updated: [moved] });
     const text = readFileSync(join(root, moved), 'utf8');
@@ -104,6 +127,44 @@ describe('Outlook sync service', () => {
     ]);
   });
 
+  it('runs only the enabled sections, and turns flagged mail into indexed tasks', async () => {
+    const requests: ExportRequest[] = [];
+    const service = new OutlookSyncService(vault, async (req) => {
+      requests.push(req);
+      return result(req, []);
+    });
+    vault.config.outlook.calendar.enabled = false;
+    expect(() => service.start()).toThrow('Turn on calendar or email sync first');
+    vault.config.outlook.mail.enabled = true;
+    vault.config.outlook.mail.daysBack = 10;
+    const [report] = await service.start().completion;
+    expect(requests[0]?.calendar).toBeUndefined();
+    expect(requests[0]?.mailSince).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(report).toMatchObject({ profile: 'mail', added: ['Budget sign-off'] });
+    expect(vault.indexer.db.prepare('SELECT path, done FROM tasks').all()).toEqual([
+      { path: 'notes/Email follow-ups.md', done: 0 },
+    ]);
+  });
+
+  it('previews decisions without writing', async () => {
+    vault.config.outlook.mail.enabled = true;
+    const outsider = {
+      ...meeting('Vendor pitch'),
+      id: 'V',
+      organizer: { name: 'X', email: 'x@v.com' },
+    };
+    const service = new OutlookSyncService(vault, async (req) =>
+      result(req, [meeting('Roadmap'), outsider]),
+    );
+    const preview = await service.preview();
+    expect(preview.meetings.map((m) => [m.subject, m.action, m.reason])).toEqual([
+      ['Roadmap', 'create', null],
+      ['Vendor pitch', 'skip', 'matches no include rule'],
+    ]);
+    expect(preview.mails).toMatchObject([{ subject: 'Budget sign-off', action: 'add' }]);
+    expect(vault.indexer.db.prepare('SELECT COUNT(*) AS n FROM notes').get()).toEqual({ n: 1 });
+  });
+
   it('records exporter failures in history', async () => {
     const service = new OutlookSyncService(vault, async () => {
       throw new Error('could not connect to Outlook: Server execution failed');
@@ -111,53 +172,84 @@ describe('Outlook sync service', () => {
     await expect(service.start().completion).rejects.toThrow('Server execution failed');
     expect(service.history[0]).toMatchObject({ outcome: 'failed', error: expect.any(String) });
   });
+
+  it('uses the configured Python, else falls back to PATH when there is no .venv', () => {
+    expect(resolvePython(' C:\\py\\python.exe ')).toEqual({
+      python: 'C:\\py\\python.exe',
+      source: 'configured',
+    });
+    expect(['venv', 'path']).toContain(resolvePython('').source);
+  });
 });
 
 describe('Outlook settings API', () => {
-  it('validates and persists settings, refusing non-Python programs', async () => {
+  it('validates and persists nested settings, refusing non-Python programs', async () => {
     const app = createApp(vault);
     const put = (body: unknown) =>
       app.request('/api/outlook/config', { method: 'PUT', body: JSON.stringify(body) });
     const res = await put({
       python: '"C:\\Program Files\\Python312\\python.exe"',
-      daysAhead: 21,
-      folder: '/meetings/2026/',
-      skipSubjects: [' Lunch ', 'Lunch', ''],
+      calendar: {
+        daysAhead: 21,
+        folder: '/meetings/2026/',
+        onlyCategories: [' corpoBrain ', 'corpoBrain', ''],
+        withPeople: false,
+        maxAttendees: 8,
+      },
+      mail: { enabled: true, daysBack: 60, note: 'notes/Inbox tasks' },
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       python: 'C:\\Program Files\\Python312\\python.exe',
-      daysAhead: 21,
-      folder: 'meetings/2026',
-      skipSubjects: ['Lunch'],
+      pythonSource: 'configured',
+      calendar: {
+        enabled: true,
+        daysBack: 7,
+        daysAhead: 21,
+        folder: 'meetings/2026',
+        onlyCategories: ['corpoBrain'],
+        withPeople: false,
+        maxAttendees: 8,
+      },
+      mail: { enabled: true, daysBack: 60, note: 'notes/Inbox tasks.md' },
       exporterFound: true,
     });
     const onDisk = JSON.parse(readFileSync(join(root, '.corpobrain', 'config.json'), 'utf8'));
-    expect(onDisk.outlook.daysAhead).toBe(21);
-    expect((await put({ python: 'C:\\Windows\\System32\\calc.exe' })).status).toBe(400);
-    expect((await put({ python: 'python; rm -rf /' })).status).toBe(400);
-    expect((await put({ folder: '../outside' })).status).toBe(400);
-    expect((await put({ daysBack: 365 })).status).toBe(400);
+    expect(onDisk.outlook.calendar.daysAhead).toBe(21);
+    expect(onDisk.outlook.mail.daysBack).toBe(60);
+    for (const bad of [
+      { python: 'C:\\Windows\\System32\\calc.exe' },
+      { python: 'python; rm -rf /' },
+      { calendar: { folder: '../outside' } },
+      { calendar: { daysBack: 400 } },
+      { mail: { note: 'private/tasks.md' } },
+      { mail: { note: '.corpobrain/x.md' } },
+      { mail: { daysBack: 0 } },
+    ])
+      expect((await put(bad)).status, JSON.stringify(bad)).toBe(400);
+    expect((await put({ python: '' })).status).toBe(200);
     expect((await put({ python: 'py' })).status).toBe(200);
   });
 });
 
 describe.skipIf(!python)('outlook_export.py against a fake Outlook', () => {
-  const run = (signal = new AbortController().signal) =>
+  const run = (over: Partial<ExportRequest> = {}) =>
     pythonExporter({
       python: python as string,
-      from: '2026-10-05',
-      to: '2026-10-08',
+      calendar: { from: '2026-10-05', to: '2026-10-08' },
       timeoutSeconds: 30,
-      signal,
+      signal: new AbortController().signal,
+      ...over,
     });
 
-  it('exports occurrences in the window with resolved addresses', async () => {
+  it('exports calendar occurrences in the window with resolved addresses', async () => {
     vi.stubEnv('PYTHONPATH', fakeComtypes);
     const data = await run();
     expect(data).toMatchObject({ me: 'me@bank.com', outlookVersion: '16.0.fake', filter: 'scan' });
-    expect(data.meetings.map((m) => m.id)).toEqual(['S:2026-10-05', 'S:2026-10-06', 'R', 'F']);
-    const roadmap = data.meetings.find((m) => m.id === 'R');
+    expect(data.mail).toBeNull();
+    const meetings = data.calendar?.meetings ?? [];
+    expect(meetings.map((m) => m.id)).toEqual(['S:2026-10-05', 'S:2026-10-06', 'R', 'F']);
+    const roadmap = meetings.find((m) => m.id === 'R');
     expect(roadmap).toMatchObject({
       subject: 'Roadmap: Q4',
       day: '2026-10-06',
@@ -175,7 +267,26 @@ describe.skipIf(!python)('outlook_export.py against a fake Outlook', () => {
       { name: 'John Vendor', email: 'john@vendor.com', kind: 'optional', response: 'none' },
       { name: 'Team DL', email: 'team@bank.com', kind: 'group', response: 'accepted' },
     ]);
-    expect(data.meetings.find((m) => m.id === 'F')?.isMeeting).toBe(false);
+    expect(meetings.find((m) => m.id === 'F')?.isMeeting).toBe(false);
+  });
+
+  it('exports flagged mail since a day, skipping tasks and older mail', async () => {
+    vi.stubEnv('PYTHONPATH', fakeComtypes);
+    const data = await run({ calendar: undefined, mailSince: '2026-09-06' });
+    expect(data.calendar).toBeNull();
+    expect(data.mail).toMatchObject({ since: '2026-09-06', complete: true, source: 'todo' });
+    expect(data.mail?.mails).toMatchObject([
+      {
+        id: '<m1@bank>',
+        subject: 'Budget sign-off',
+        from: { email: 'anna@bank.com' },
+        due: '2026-10-09',
+        completed: false,
+        preview: 'Hi, please review.',
+      },
+      { id: '<m2@vendor>', from: { email: 'john@vendor.com' }, importance: 'high' },
+      { id: '<m3@bank>', completed: true },
+    ]);
   });
 
   it('reports a missing Outlook and stops on cancel', async () => {
@@ -185,7 +296,7 @@ describe.skipIf(!python)('outlook_export.py against a fake Outlook', () => {
 
     vi.stubEnv('FAKE_OUTLOOK_SCENARIO', 'slow');
     const controller = new AbortController();
-    const pending = run(controller.signal);
+    const pending = run({ signal: controller.signal });
     setTimeout(() => controller.abort(new DOMException('Sync cancelled', 'AbortError')), 200);
     const started = Date.now();
     await expect(pending).rejects.toThrow('Sync cancelled');
@@ -193,14 +304,6 @@ describe.skipIf(!python)('outlook_export.py against a fake Outlook', () => {
   });
 
   it('explains a missing Python', async () => {
-    await expect(
-      pythonExporter({
-        python: 'python-does-not-exist',
-        from: '2026-10-05',
-        to: '2026-10-08',
-        timeoutSeconds: 5,
-        signal: new AbortController().signal,
-      }),
-    ).rejects.toThrow('Python not found');
+    await expect(run({ python: 'python-does-not-exist' })).rejects.toThrow('Python not found');
   });
 });

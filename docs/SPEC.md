@@ -386,8 +386,8 @@ it are treated as unattributed rather than guessed.
 
 ### 6.4 Outlook meeting notes
 
-One note per calendar occurrence, created in `config.outlook.folder`
-(default `meetings/`) as `<YYYY-MM-DD> <subject>.md`; a clash gets the start
+One note per selected calendar occurrence, created in
+`config.outlook.calendar.folder` (default `meetings/`) as `<YYYY-MM-DD> <subject>.md`; a clash gets the start
 time (`… 1500.md`) and then a counter. The file may be renamed or moved
 anywhere: it is found again by `outlook.id`, never by path.
 
@@ -433,13 +433,46 @@ Rules, as for Jira (§6.2):
 - Calendar text is untrusted: the marker, leading `---` lines and `[[`/`]]` are
   neutralised.
 - A note is only rewritten when something other than `outlook.synced` changed.
-- New notes are not created for declined, cancelled or filtered occurrences
-  (`skipSubjects`, `skipCategories`), nor for appointments without attendees
-  unless `includeAppointments`. An existing note is still updated.
+- Which occurrences get a NEW note (`config.outlook.calendar`), in order:
+  1. never: declined, cancelled, appointments without attendees (unless
+     `includeAppointments`), recurring series when `recurring` is false, more
+     than `maxAttendees` attendees (0 = no limit), a `skipCategories` category,
+     a subject containing one of `skipSubjects`;
+  2. then, if any include rule is set, at least one must match: a category in
+     `onlyCategories`, a subject containing one of `onlySubjects`, or
+     `withPeople` and an organizer/attendee (not the mailbox owner, not a room)
+     matched to a person note through `email:` (§6.3);
+  3. with no include rule set, every remaining occurrence gets a note.
+  An existing note is always kept current, whatever the rules say now.
+  Matching is case-insensitive.
 - A note whose occurrence is no longer in the exported window gets
   `outlook.gone: true`; notes are never deleted. A rescheduled occurrence of a
   recurring series is a new occurrence (new note); the old one is flagged gone.
 - The mailbox owner and meeting rooms are left out of attendee lists.
+
+### 6.5 Flagged email → tasks
+
+Mail flagged in Outlook (the To-Do search folder; Inbox if that is
+unavailable) and received within `config.outlook.mail.daysBack` days becomes
+one task line appended to `config.outlook.mail.note`:
+
+```markdown
+- [ ] Budget sign-off — from [[people/anna|Anna Kowalska]], 2026-10-02 📅 2026-10-09 ^ol-8c2e86c0d5
+```
+
+- The block id is `ol-` + the first 10 hex digits of SHA-1 of the message's
+  Internet message id (EntryID when there is none). It ties the line to the
+  mail; everything else on the line is the user's.
+- The sender is a link when matched through `email:`; `❗` marks high
+  importance; `📅` is the flag's due date. Subject text is neutralised (`[[`,
+  `]]`, `📅`, `@due(`, a trailing block id).
+- After creation the sync never edits a line except to tick it (`[ ]` → `[x]`,
+  `j[ ]` → `j[x]`) when the flag is completed in Outlook, or when a mail inside
+  the window is no longer flagged in a complete export. The line is found by
+  block id anywhere in the vault, so it may be moved to another note.
+- `.corpobrain/outlook-cache/mail-state.json` remembers every mail seen; a
+  task the user deleted is never added again, nor one completed before its
+  first sync.
 
 ---
 
@@ -608,10 +641,16 @@ Everything in this schema is derivable from vault files plus
         "boards": [42], "futureSprints": 3 }
     ]
   },
-  "outlook": { "enabled": false, "python": "python", "folder": "meetings",
-               "daysBack": 7, "daysAhead": 14, "includeAppointments": false,
-               "skipCategories": [], "skipSubjects": [],
-               "intervalMinutes": 30, "timeoutSeconds": 300 },
+  "outlook": {
+    "enabled": false,              // scheduled sync; "Sync now" works regardless
+    "python": "",                  // "" = .venv from scripts/setup-outlook.cmd, else python
+    "intervalMinutes": 30, "timeoutSeconds": 300,
+    "calendar": { "enabled": true, "folder": "meetings", "daysBack": 7, "daysAhead": 14,
+                  "onlyCategories": [], "onlySubjects": [], "withPeople": true,
+                  "maxAttendees": 15, "recurring": true, "includeAppointments": false,
+                  "skipCategories": [], "skipSubjects": [] },
+    "mail": { "enabled": false, "daysBack": 30, "note": "notes/Email follow-ups.md" }
+  },
   "private": { "lockAfterMinutes": 10 },
   "git": { "autoCommit": true, "intervalMinutes": 10 }
 }

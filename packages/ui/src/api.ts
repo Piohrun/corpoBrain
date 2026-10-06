@@ -274,36 +274,75 @@ export interface SyncRun {
   settings: { requestTimeoutSeconds: number; searchPageSize: number };
 }
 
-export interface OutlookConfig {
+export interface OutlookCalendarConfig {
   enabled: boolean;
-  python: string;
   folder: string;
   daysBack: number;
   daysAhead: number;
+  onlyCategories: string[];
+  onlySubjects: string[];
+  withPeople: boolean;
+  maxAttendees: number;
+  recurring: boolean;
   includeAppointments: boolean;
   skipCategories: string[];
   skipSubjects: string[];
+}
+
+export interface OutlookMailConfig {
+  enabled: boolean;
+  daysBack: number;
+  note: string;
+}
+
+export interface OutlookConfig {
+  enabled: boolean;
+  python: string;
   intervalMinutes: number;
   timeoutSeconds: number;
+  calendar: OutlookCalendarConfig;
+  mail: OutlookMailConfig;
   window: { from: string; to: string };
+  mailSince: string;
+  pythonResolved: string;
+  pythonSource: 'configured' | 'venv' | 'path';
   exporterFound: boolean;
 }
 
-export interface OutlookReport {
-  fetched: number;
-  created: string[];
-  updated: string[];
-  unchanged: number;
-  skipped: { id: string; reason: string }[];
-  gone: string[];
-  warnings: string[];
-}
+export type OutlookConfigPatch = Partial<
+  Pick<OutlookConfig, 'enabled' | 'python' | 'intervalMinutes' | 'timeoutSeconds'>
+> & { calendar?: Partial<OutlookCalendarConfig>; mail?: Partial<OutlookMailConfig> };
+
+export type OutlookReport =
+  | {
+      profile: 'calendar';
+      fetched: number;
+      created: string[];
+      updated: string[];
+      unchanged: number;
+      skipped: { id: string; reason: string }[];
+      gone: string[];
+      warnings: string[];
+    }
+  | {
+      profile: 'mail';
+      fetched: number;
+      added: string[];
+      ticked: number;
+      unchanged: number;
+      warnings: string[];
+    };
 
 export interface OutlookStatus {
   syncing: boolean;
   runId: string | null;
   cancelling: boolean;
-  progress: { phase: 'export' | 'notes'; current: number; total: number } | null;
+  progress: {
+    profile: string;
+    phase: 'export' | 'notes' | 'tasks';
+    current: number;
+    total: number;
+  } | null;
   lastRun: {
     id: string;
     startedAt: string;
@@ -316,14 +355,39 @@ export interface OutlookStatus {
   historyError: string | null;
 }
 
+export interface OutlookPreview {
+  me: string | null;
+  meetings: {
+    id: string;
+    day: string;
+    start: string;
+    subject: string;
+    attendeeCount: number;
+    action: 'create' | 'update' | 'skip';
+    reason: string | null;
+    path: string | null;
+  }[];
+  mails: {
+    received: string;
+    subject: string;
+    from: string;
+    action: 'add' | 'tick' | 'keep';
+    reason: string | null;
+  }[];
+}
+
 export const outlookApi = {
   config: () => req<OutlookConfig>('/api/outlook/config'),
-  saveConfig: (patch: Partial<OutlookConfig>) =>
+  saveConfig: (patch: OutlookConfigPatch) =>
     req<OutlookConfig>('/api/outlook/config', { method: 'PUT', body: JSON.stringify(patch) }),
+  preview: () => req<OutlookPreview>('/api/outlook/preview', { method: 'POST' }),
   test: () =>
-    req<{ outlookVersion: string | null; me: string | null; today: number }>('/api/outlook/test', {
-      method: 'POST',
-    }),
+    req<{ outlookVersion: string | null; me: string | null; today: number; python: string }>(
+      '/api/outlook/test',
+      {
+        method: 'POST',
+      },
+    ),
   status: () => req<OutlookStatus>('/api/outlook/status'),
   start: () => req<{ id: string }>('/api/outlook/sync/start', { method: 'POST' }),
   cancel: (id: string) =>

@@ -156,7 +156,24 @@ export {
   orgUnitPaths,
 } from './organization.ts';
 export type {
+  MailExport,
+  MailPlan,
+  MailTasksReport,
+  OutlookMail,
+} from './outlook/mail.ts';
+export {
+  applyMailTasks,
+  mailTaskKey,
+  planMail,
+  readMailState,
+  renderMailTask,
+  tickTask,
+} from './outlook/mail.ts';
+export type {
+  CalendarConfig,
   KnownMeeting,
+  MeetingContext,
+  MeetingPlan,
   MeetingsReport,
   OutlookAttendee,
   OutlookExport,
@@ -171,6 +188,8 @@ export {
   mergeMeetingFile,
   neutralizeOutlook,
   OUTLOOK_MARKER,
+  peopleIn,
+  planMeeting,
   skipReason,
 } from './outlook/meetings.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';

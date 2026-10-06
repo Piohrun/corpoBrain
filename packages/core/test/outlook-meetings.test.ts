@@ -11,6 +11,7 @@ import {
   meetingBaseName,
   type OutlookExport,
   type OutlookMeeting,
+  planMeeting,
   skipReason,
 } from '../src/outlook/meetings.ts';
 
@@ -45,6 +46,7 @@ const meeting = (over: Partial<OutlookMeeting> = {}): OutlookMeeting => ({
 
 const resolve = (email: string): IdentityMatch =>
   email === 'anna@bank.com' ? { status: 'matched', path: 'people/anna.md' } : { status: 'unknown' };
+const ctx = { me: 'me@bank.com', resolve };
 
 let root: string;
 let config: VaultConfig;
@@ -123,8 +125,8 @@ describe('meeting notes', () => {
   });
 
   it('skips declined, non-meetings, filtered and new cancelled items', () => {
-    config.outlook.skipSubjects = ['lunch'];
-    config.outlook.skipCategories = ['Personal'];
+    config.outlook.calendar.skipSubjects = ['lunch'];
+    config.outlook.calendar.skipCategories = ['Personal'];
     const report = run([
       meeting({ id: 'a', response: 'declined' }),
       meeting({ id: 'b', isMeeting: false, attendees: [] }),
@@ -135,13 +137,13 @@ describe('meeting notes', () => {
     expect(report.created).toEqual([]);
     expect(report.skipped.map((s) => s.reason)).toEqual([
       'declined',
-      'not a meeting',
+      'no attendees',
       'skipped subject',
       'skipped category',
       'cancelled',
     ]);
-    config.outlook.includeAppointments = true;
-    expect(skipReason(meeting({ isMeeting: false }), config.outlook)).toBeNull();
+    config.outlook.calendar.includeAppointments = true;
+    expect(skipReason(meeting({ isMeeting: false }), config.outlook.calendar, ctx)).toBeNull();
   });
 
   it('gives recurring occurrences and same-name meetings their own files', () => {
@@ -203,5 +205,65 @@ describe('meeting notes', () => {
     expect(read('meetings/2026-10-06 Offsite.md')).toContain(
       '**Tue 6 Oct 2026 – Thu 8 Oct 2026 · all day**',
     );
+  });
+});
+
+describe('which meetings get notes', () => {
+  const cal = () => structuredClone(DEFAULT_CONFIG.outlook.calendar);
+  const stranger = { name: 'Stranger', email: 'x@vendor.com' };
+  const withoutPeople = meeting({
+    organizer: stranger,
+    attendees: [{ ...stranger, kind: 'required', response: 'organizer' }],
+    attendeeCount: 1,
+  });
+
+  it('by default needs a person from the vault and at most 15 attendees', () => {
+    expect(skipReason(meeting(), cal(), ctx)).toBeNull();
+    expect(skipReason(withoutPeople, cal(), ctx)).toBe('matches no include rule');
+    // me alone does not count as "a person in the vault"
+    const meOnly = meeting({ organizer: { name: 'Me', email: 'me@bank.com' }, attendees: [] });
+    expect(
+      skipReason(meOnly, cal(), {
+        me: 'me@bank.com',
+        resolve: () => ({ status: 'matched', path: 'people/me.md' }),
+      }),
+    ).toBe('matches no include rule');
+    expect(skipReason(meeting({ attendeeCount: 40 }), cal(), ctx)).toBe('more than 15 attendees');
+  });
+
+  it('includes on any rule: category, subject or people', () => {
+    const c = {
+      ...cal(),
+      withPeople: false,
+      onlyCategories: ['corpoBrain'],
+      onlySubjects: ['1:1'],
+    };
+    expect(skipReason(withoutPeople, c, ctx)).toBe('matches no include rule');
+    expect(skipReason({ ...withoutPeople, categories: ['CorpoBrain'] }, c, ctx)).toBeNull();
+    expect(skipReason({ ...withoutPeople, subject: 'Anna / Me 1:1' }, c, ctx)).toBeNull();
+    // with no include rule at all, everything not excluded gets a note
+    expect(
+      skipReason(withoutPeople, { ...c, onlyCategories: [], onlySubjects: [] }, ctx),
+    ).toBeNull();
+  });
+
+  it('applies exclusions before include rules', () => {
+    const c = { ...cal(), onlyCategories: ['corpoBrain'], recurring: false, maxAttendees: 0 };
+    const tagged = meeting({ categories: ['corpoBrain'] });
+    expect(skipReason({ ...tagged, recurring: true }, c, ctx)).toBe('recurring');
+    expect(skipReason({ ...tagged, attendeeCount: 500 }, c, ctx)).toBeNull();
+    expect(skipReason({ ...tagged, response: 'declined' }, c, ctx)).toBe('declined');
+  });
+
+  it('keeps updating an existing note the rules would no longer create', () => {
+    const known = new Map([['GID-1', { path: 'meetings/x.md', day: '2026-10-06' }]]);
+    expect(planMeeting(withoutPeople, cal(), ctx, known)).toEqual({
+      action: 'update',
+      path: 'meetings/x.md',
+    });
+    expect(planMeeting(withoutPeople, cal(), ctx, new Map())).toEqual({
+      action: 'skip',
+      reason: 'matches no include rule',
+    });
   });
 });

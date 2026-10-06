@@ -89,13 +89,29 @@ sprints. Incremental sync also supports profile queries ending in `ORDER BY`.
 (option B). Your vault is untouched by updates; the index rebuilds itself when
 the schema changes.
 
-**Sync your Outlook calendar** (classic Outlook on Windows): install the one
-Python dependency once (`pip install comtypes`), then ⚙ Settings → Outlook
-calendar → *Test connection* → *Sync now*. Each meeting in the window (7 days
-back, 14 ahead by default) becomes a note in `meetings/`, with attendees linked
-to person notes through their `email:` property. Write your notes below the
-`<!-- outlook:end -->` line; later syncs refresh only the part above it.
-PowerShell is not involved, so ConstrainedLanguage mode does not matter.
+**Outlook: meetings and flagged email** (classic Outlook on Windows; PowerShell
+is not involved, so ConstrainedLanguage mode does not matter). Once, from the
+repo root, create corpoBrain's own Python environment with uv:
+
+```bat
+scripts\setup-outlook.cmd
+```
+
+It runs `uv venv .venv --system-certs` and installs `comtypes` into it; the app
+finds `.venv` by itself. (Without uv: any Python with `comtypes`, set in
+Settings.) Then ⚙ Settings → Outlook:
+
+- **Calendar → meeting notes**: how far back and ahead to look, and which
+  meetings deserve a note — any of: someone with a person note attends
+  (matched by their `email:`), an Outlook category such as `corpoBrain`, or a
+  subject keyword; never for big meetings, recurring series, or listed
+  subjects/categories. **Preview** shows what would happen before anything is
+  written. Write under the `<!-- outlook:end -->` line; syncs only refresh the
+  part above it.
+- **Flagged email → tasks**: flagged mail from the last N days becomes a task
+  in one note. Move, edit or delete tasks freely; completing or clearing the
+  flag in Outlook ticks them, and deleted ones never come back.
+
 `scripts/outlook-probe.py` checks what Outlook allows on a new machine.
 
 ## Using it
