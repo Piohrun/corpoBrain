@@ -141,7 +141,8 @@ export class SyncJobService<TReport, TProgress extends JobProgress, TSettings> {
     const job: JobContext<TReport, TProgress> = {
       signal: controller.signal,
       addSecrets: (values) => {
-        for (const value of values) if (value) secrets.push(value);
+        // too short to be a credential, and redacting it would garble every message
+        for (const value of values) if (value && value.length >= 4) secrets.push(value);
       },
       redact,
       progress: (p) => {

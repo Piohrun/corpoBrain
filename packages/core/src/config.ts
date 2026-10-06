@@ -97,6 +97,19 @@ export interface VaultConfig {
       note: string;
     };
   };
+  /** org tree import from Teambook (docs/TEAMBOOK.md); the token lives in secrets */
+  teambook: {
+    baseUrl: string;
+    /** import only this POD and everything under it ('' = whatever the API returns) */
+    rootPodId: string;
+    /** empty = the Jira proxy setting, then env vars */
+    proxyUrl: string;
+    requestTimeoutSeconds: number;
+    /** POD member lists fetched in parallel */
+    concurrency: number;
+    createUnits: boolean;
+    createPeople: boolean;
+  };
   /** out-of-office and support rota, feeding sprint bandwidth */
   availability: {
     /** the note holding the availability table */
@@ -180,6 +193,15 @@ export const DEFAULT_CONFIG: VaultConfig = {
       skipSubjects: [],
     },
     mail: { enabled: false, daysBack: 30, note: 'notes/Email follow-ups.md' },
+  },
+  teambook: {
+    baseUrl: '',
+    rootPodId: '',
+    proxyUrl: '',
+    requestTimeoutSeconds: 60,
+    concurrency: 4,
+    createUnits: true,
+    createPeople: true,
   },
   availability: {
     file: 'planning/availability.md',

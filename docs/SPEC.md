@@ -684,3 +684,8 @@ version.
 Organization relationships are specified in [Organization mapping](ORGANIZATION.md).
 They use additive person properties and `type: org_unit` notes under
 `folders.organization`, without changing the existing note identity or index contract.
+
+A person or organization note MAY carry `teambook_id` (string), tying it to a
+Teambook record. The Teambook importer ([TEAMBOOK.md](TEAMBOOK.md)) matches
+by it first and writes only the keys listed there; its state lives in
+`.corpobrain/teambook-cache/`.

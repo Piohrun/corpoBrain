@@ -6,13 +6,14 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type SecretName = 'jiraToken' | 'jiraEmail' | 'githubToken';
+export type SecretName = 'jiraToken' | 'jiraEmail' | 'githubToken' | 'teambookToken';
 
 /** The env var that overrides each secret. */
 export const SECRET_ENV: Record<SecretName, string> = {
   jiraToken: 'CORPOBRAIN_JIRA_TOKEN',
   jiraEmail: 'CORPOBRAIN_JIRA_EMAIL',
   githubToken: 'CORPOBRAIN_GITHUB_TOKEN',
+  teambookToken: 'CORPOBRAIN_TEAMBOOK_TOKEN',
 };
 
 const secretsFile = (root: string) => join(root, '.corpobrain', 'secrets.json');

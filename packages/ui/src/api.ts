@@ -397,6 +397,112 @@ export const outlookApi = {
     }),
 };
 
+export interface TeambookConfig {
+  baseUrl: string;
+  rootPodId: string;
+  proxyUrl: string;
+  requestTimeoutSeconds: number;
+  concurrency: number;
+  createUnits: boolean;
+  createPeople: boolean;
+  tokenSet: boolean;
+  adapterReady: boolean;
+  fixtureFound: boolean;
+}
+
+export type TeambookChangeStatus =
+  | 'new'
+  | 'link'
+  | 'fill'
+  | 'update'
+  | 'add'
+  | 'conflict'
+  | 'dismissed'
+  | 'left'
+  | 'blocked';
+
+export interface TeambookChange {
+  id: string;
+  scope: 'unit' | 'person';
+  externalId: string;
+  title: string;
+  path: string;
+  field: string | null;
+  current: unknown;
+  next: unknown;
+  status: TeambookChangeStatus;
+  selected: boolean;
+  reason: string;
+  requires: string[];
+}
+
+export interface TeambookStoredPlan {
+  id: string;
+  createdAt: string;
+  source: 'api' | 'fixture';
+  plan: {
+    snapshotAt: string;
+    changes: TeambookChange[];
+    matches: {
+      scope: 'unit' | 'person';
+      externalId: string;
+      name: string;
+      path: string | null;
+      by: 'id' | 'email' | 'title' | 'new' | 'ambiguous' | 'skipped';
+      detail: string;
+    }[];
+    warnings: string[];
+  };
+}
+
+export interface TeambookStatus {
+  syncing: boolean;
+  runId: string | null;
+  cancelling: boolean;
+  progress: { phase: string; current: number; total: number } | null;
+  lastRun: { outcome: SyncRun['outcome']; error: string | null; finishedAt: string | null } | null;
+}
+
+export interface TeambookImportRecord {
+  id: string;
+  at: string;
+  applied: string[];
+  skipped: { id: string; reason: string }[];
+  files: string[];
+  undoneAt: string | null;
+}
+
+export const teambookApi = {
+  config: () => req<TeambookConfig>('/api/teambook/config'),
+  saveConfig: (patch: Partial<TeambookConfig> & { token?: string }) =>
+    req<TeambookConfig>('/api/teambook/config', { method: 'PUT', body: JSON.stringify(patch) }),
+  status: () => req<TeambookStatus>('/api/teambook/status'),
+  preview: (source: 'api' | 'fixture') =>
+    req<{ id: string }>('/api/teambook/preview', {
+      method: 'POST',
+      body: JSON.stringify({ source }),
+    }),
+  cancel: (id: string) =>
+    req<{ ok: boolean }>('/api/teambook/preview/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+  plan: () => req<TeambookStoredPlan | null>('/api/teambook/plan'),
+  apply: (planId: string, apply: string[], dismiss: string[]) =>
+    req<{
+      id: string;
+      written: string[];
+      applied: string[];
+      skipped: { id: string; reason: string }[];
+    }>('/api/teambook/apply', { method: 'POST', body: JSON.stringify({ planId, apply, dismiss }) }),
+  imports: () => req<TeambookImportRecord[]>('/api/teambook/imports'),
+  undo: (id: string) =>
+    req<{ restored: string[]; kept: { path: string; reason: string }[] }>('/api/teambook/undo', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    }),
+};
+
 export type PlanPatch = Partial<{
   project: string | null;
   start: string | null;

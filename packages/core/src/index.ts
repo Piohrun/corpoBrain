@@ -208,6 +208,34 @@ export type {
 export { maskInlineCode, scanMarkdown, stripTrackMarkers, trackAnchors } from './scan.ts';
 export type { SecretName } from './secrets.ts';
 export { readSecret, readSecretsFile, SECRET_ENV, writeSecrets } from './secrets.ts';
+export type { TeambookWrite, TeambookWrites } from './teambook/apply.ts';
+export { buildTeambookWrites, nextBaseline } from './teambook/apply.ts';
+export type { TeambookClientOptions } from './teambook/client.ts';
+export { fetchTeambookSnapshot, normalizeSnapshot } from './teambook/client.ts';
+export { TEAMBOOK_ADAPTER_READY, TeambookNotImplemented } from './teambook/parse.ts';
+export type {
+  BaselineValue,
+  ChangeStatus,
+  TeambookBaseline,
+  TeambookChange,
+  TeambookMatch,
+  TeambookPlan,
+} from './teambook/plan.ts';
+export {
+  emptyBaseline,
+  inferKinds,
+  planTeambookImport,
+  slugify,
+  TEAMBOOK_FIELDS,
+  TEAMBOOK_ID_KEY,
+} from './teambook/plan.ts';
+export type {
+  TeambookMembership,
+  TeambookPod,
+  TeambookSnapshot,
+  TeambookUser,
+} from './teambook/types.ts';
+export { TeambookSchemaError } from './teambook/types.ts';
 export { generateUlid } from './ulid.ts';
 export type { VaultFile } from './vault.ts';
 export { matchesGlob, toPosix, walkVault, writeFileAtomic } from './vault.ts';

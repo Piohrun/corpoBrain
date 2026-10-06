@@ -70,7 +70,7 @@ export class VaultService {
   }
 
   /** Merge a partial section (jira / capacity / health) into config.json and the live config. */
-  updateConfig<K extends 'jira' | 'capacity' | 'health' | 'outlook'>(
+  updateConfig<K extends 'jira' | 'capacity' | 'health' | 'outlook' | 'teambook'>(
     section: K,
     partial: Partial<VaultConfig[K]>,
   ): void {

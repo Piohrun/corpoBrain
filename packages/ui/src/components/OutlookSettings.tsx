@@ -148,7 +148,7 @@ export function OutlookSettings() {
           <code>scripts\setup-outlook.cmd</code> (uv). Nothing is ever sent to Outlook.
         </p>
         {!cfg.exporterFound && (
-          <p className="plan-error">outlook_export.py is missing from this build.</p>
+          <p className="plan-error wrap">outlook_export.py is missing from this build.</p>
         )}
         <div className="settings-grid outlook-grid">
           <label htmlFor="ol-enabled">sync automatically</label>
@@ -437,17 +437,17 @@ export function OutlookSettings() {
         </div>
       )}
       {!status?.syncing && run?.outcome === 'failed' && run.error && (
-        <p className="plan-error">last sync failed: {run.error}</p>
+        <p className="plan-error wrap">last sync failed: {run.error}</p>
       )}
       {!status?.syncing &&
         run?.reports
           .flatMap((r) => r.warnings)
           .map((w) => (
-            <p key={w} className="plan-error small">
+            <p key={w} className="plan-error wrap small">
               {w}
             </p>
           ))}
-      {status?.historyError && <p className="plan-error">{status.historyError}</p>}
+      {status?.historyError && <p className="plan-error wrap">{status.historyError}</p>}
 
       {p && (
         <div className="outlook-preview">

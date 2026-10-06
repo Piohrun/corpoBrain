@@ -20,6 +20,7 @@ import { personRoutes } from './person-routes.ts';
 import { planRoutes } from './plan-routes.ts';
 import { privateRoutes } from './private-routes.ts';
 import { projectRoutes } from './project-routes.ts';
+import { teambookRoutes } from './teambook-routes.ts';
 import { trackedRoutes } from './tracked-routes.ts';
 import { treeRoutes } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
@@ -295,6 +296,7 @@ export function createApp(vault?: VaultService) {
 
   app.route('/api/jira', jiraRoutes(v));
   app.route('/api/outlook', outlookRoutes(v));
+  app.route('/api/teambook', teambookRoutes(v));
   app.route('/api/plan', planRoutes(v));
   app.route('/api/digest', digestRoutes(v));
   app.route('/api/availability', availabilityRoutes(v));

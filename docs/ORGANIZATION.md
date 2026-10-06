@@ -94,6 +94,10 @@ Organization views are derived from the existing note index. No new canonical da
 
 The relationship API validates reference types, parent kinds, and each reporting chain independently before writing a file. Dedicated organization fields are excluded from generic category inputs. Dragging an organization note in the notes tree or changing its Parent note uses the same parent-kind and cycle checks, so the notes tree can mirror the organization hierarchy. Circular chains and missing or ambiguous references introduced through the raw Markdown editor appear as relationship issues; the map remains navigable. Clearing a relation removes that property. Inactive people are hidden by default but can be included; filtered managers remain available as reporting context.
 
+## Importing from Teambook
+
+PODs, people and memberships can be proposed from Teambook and applied after review; see [Teambook org import](TEAMBOOK.md). Imported notes carry `teambook_id`; the importer only fills, updates or adds to the relationship fields above under three-way-merge rules, so values you edit by hand stay yours.
+
 ## Design references
 
 [ChartHop custom groups](https://docs.charthop.com/custom-groups) separates nested product groups and membership from traditional reporting lines. [ChartHop's org chart](https://docs.charthop.com/org-chart) informed expandable branches, focused team views, and profile inspection.

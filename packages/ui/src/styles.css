@@ -796,6 +796,11 @@ button {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.plan-error.wrap {
+  max-width: 760px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 /* biome-ignore lint/style/noDescendingSpecificity: utility classes; earlier scoped .muted rules are intentional */
 .muted {
   color: var(--fg-muted);
@@ -1564,6 +1569,58 @@ button {
 }
 .outlook-preview tr.muted td {
   color: var(--fg-muted);
+}
+.tb-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tb-chip {
+  display: inline-block;
+  font-size: 11.5px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.tb-new,
+.tb-chip.tb-new,
+.tb-chip.tb-fill,
+.tb-chip.tb-add,
+.tb-chip.tb-update {
+  color: var(--tag-fg);
+}
+.tb-chip.tb-conflict,
+.tb-chip.tb-left {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.tb-chip.tb-blocked,
+.tb-chip.tb-dismissed {
+  color: var(--fg-muted);
+}
+.tb-old {
+  color: var(--fg-muted);
+  text-decoration: line-through;
+}
+.tb-group {
+  margin: 10px 0;
+}
+.tb-group-head {
+  margin-bottom: 2px;
+}
+.tb-check {
+  width: 24px;
+}
+.tb-values {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+.tb-import {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 .probe-result {
   font-size: 12.5px;
