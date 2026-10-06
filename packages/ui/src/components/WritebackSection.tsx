@@ -8,6 +8,7 @@ import {
 } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { useVaultEvents } from '../hooks.ts';
+import { useProgressive } from './progressive.tsx';
 
 export function WritebackSection({
   config,
@@ -166,6 +167,10 @@ export function WritebackSection({
 
   const writable = staged.filter((s) => s.writable);
   const unwritable = staged.filter((s) => !s.writable);
+  // a re-plan can stage thousands of changes: render them as they scroll into view
+  const { shown, sentinel } = useProgressive(staged.length, 200, staged);
+  const shownWritable = writable.slice(0, shown);
+  const shownUnwritable = unwritable.slice(0, Math.max(0, shown - writable.length));
 
   return (
     <section>
@@ -176,7 +181,7 @@ export function WritebackSection({
         <p className="muted small">No uncommitted plan changes to push.</p>
       ) : (
         <div className="changes-panel">
-          {writable.map((s) => {
+          {shownWritable.map((s) => {
             const id = `${s.key}:${s.field}`;
             const status = rowStatus[id];
             return (
@@ -213,7 +218,7 @@ export function WritebackSection({
               </div>
             );
           })}
-          {unwritable.map((s) => (
+          {shownUnwritable.map((s) => (
             <div key={`${s.key}:${s.field}`} className="change-row muted">
               <span className="key-link">{s.key}</span>
               <span className="change-diffs">
@@ -223,6 +228,11 @@ export function WritebackSection({
               </span>
             </div>
           ))}
+          {shown < staged.length && (
+            <div ref={sentinel as React.RefObject<HTMLDivElement>} className="muted small">
+              {staged.length - shown} more…
+            </div>
+          )}
         </div>
       )}
       <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
