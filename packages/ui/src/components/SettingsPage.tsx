@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { type BoardPerson, type GitStatus, gitApi, planApi } from '../api.ts';
 import { nameColorHex } from '../colors.ts';
 import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
-import { OutlookSettings } from './OutlookSettings.tsx';
 import { TeambookImport } from './TeambookImport.tsx';
 
 type Theme = 'system' | 'light' | 'dark';
@@ -296,8 +295,6 @@ export function SettingsPage() {
             </div>
           </section>
         )}
-
-        <OutlookSettings />
 
         <TeambookImport />
 

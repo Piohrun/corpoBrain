@@ -134,7 +134,10 @@ export function skipReason(
 export type MeetingPlan =
   | { action: 'create' }
   | { action: 'update'; path: string }
-  | { action: 'skip'; reason: string };
+  | { action: 'skip'; reason: string; suggested?: boolean };
+
+/** a meeting the rules would give a note, in 'pick' mode */
+export const SUGGESTED = 'suggested: pick it to create a note';
 
 /**
  * What a sync does with one occurrence. A note that already exists is always
@@ -150,7 +153,9 @@ export function planMeeting(
   const existing = known.get(m.id);
   if (existing) return { action: 'update', path: existing.path };
   const reason = skipReason(m, cfg, ctx);
-  return reason ? { action: 'skip', reason } : { action: 'create' };
+  if (reason) return { action: 'skip', reason };
+  if (cfg.newNotes === 'pick') return { action: 'skip', reason: SUGGESTED, suggested: true };
+  return { action: 'create' };
 }
 
 /** Escape anything in untrusted calendar text that this spec would interpret. */
@@ -294,6 +299,8 @@ export function mergeMeetingFile(existing: string, r: Rendered): Merge {
 /**
  * Write meeting notes for an export. `known` maps outlook ids to existing
  * notes (wherever the user moved them); new notes go to `outlook.calendar.folder`.
+ * With `pick`, only those occurrences are written, each getting a note whatever
+ * the rules say (the user chose it), and nothing is marked gone.
  */
 export function applyMeetings(
   root: string,
@@ -304,6 +311,7 @@ export function applyMeetings(
     resolve: PersonResolver;
     syncedAt: string;
     profile?: string;
+    pick?: ReadonlySet<string>;
   },
 ): MeetingsReport {
   const report: MeetingsReport = {
@@ -321,8 +329,14 @@ export function applyMeetings(
   const cfg = config.outlook.calendar;
   const ctx = { me: data.me, resolve: opts.resolve };
   for (const m of data.meetings) {
+    if (opts.pick && !opts.pick.has(m.id)) continue;
     seen.add(m.id);
-    const plan = planMeeting(m, cfg, ctx, opts.known);
+    const existing = opts.known.get(m.id);
+    const plan: MeetingPlan = !opts.pick
+      ? planMeeting(m, cfg, ctx, opts.known)
+      : existing
+        ? { action: 'update', path: existing.path }
+        : { action: 'create' };
     if (plan.action === 'skip') {
       report.skipped.push({ id: m.id, reason: plan.reason });
       continue;
@@ -361,6 +375,7 @@ export function applyMeetings(
     writeFileAtomic(abs, newFile(rendered));
     report.created.push(path);
   }
+  if (opts.pick) return report;
   for (const [id, known] of opts.known) {
     if (seen.has(id) || !known.day || known.day < data.from || known.day >= data.to) continue;
     const abs = join(root, known.path);

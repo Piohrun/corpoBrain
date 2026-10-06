@@ -13,6 +13,7 @@ export type View =
   | 'tracked'
   | 'objects'
   | 'jira'
+  | 'outlook'
   | 'private'
   | 'settings';
 const groups: { label: string; items: { view: View; label: string; key: string }[] }[] = [
@@ -39,6 +40,7 @@ const groups: { label: string; items: { view: View; label: string; key: string }
     label: 'Tools',
     items: [
       { view: 'jira', label: 'Jira', key: 'i' },
+      { view: 'outlook', label: 'Outlook', key: 'm' },
       { view: 'private', label: 'Protected', key: 'l' },
       { view: 'settings', label: 'Settings', key: 's' },
     ],

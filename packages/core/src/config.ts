@@ -69,6 +69,12 @@ export interface VaultConfig {
       enabled: boolean;
       /** where new meeting notes are created */
       folder: string;
+      /**
+       * 'auto': a sync creates notes for meetings matching the rules below;
+       * 'pick': the rules only suggest, and a note is made for a meeting when
+       * you pick it in the preview. Existing notes are kept current either way.
+       */
+      newNotes: 'auto' | 'pick';
       daysBack: number;
       daysAhead: number;
       /**
@@ -181,6 +187,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
     calendar: {
       enabled: true,
       folder: 'meetings',
+      newNotes: 'auto',
       daysBack: 7,
       daysAhead: 14,
       onlyCategories: [],

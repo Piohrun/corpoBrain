@@ -12,6 +12,7 @@ import {
   type OutlookExport,
   type OutlookMeeting,
   planMeeting,
+  SUGGESTED,
   skipReason,
 } from '../src/outlook/meetings.ts';
 
@@ -265,5 +266,61 @@ describe('which meetings get notes', () => {
       action: 'skip',
       reason: 'matches no include rule',
     });
+  });
+
+  it("in 'pick' mode only suggests: a sync creates nothing new but keeps notes current", () => {
+    config.outlook.calendar.newNotes = 'pick';
+    expect(planMeeting(meeting(), config.outlook.calendar, ctx, new Map())).toEqual({
+      action: 'skip',
+      reason: SUGGESTED,
+      suggested: true,
+    });
+    expect(planMeeting(withoutPeople, config.outlook.calendar, ctx, new Map())).toEqual({
+      action: 'skip',
+      reason: 'matches no include rule',
+    });
+    expect(run([meeting()]).created).toEqual([]);
+    const known = new Map([['GID-1', { path: 'meetings/x.md', day: '2026-10-06' }]]);
+    expect(planMeeting(meeting(), config.outlook.calendar, ctx, known).action).toBe('update');
+  });
+});
+
+describe('picking meetings by hand', () => {
+  const pick = (
+    meetings: OutlookMeeting[],
+    ids: string[],
+    known = new Map<string, KnownMeeting>(),
+  ) =>
+    applyMeetings(root, config, exportOf(meetings), {
+      known,
+      resolve,
+      syncedAt: '2026-10-06T10:00:00Z',
+      pick: new Set(ids),
+    });
+
+  it('creates notes for exactly the picked meetings, whatever the rules say', () => {
+    const lunch = meeting({ id: 'L', subject: 'Lunch', attendees: [], organizer: null });
+    const other = meeting({ id: 'O', subject: 'Other' });
+    config.outlook.calendar.skipSubjects = ['lunch'];
+    const report = pick([lunch, other], ['L']);
+    expect(report.created).toEqual(['meetings/2026-10-06 Lunch.md']);
+    expect(read('meetings/2026-10-06 Lunch.md')).toContain('outlook:end');
+    // from now on a sync keeps it current like any other note
+    const known = new Map([['L', { path: report.created[0] as string, day: '2026-10-06' }]]);
+    expect(planMeeting(lunch, config.outlook.calendar, ctx, known).action).toBe('update');
+  });
+
+  it('updates an already existing note instead of making a second one, and marks nothing gone', () => {
+    const first = pick([meeting()], ['GID-1']);
+    const path = first.created[0] as string;
+    const known = new Map([
+      ['GID-1', { path, day: '2026-10-06' }],
+      ['VANISHED', { path: 'meetings/old.md', day: '2026-10-07' }],
+    ]);
+    writeFileSync(join(root, 'meetings/old.md'), '---\noutlook:\n  id: VANISHED\n---\n');
+    const again = pick([meeting({ location: 'Room 5' })], ['GID-1'], known);
+    expect(again.created).toEqual([]);
+    expect(again.updated).toEqual([path]);
+    expect(again.gone).toEqual([]);
   });
 });

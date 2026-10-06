@@ -190,6 +190,7 @@ export {
   OUTLOOK_MARKER,
   peopleIn,
   planMeeting,
+  SUGGESTED,
   skipReason,
 } from './outlook/meetings.ts';
 export type { EffortUnit, IssueRiskInput, RiskFlag } from './planning.ts';

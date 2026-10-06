@@ -444,7 +444,13 @@ Rules, as for Jira (§6.2):
      matched to a person note through `email:` (§6.3);
   3. with no include rule set, every remaining occurrence gets a note.
   An existing note is always kept current, whatever the rules say now.
-  Matching is case-insensitive.
+  Matching is case-insensitive. With `newNotes: "pick"` the rules only
+  suggest: a sync creates no new notes, and the preview lists the suggestions.
+- Picking (Tools → Outlook → Preview): the user can create the note for any
+  occurrence in the last preview — suggested, skipped by the rules, even
+  declined. It is written exactly as a sync would write it, from the meetings
+  that preview read (Outlook is not asked again; a preview older than an hour
+  must be re-run), and from then on every sync keeps it current.
 - A note whose occurrence is no longer in the exported window gets
   `outlook.gone: true`; notes are never deleted. A rescheduled occurrence of a
   recurring series is a new occurrence (new note); the old one is flagged gone.
@@ -643,9 +649,10 @@ Everything in this schema is derivable from vault files plus
   },
   "outlook": {
     "enabled": false,              // scheduled sync; "Sync now" works regardless
-    "python": "",                  // "" = the app's .venv (Settings → Set up Python), else python
+    "python": "",                  // "" = the app's .venv (Tools → Outlook → Set up Python), else python
     "intervalMinutes": 30, "timeoutSeconds": 300,
-    "calendar": { "enabled": true, "folder": "meetings", "daysBack": 7, "daysAhead": 14,
+    "calendar": { "enabled": true, "folder": "meetings", "newNotes": "auto", // or "pick"
+                  "daysBack": 7, "daysAhead": 14,
                   "onlyCategories": [], "onlySubjects": [], "withPeople": true,
                   "maxAttendees": 15, "recurring": true, "includeAppointments": false,
                   "skipCategories": [], "skipSubjects": [] },

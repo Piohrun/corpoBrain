@@ -165,6 +165,43 @@ describe('Outlook sync service', () => {
     expect(vault.indexer.db.prepare('SELECT COUNT(*) AS n FROM notes').get()).toEqual({ n: 1 });
   });
 
+  it('creates notes for meetings picked in the preview, whatever the rules say', async () => {
+    const outsider = {
+      ...meeting('Vendor pitch'),
+      id: 'V',
+      organizer: { name: 'X', email: 'x@v.com' },
+    };
+    let asked = 0;
+    const service = new OutlookSyncService(vault, async (req) => {
+      asked++;
+      return result(req, [meeting('Roadmap'), outsider]);
+    });
+    expect(() => service.createMeetingNotes(['V'])).toThrow('run Preview again');
+    await service.preview();
+    const report = service.createMeetingNotes(['V']);
+    expect(report.created).toEqual(['meetings/2026-10-06 Vendor pitch.md']);
+    expect(asked).toBe(1); // Outlook is not asked again
+    // indexed straight away, so the next preview sees it as an existing note
+    const again = await service.preview();
+    expect(again.meetings.map((m) => [m.subject, m.action, m.path])).toEqual([
+      ['Roadmap', 'create', null],
+      ['Vendor pitch', 'update', 'meetings/2026-10-06 Vendor pitch.md'],
+    ]);
+    expect(() => service.createMeetingNotes(['nope'])).toThrow('not in the last preview');
+    expect(() => service.createMeetingNotes(['V'], Date.now() + 2 * 3600_000)).toThrow(
+      'out of date',
+    );
+  });
+
+  it("in 'pick' mode a sync creates no new notes and the preview marks suggestions", async () => {
+    vault.config.outlook.calendar.newNotes = 'pick';
+    const service = new OutlookSyncService(vault, async (req) => result(req, [meeting('Roadmap')]));
+    const preview = await service.preview();
+    expect(preview.meetings).toMatchObject([{ action: 'skip', suggested: true }]);
+    const [report] = await service.start().completion;
+    expect(report).toMatchObject({ created: [] });
+  });
+
   it('records exporter failures in history', async () => {
     const service = new OutlookSyncService(vault, async () => {
       throw new Error('could not connect to Outlook: Server execution failed');
@@ -227,6 +264,14 @@ describe('Outlook settings API', () => {
       { mail: { daysBack: 0 } },
     ])
       expect((await put(bad)).status, JSON.stringify(bad)).toBe(400);
+    expect((await put({ calendar: { newNotes: 'sometimes' } })).status).toBe(400);
+    expect((await put({ calendar: { newNotes: 'pick' } })).status).toBe(200);
+    expect(vault.config.outlook.calendar.newNotes).toBe('pick');
+    const create = (body: unknown) =>
+      app.request('/api/outlook/meetings/create', { method: 'POST', body: JSON.stringify(body) });
+    expect((await create({ ids: [] })).status).toBe(400);
+    expect((await create({ ids: [1] })).status).toBe(400);
+    expect((await create({ ids: ['x'] })).status).toBe(409);
     expect((await put({ python: '' })).status).toBe(200);
     expect((await put({ python: 'py' })).status).toBe(200);
   });

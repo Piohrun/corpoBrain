@@ -23,7 +23,7 @@ import {
   type VaultConfig,
 } from '@corpobrain/core';
 import { type JobProgress, type JobRun, perVault, SyncJobService } from './sync-jobs.ts';
-import type { VaultService } from './vault-service.ts';
+import { HttpError, type VaultService } from './vault-service.ts';
 
 export type OutlookReport = MeetingsReport | MailTasksReport;
 
@@ -233,6 +233,8 @@ export interface OutlookPreview {
     attendeeCount: number;
     action: 'create' | 'update' | 'skip';
     reason: string | null;
+    /** the rules would create it, but notes are only made when picked */
+    suggested: boolean;
     path: string | null;
   }[];
   mails: {
@@ -246,6 +248,9 @@ export interface OutlookPreview {
 
 export const outlookService = perVault((v) => new OutlookSyncService(v));
 
+/** how long a preview's meetings can be picked from */
+const PREVIEW_TTL_MS = 60 * 60_000;
+
 export class OutlookSyncService extends SyncJobService<
   OutlookReport,
   OutlookProgress,
@@ -257,6 +262,9 @@ export class OutlookSyncService extends SyncJobService<
   ) {
     super(join(vault.root, '.corpobrain', 'outlook-cache', 'sync-history.json'));
   }
+
+  /** the calendar part of the last preview, for createMeetingNotes() */
+  private previewed: (ExportResult['calendar'] & { at: number; me: string | null }) | null = null;
 
   private request(config: VaultConfig) {
     const o = config.outlook;
@@ -348,6 +356,7 @@ export class OutlookSyncService extends SyncJobService<
       ...this.request(config),
       signal: AbortSignal.timeout(config.outlook.timeoutSeconds * 1000),
     });
+    this.previewed = data.calendar ? { at: Date.now(), me: data.me, ...data.calendar } : null;
     const ctx = { me: data.me, resolve: this.resolver() };
     const known = knownMeetings(this.vault);
     const state = readMailState(this.vault.root);
@@ -363,6 +372,7 @@ export class OutlookSyncService extends SyncJobService<
           attendeeCount: m.attendeeCount,
           action: plan.action,
           reason: plan.action === 'skip' ? plan.reason : null,
+          suggested: plan.action === 'skip' && plan.suggested === true,
           path: plan.action === 'update' ? plan.path : null,
         };
       }),
@@ -377,6 +387,30 @@ export class OutlookSyncService extends SyncJobService<
         };
       }),
     };
+  }
+
+  /**
+   * Notes for meetings picked in the preview, whatever the rules say. Uses the
+   * meetings the last preview read, so Outlook is not asked again.
+   */
+  createMeetingNotes(ids: string[], now = Date.now()): MeetingsReport {
+    const seen = this.previewed;
+    if (!seen || now - seen.at > PREVIEW_TTL_MS)
+      throw new HttpError(409, 'The preview is out of date: run Preview again.');
+    const missing = ids.filter((id) => !seen.meetings.some((m) => m.id === id));
+    if (missing.length)
+      throw new HttpError(409, 'That meeting is not in the last preview: run Preview again.');
+    if (this.status.syncing)
+      throw new HttpError(409, 'A sync is running: try again when it finishes.');
+    const report = applyMeetings(this.vault.root, this.vault.config, seen, {
+      known: knownMeetings(this.vault),
+      resolve: this.resolver(),
+      syncedAt: new Date(now).toISOString(),
+      pick: new Set(ids),
+    });
+    const touched = [...report.created, ...report.updated];
+    if (touched.length) this.vault.indexer.updatePaths(touched);
+    return report;
   }
 
   /** A quick look at today's calendar, without writing anything. */

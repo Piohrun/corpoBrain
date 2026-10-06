@@ -60,6 +60,9 @@ const DigestPage = memo(
 const JiraPage = memo(
   lazy(() => import('./components/JiraPage.tsx').then((m) => ({ default: m.JiraPage }))),
 );
+const OutlookPage = memo(
+  lazy(() => import('./components/OutlookPage.tsx').then((m) => ({ default: m.OutlookPage }))),
+);
 const ObjectsPage = memo(
   lazy(() => import('./components/ObjectsPage.tsx').then((m) => ({ default: m.ObjectsPage }))),
 );
@@ -1240,6 +1243,8 @@ function AppShell() {
                 <ObjectsPage onOpenNote={openFromPlanning} />
               ) : view === 'jira' ? (
                 <JiraPage onOpenNote={openFromPlanning} />
+              ) : view === 'outlook' ? (
+                <OutlookPage onOpenNote={openFromPlanning} onNotesChanged={refreshLists} />
               ) : view === 'settings' ? (
                 <SettingsPage />
               ) : view === 'private' ? (

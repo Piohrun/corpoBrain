@@ -1606,6 +1606,37 @@ button {
 .outlook-preview tr.muted td {
   color: var(--fg-muted);
 }
+.outlook-preview-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.outlook-preview-head .spacer {
+  flex: 1;
+}
+.outlook-meetings tr.muted td {
+  color: var(--fg-muted);
+}
+.outlook-subject {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+.outlook-subject:hover {
+  text-decoration: underline;
+}
+.outlook-suggested {
+  color: var(--accent);
+}
+.outlook-row-action {
+  text-align: right;
+  white-space: nowrap;
+}
 .tb-counts {
   display: flex;
   flex-wrap: wrap;

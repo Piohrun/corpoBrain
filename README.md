@@ -90,20 +90,23 @@ sprints. Incremental sync also supports profile queries ending in `ORDER BY`.
 the schema changes.
 
 **Outlook: meetings and flagged email** (classic Outlook on Windows; PowerShell
-is not involved, so ConstrainedLanguage mode does not matter). In ⚙ Settings →
-Outlook, click **Set up Python for Outlook** once: it creates corpoBrain's own
+is not involved, so ConstrainedLanguage mode does not matter). It has its own
+page under Tools → **Outlook** (`g m`). Click **Set up Python for Outlook** once: it creates corpoBrain's own
 `.venv` next to `dist\` and installs `comtypes` into it, with uv when uv is on
 PATH (`--system-certs`, falling back to `--native-tls` on older uv) and
 otherwise with `py -m venv` + pip. The app finds `.venv` by itself. The same
 thing from a terminal: `scripts\setup-outlook.cmd`. (Or set any Python that has
-`comtypes` in the Python field.) Then, still in Settings → Outlook:
+`comtypes` in the Python field.) Then choose what to sync:
 
 - **Calendar → meeting notes**: how far back and ahead to look, and which
   meetings deserve a note — any of: someone with a person note attends
   (matched by their `email:`), an Outlook category such as `corpoBrain`, or a
   subject keyword; never for big meetings, recurring series, or listed
-  subjects/categories. **Preview** shows what would happen before anything is
-  written. Write under the `<!-- outlook:end -->` line; syncs only refresh the
+  subjects/categories. **Preview** lists every meeting in the window with what
+  a sync would do, and **+ note** creates the note for any one of them right
+  there — suggested or skipped by the rules. Set *new notes* to *only for
+  meetings I pick* and the rules merely suggest: syncs then only keep the
+  notes you picked up to date. Write under the `<!-- outlook:end -->` line; syncs only refresh the
   part above it.
 - **Flagged email → tasks**: flagged mail from the last N days becomes a task
   in one note. Move, edit or delete tasks freely; completing or clearing the

@@ -299,6 +299,8 @@ export interface SyncRun {
 export interface OutlookCalendarConfig {
   enabled: boolean;
   folder: string;
+  /** 'pick': the rules only suggest; notes are made for meetings picked in Preview */
+  newNotes: 'auto' | 'pick';
   daysBack: number;
   daysAhead: number;
   onlyCategories: string[];
@@ -387,6 +389,8 @@ export interface OutlookPreview {
     attendeeCount: number;
     action: 'create' | 'update' | 'skip';
     reason: string | null;
+    /** the rules would create it, but notes are only made when picked */
+    suggested: boolean;
     path: string | null;
   }[];
   mails: {
@@ -425,6 +429,12 @@ export const outlookApi = {
       },
     ),
   status: () => req<OutlookStatus>('/api/outlook/status'),
+  /** notes for meetings picked from the last preview */
+  createMeetings: (ids: string[]) =>
+    req<Extract<OutlookReport, { profile: 'calendar' }>>('/api/outlook/meetings/create', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
   python: () => req<PythonEnvStatus>('/api/outlook/python'),
   setupPython: () => req<PythonEnvStatus>('/api/outlook/python/setup', { method: 'POST' }),
   start: () => req<{ id: string }>('/api/outlook/sync/start', { method: 'POST' }),

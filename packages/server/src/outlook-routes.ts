@@ -85,6 +85,11 @@ export function outlookRoutes(v: VaultService): Hono {
       for (const key of ['enabled', 'withPeople', 'recurring', 'includeAppointments'] as const)
         if (typeof b[key] === 'boolean') cal[key] = b[key];
       if (typeof b.folder === 'string') cal.folder = vaultPath(b.folder, 'folder');
+      if (b.newNotes !== undefined) {
+        if (b.newNotes !== 'auto' && b.newNotes !== 'pick')
+          throw new HttpError(400, "newNotes must be 'auto' or 'pick'");
+        cal.newNotes = b.newNotes;
+      }
       if (b.daysBack !== undefined) cal.daysBack = int(b.daysBack, 'calendar days back', 0, 365);
       if (b.daysAhead !== undefined) cal.daysAhead = int(b.daysAhead, 'calendar days ahead', 0, 90);
       if (b.maxAttendees !== undefined)
@@ -128,6 +133,19 @@ export function outlookRoutes(v: VaultService): Hono {
     } catch (e) {
       throw outlookError(e, 'preview');
     }
+  });
+
+  /** Notes for the meetings the user picked in the preview. */
+  app.post('/meetings/create', async (c) => {
+    const body = (await c.req.json()) as { ids?: unknown };
+    if (
+      !Array.isArray(body.ids) ||
+      !body.ids.length ||
+      body.ids.length > 500 ||
+      !body.ids.every((id) => typeof id === 'string' && id)
+    )
+      throw new HttpError(400, 'ids must be a non-empty list of meeting ids');
+    return c.json(jobs.createMeetingNotes(body.ids as string[]));
   });
 
   app.get('/status', (c) => c.json(jobs.status));

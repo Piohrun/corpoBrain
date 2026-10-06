@@ -11,6 +11,7 @@ const paths = {
   tracked: 'M4 21V3h13l-2 4 2 4H4',
   objects: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   jira: 'M4 7h16 M17 4l3 3-3 3 M20 17H4 M7 14l-3 3 3 3',
+  outlook: 'M3 5h18v14H3z m0 0 9 7 9-7',
   settings: 'M4 5h16 M4 12h16 M4 19h16 M8 3v4 M16 10v4 M10 17v4',
   private: 'M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4 M12 14v3',
   pin: 'm16 3 5 5-5 2-2 6-3-3-7 7 M11 13l-3-3 6-2z',
