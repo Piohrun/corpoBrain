@@ -115,7 +115,7 @@ thing from a terminal: `scripts\setup-outlook.cmd`. (Or set any Python that has
 `scripts/outlook-probe.py` checks what Outlook allows on a new machine.
 
 **Teambook org import** (scaffolding; the API adapter is completed per
-[docs/TEAMBOOK.md](docs/TEAMBOOK.md)): ⚙ Settings → Teambook import previews
+[docs/TEAMBOOK.md](docs/TEAMBOOK.md)): Tools → **Teambook** (`g b`) previews
 PODs, people and memberships under one root POD as reviewable changes, applies
 only what you select, and can undo an import. Hand-edited values stay yours.
 

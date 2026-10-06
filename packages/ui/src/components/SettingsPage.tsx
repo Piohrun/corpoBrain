@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react';
 import { type BoardPerson, type GitStatus, gitApi, planApi } from '../api.ts';
 import { nameColorHex } from '../colors.ts';
 import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
-import { TeambookImport } from './TeambookImport.tsx';
 
 type Theme = 'system' | 'light' | 'dark';
 const STATUS_COLORS: { key: string; label: string; fallback: string }[] = [
@@ -295,8 +294,6 @@ export function SettingsPage() {
             </div>
           </section>
         )}
-
-        <TeambookImport />
 
         <section>
           <h2 className="plan-h2">Vault history (git)</h2>

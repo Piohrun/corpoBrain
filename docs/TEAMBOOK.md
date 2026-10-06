@@ -8,7 +8,7 @@ writes only what you approve. It complements the hand-built organization map
 
 ## Using it
 
-1. Settings → **Teambook import**: API URL, token (stored in
+1. Tools → **Teambook** (`g b`): API URL, token (stored in
    `.corpobrain/secrets.json`, or `CORPOBRAIN_TEAMBOOK_TOKEN`), and a **root
    POD id**. Only that POD and everything below it is imported; set it.
 2. **Preview from Teambook** fetches, validates and plans. Nothing in your
