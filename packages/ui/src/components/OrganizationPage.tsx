@@ -18,6 +18,7 @@ import {
   orgReportingView,
 } from '../../../core/src/organization.ts';
 import { organizationApi } from '../api.ts';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -171,6 +172,11 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
               score,
             }),
           ),
+        resolve: (id) => {
+          const row =
+            model.people.find((p) => p.path === id) ?? model.units.find((u) => u.path === id);
+          return row ? { id: row.path, label: row.title, detail: row.path, data: row } : null;
+        },
         actions: [
           {
             id: 'inspect',
@@ -179,6 +185,17 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
               if (item) {
                 setSelected(item.data.path);
                 setEditing(false);
+                context.close();
+              }
+            },
+          },
+          {
+            id: 'edit',
+            label: 'Edit relationships',
+            run: ([item], context) => {
+              if (item) {
+                setSelected(item.data.path);
+                setEditing(true);
                 context.close();
               }
             },
@@ -263,6 +280,7 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
       type="button"
       key={`${p.path}:${isSecondary}`}
       className={`org-person${selected === p.path ? ' selected' : ''}${isSecondary ? ' secondary' : ''}`}
+      {...ctxTarget('organization', p.path)}
       onClick={() => select(p.path)}
       title={p.path}
     >
@@ -275,17 +293,34 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
     </button>
   );
   const unitButton = (u: OrgUnit) => (
-    <button type="button" className="org-unit-title" onClick={() => select(u.path)}>
+    <button
+      type="button"
+      className="org-unit-title"
+      {...ctxTarget('organization', u.path)}
+      onClick={() => select(u.path)}
+    >
       {u.title}
     </button>
   );
   const personLink = (path: string) => (
-    <button type="button" key={path} className="org-text-link" onClick={() => select(path)}>
+    <button
+      type="button"
+      key={path}
+      className="org-text-link"
+      {...ctxTarget('organization', path)}
+      onClick={() => select(path)}
+    >
       {personByPath.get(path)?.title ?? path}
     </button>
   );
   const unitLink = (path: string) => (
-    <button type="button" key={path} className="org-text-link" onClick={() => select(path)}>
+    <button
+      type="button"
+      key={path}
+      className="org-text-link"
+      {...ctxTarget('organization', path)}
+      onClick={() => select(path)}
+    >
       {unitByPath.get(path)?.title ?? path}
     </button>
   );
@@ -385,6 +420,7 @@ export function OrganizationPage({ onOpenNote }: { onOpenNote: (path: string) =>
           <button
             type="button"
             className={`org-person${selected === p.path ? ' selected' : ''}`}
+            {...ctxTarget('organization', p.path)}
             onClick={() => select(p.path)}
           >
             <span>{p.title}</span>

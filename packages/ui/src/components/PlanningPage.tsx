@@ -161,6 +161,13 @@ export function PlanningPage({ onOpenNote }: Props) {
         },
       ],
     });
+    const personItem = (row: BoardModel['people'][number]) => ({
+      id: row.path,
+      label: row.name,
+      detail: [row.region, row.team].filter(Boolean).join(' · '),
+      icon: '👤',
+      data: row,
+    });
     const people = section<BoardModel['people'][number]>({
       id: 'plan-people',
       title: 'People',
@@ -171,14 +178,11 @@ export function PlanningPage({ onOpenNote }: Props) {
           board.people.filter((p) => p.active),
           q,
           (p) => [p.name, p.team, p.region],
-        ).map(({ row, score }) => ({
-          id: row.path,
-          label: row.name,
-          detail: [row.region, row.team].filter(Boolean).join(' · '),
-          icon: '👤',
-          data: row,
-          score,
-        })),
+        ).map(({ row, score }) => ({ ...personItem(row), score })),
+      resolve: (id) => {
+        const row = board.people.find((p) => p.path === id);
+        return row ? personItem(row) : null;
+      },
       actions: [
         {
           id: 'jump',
@@ -199,6 +203,13 @@ export function PlanningPage({ onOpenNote }: Props) {
       ],
     });
     const open = board.issues.filter((i) => i.statusCategory !== 'done');
+    const issueItem = (row: BoardModel['issues'][number]) => ({
+      id: row.key,
+      label: `${row.key} ${row.summary ?? ''}`,
+      detail: `${row.effectiveSprint} · ${row.status ?? ''}`,
+      icon: '◈',
+      data: row,
+    });
     const issueSection = section<BoardModel['issues'][number]>({
       id: 'plan-issues',
       title: 'Issues',
@@ -207,13 +218,13 @@ export function PlanningPage({ onOpenNote }: Props) {
       limit: 8,
       search: (q) =>
         rankBy(open, q, (i) => [i.key, i.summary, i.epic], 60).map(({ row, score }) => ({
-          id: row.key,
-          label: `${row.key} ${row.summary ?? ''}`,
-          detail: `${row.effectiveSprint} · ${row.status ?? ''}`,
-          icon: '◈',
-          data: row,
+          ...issueItem(row),
           score,
         })),
+      resolve: (id) => {
+        const row = board.issues.find((i) => i.key === id);
+        return row ? issueItem(row) : null;
+      },
       actions: [
         {
           id: 'open',
@@ -260,9 +271,10 @@ export function PlanningPage({ onOpenNote }: Props) {
         {
           id: 'filter',
           label: 'filter the grid to this',
-          run: (_, ctx) => {
+          run: ([i], ctx) => {
             ctx.close();
-            setFilter(ctx.query);
+            // from the Finder: what was typed; from a right-click: the issue itself
+            setFilter(ctx.query || (i?.data.key ?? ''));
           },
         },
       ],

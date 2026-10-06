@@ -8,6 +8,7 @@ import {
   projectApi,
 } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderActions, useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -269,7 +270,50 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
         },
       ],
     });
-    return [issues, rulesSection, peopleSection];
+    // a right-click on a calendar block: the issues already in this project
+    const blockOf = (key: string) =>
+      model.blocks.find((b) => b.key === key) ??
+      (() => {
+        const r = model.rail.find((x) => x.key === key);
+        return r ? { key: r.key, summary: r.summary, path: r.path, pinned: false } : undefined;
+      })();
+    const blocks = section<{ key: string; path: string; pinned: boolean }>({
+      id: 'proj-blocks',
+      title: 'In this project',
+      order: 40,
+      contextOnly: true,
+      search: () => [],
+      resolve: (id) => {
+        const b = blockOf(id);
+        return b
+          ? {
+              id: b.key,
+              label: `${b.key} ${b.summary ?? ''}`,
+              data: { key: b.key, path: b.path, pinned: b.pinned },
+            }
+          : null;
+      },
+      actions: [
+        {
+          id: 'open',
+          label: 'open note',
+          run: ([b]) => b && onOpenNote(b.data.path),
+        },
+        {
+          id: 'unpin',
+          label: 'let it flow (remove its pinned day)',
+          when: (items) => items.every((b) => b.data.pinned),
+          run: async (items) => {
+            for (const b of items)
+              await planApi
+                .patchIssue(b.data.key, { start: null })
+                .catch((e: Error) => setError(e.message));
+            refresh();
+          },
+        },
+      ],
+    });
+    return [issues, rulesSection, peopleSection, blocks];
   }, [model, board, refresh, onOpenNote]);
   useFinderSections('projects', sections);
 
@@ -838,6 +882,7 @@ function Calendar({
                 <button
                   type="button"
                   key={b.key}
+                  {...ctxTarget('proj-blocks', b.key)}
                   className={`cal-block st-${b.statusCategory ?? 'new'}${b.conflict ? ' conflict' : ''}${
                     b.lateDeps.length ? ' latedep' : ''
                   }${b.estimated ? '' : ' noest'}${b.pinned ? '' : ' flowing'}${
@@ -946,6 +991,7 @@ function Calendar({
               <button
                 type="button"
                 key={b.key}
+                {...ctxTarget('proj-blocks', b.key)}
                 className={`cal-block static${b.estimated ? '' : ' noest'}`}
                 style={{ width: Math.max(b.days * DAY, 70) }}
                 onPointerDown={(e) =>

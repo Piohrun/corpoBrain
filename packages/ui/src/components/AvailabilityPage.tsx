@@ -8,6 +8,7 @@ import {
 } from '../api.ts';
 import { localISODate, monthsAgo } from '../dates.ts';
 import { useDialogs } from '../dialogs.tsx';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
@@ -123,6 +124,10 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
             data: row,
             score,
           })),
+        resolve: (id) => {
+          const row = people.find((p) => p.path === id);
+          return row ? { id: row.path, label: row.name, icon: '👤', data: row } : null;
+        },
         actions: [
           {
             id: 'jump',
@@ -852,6 +857,7 @@ const AvRow = memo(function AvRow({
     <div
       className="av-row"
       data-path={person.path}
+      {...ctxTarget('av-people', person.path)}
       // one handler for the row instead of one per day cell
       onPointerDown={(ev) => {
         const idx = Number((ev.target as HTMLElement).dataset.idx);

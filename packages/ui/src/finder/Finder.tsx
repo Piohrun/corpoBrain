@@ -44,7 +44,7 @@ export function Finder() {
     setSelected(new Map());
     setResults(new Map());
     setActionsOpen(false);
-    setFollowUp(null);
+    setFollowUp(request?.followUp ?? null);
     setBusy(null);
     inputRef.current?.focus();
     inputRef.current?.select();
@@ -53,7 +53,7 @@ export function Finder() {
   // which sections apply: a follow-up pick, a requested section, a prefix, or all
   const { sections, effectiveQuery } = useMemo(() => {
     if (followUp) return { sections: [followUp.section], effectiveQuery: query };
-    let list = reg.sections;
+    let list = reg.sections.filter((s) => !s.contextOnly);
     let q = query;
     if (request?.section) list = list.filter((s) => s.id === request.section);
     else {

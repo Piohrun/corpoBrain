@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
 import { EditableNumber } from './EditableNumber.tsx';
 import { type GroupBy, personName, type Row, UNASSIGNED } from './planningShared.ts';
@@ -412,6 +413,7 @@ export const BandwidthGrid = memo(function BandwidthGrid({
         key={row.id}
         className={`bw-person-row ${personClasses}`}
         data-person-id={row.path ?? row.id}
+        {...(row.path ? ctxTarget('plan-people', row.path) : {})}
       >
         <td
           className={`person-cell ${personClasses}`}
@@ -571,6 +573,7 @@ export const BandwidthGrid = memo(function BandwidthGrid({
                       <button
                         type="button"
                         key={i.key}
+                        {...ctxTarget('plan-issues', i.key)}
                         className={`chip${moved ? ' overridden' : ''}${i.riskFlags.length ? ' risky' : ''}`}
                         draggable
                         onDragStart={() => setDragKey(i.key)}

@@ -110,6 +110,8 @@ class CheckboxWidget extends WidgetType {
     box.className = `cm-cb-checkbox${this.jira ? ' jira' : ''}`;
     if (this.jira) box.title = 'Jira to create or prioritise';
     box.onmousedown = (e) => {
+      // only the primary button acts; a right-click opens the context menu
+      if (e.button !== 0) return;
       e.preventDefault();
       const marker = this.jira ? 'j' : '';
       view.dispatch({
@@ -151,6 +153,8 @@ class SecretWidget extends WidgetType {
       btn.title = 'Open the note to reveal encrypted content';
     }
     btn.onmousedown = (e) => {
+      // only the primary button acts; a right-click opens the context menu
+      if (e.button !== 0) return;
       e.preventDefault();
       view.state.facet(livePreviewConfig).onSecretClick?.(this.cipher);
     };
@@ -738,7 +742,7 @@ export function livePreview(config: LivePreviewConfig): Extension {
     tablesField,
     // mousedown so the editor does not move the cursor first
     ViewPlugin.define(() => ({}), {
-      eventHandlers: { mousedown: (e, view) => clickHandler(view, e) },
+      eventHandlers: { mousedown: (e, view) => e.button === 0 && clickHandler(view, e) },
     }),
   ];
 }

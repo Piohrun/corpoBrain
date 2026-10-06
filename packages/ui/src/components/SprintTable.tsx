@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { statusColor } from '../colors.ts';
+import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { useProgressive } from './progressive.tsx';
 
 interface Option {
@@ -96,7 +97,7 @@ const IssueRow = memo(function IssueRow({
   onOpenNote: (path: string) => void;
 }) {
   return (
-    <tr>
+    <tr {...ctxTarget('plan-issues', i.key)}>
       <td>
         <input
           key={`${i.key}:${i.plan.rank ?? ''}`}

@@ -1,13 +1,29 @@
 import { Annotation, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type React from 'react';
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { api, privateApi, type TrackKind, trackedApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
+import {
+  deleteColumn,
+  deleteRow,
+  insertColumn,
+  insertRow,
+  linesToTasks,
+  linkAt,
+  setTaskDue,
+  tableCellAt,
+  taskLine,
+  toggleTask,
+  toggleTaskKind,
+} from '../editor/contextTargets.ts';
 import { clearFind, type FindMatch, findMatches, selectMatch, setFind } from '../editor/find.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
 import { editorExtensions } from '../editor/setup.ts';
 import { encryptTableCells, findTables, pendingCells, splitCells } from '../editor/tables.ts';
+import { type ContextTarget, useContextMenu } from '../finder/ContextMenu.tsx';
+import { useFinderActions, useFinderSections } from '../finder/registry.tsx';
+import { type FinderItem, section } from '../finder/types.ts';
 import { useDebouncedCallback } from '../hooks.ts';
 import { TrackDialog, type TrackDialogValue } from './TrackDialog.tsx';
 
@@ -304,6 +320,32 @@ export const Editor = memo(function Editor({
     }
   };
 
+  /** Encrypt one column or row of a table (unlocking first if needed). */
+  const encryptTable = async (
+    view: EditorView,
+    table: { from: number; to: number; lines: string[] },
+    target: import('../editor/tables.ts').EncryptTarget,
+  ) => {
+    if (!(await ensureUnlocked())) return;
+    if (!stillOpen(view)) return;
+    try {
+      const { lines, encrypted } = await encryptTableCells(table.lines, target, async (t) => {
+        const { data } = await privateApi.encrypt(t);
+        return data;
+      });
+      if (!stillOpen(view)) return;
+      if (encrypted === 0) {
+        dlg.alert('Nothing to encrypt there (cells empty or already encrypted).');
+        return;
+      }
+      view.dispatch({
+        changes: { from: table.from, to: table.to, insert: lines.join('\n') },
+      });
+    } catch (e) {
+      dlg.alert(e instanceof Error ? e.message : 'encrypt failed');
+    }
+  };
+
   const onEncryptSelection = async () => {
     const view = viewRef.current;
     if (!view) return;
@@ -343,24 +385,7 @@ export const Editor = memo(function Editor({
         }
         target = { kind: 'column', index };
       }
-      if (!(await ensureUnlocked())) return;
-      if (!stillOpen(view)) return;
-      try {
-        const { lines, encrypted } = await encryptTableCells(table.lines, target, async (t) => {
-          const { data } = await privateApi.encrypt(t);
-          return data;
-        });
-        if (!stillOpen(view)) return;
-        if (encrypted === 0) {
-          dlg.alert('Nothing to encrypt there (cells empty or already encrypted).');
-          return;
-        }
-        view.dispatch({
-          changes: { from: table.from, to: table.to, insert: lines.join('\n') },
-        });
-      } catch (e) {
-        dlg.alert(e instanceof Error ? e.message : 'encrypt failed');
-      }
+      await encryptTable(view, table, target);
       return;
     }
     const text = view.state.doc.sliceString(sel.from, sel.to);
@@ -512,6 +537,319 @@ export const Editor = memo(function Editor({
       setTrackSaving(false);
     }
   };
+
+  // ---- context menu: what is under the cursor, and what can be done there ----
+  const finder = useFinderActions();
+  const ctxMenu = useContextMenu();
+  /** a document position, and for a rendered table the cell that was clicked */
+  type At = { pos: number; cell?: { row: number; col: number } };
+  // biome-ignore lint/correctness/useExhaustiveDependencies: actions read the live view and refs at run time
+  const editorSections = useMemo(() => {
+    const view = () => viewRef.current;
+    /** run a line edit if the line still looks like it did when the menu opened */
+    const editLine = (pos: number, edit: (text: string) => string) => {
+      const v = view();
+      if (!v || pos > v.state.doc.length) return;
+      const line = v.state.doc.lineAt(pos);
+      const next = edit(line.text);
+      if (next !== line.text)
+        v.dispatch({ changes: { from: line.from, to: line.to, insert: next } });
+      v.focus();
+    };
+    const tableAt = ({ pos, cell: clicked }: At) => {
+      const v = view();
+      if (!v) return null;
+      const table = findTables(v.state).find((t) => pos >= t.from && pos <= t.to);
+      if (!table) return null;
+      const doc = v.state.doc;
+      const line = doc.lineAt(pos);
+      const cell =
+        clicked ??
+        tableCellAt(table.lines, line.number - doc.lineAt(table.from).number, pos - line.from);
+      return { v, table, ...cell };
+    };
+    const editTable = (
+      at: At,
+      edit: (lines: string[], cell: { row: number; col: number }) => string[],
+    ) => {
+      const t = tableAt(at);
+      if (!t) return;
+      const next = edit(t.table.lines, t);
+      if (next !== t.table.lines)
+        t.v.dispatch({ changes: { from: t.table.from, to: t.table.to, insert: next.join('\n') } });
+      t.v.focus();
+    };
+    const selection = section<{ text: string }>({
+      id: 'editor-selection',
+      title: 'Selection',
+      order: 100,
+      contextOnly: true,
+      search: () => [],
+      actions: [
+        {
+          id: 'track',
+          label: 'track as…',
+          run: () => {
+            const v = view();
+            const evidence = v ? selectedEvidence(v) : null;
+            if (!evidence) return;
+            setTrackSelection(evidence);
+            setTrackDialogOpen(true);
+          },
+        },
+        {
+          id: 'task',
+          label: 'turn into tasks',
+          run: () => {
+            const v = view();
+            if (!v) return;
+            const sel = v.state.selection.main;
+            const from = v.state.doc.lineAt(sel.from).from;
+            const to = v.state.doc.lineAt(sel.to).to;
+            const text = v.state.doc.sliceString(from, to);
+            const next = linesToTasks(text);
+            if (next !== text) v.dispatch({ changes: { from, to, insert: next } });
+            v.focus();
+          },
+        },
+        {
+          id: 'encrypt',
+          label: 'encrypt',
+          keys: 'Mod+Shift+E',
+          run: () => void onEncryptSelection(),
+        },
+        {
+          id: 'find',
+          label: 'find in vault',
+          run: ([item]) => finder.open({ query: item?.data.text.slice(0, 120) ?? '' }),
+        },
+        {
+          id: 'copy',
+          label: 'copy',
+          run: ([item]) =>
+            void navigator.clipboard?.writeText(item?.data.text ?? '').catch(() => {}),
+        },
+      ],
+    });
+    const today = () => {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const task = section<At & { done: boolean; jira: boolean }>({
+      id: 'editor-task',
+      title: 'Task',
+      order: 101,
+      contextOnly: true,
+      search: () => [],
+      actions: [
+        {
+          id: 'toggle',
+          label: 'mark done / not done',
+          run: ([i]) => i && editLine(i.data.pos, toggleTask),
+        },
+        {
+          id: 'today',
+          label: 'due today',
+          run: ([i]) => i && editLine(i.data.pos, (t) => setTaskDue(t, today())),
+        },
+        {
+          id: 'due',
+          label: 'set due date…',
+          run: async ([i]) => {
+            if (!i) return;
+            const date = await dlg.prompt({
+              title: 'Due date',
+              label: 'YYYY-MM-DD (empty removes it)',
+              initial: today(),
+              confirmLabel: 'Set',
+            });
+            if (date === null) return;
+            const d = date.trim();
+            if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+              dlg.alert('Use the form YYYY-MM-DD.');
+              return;
+            }
+            editLine(i.data.pos, (t) => setTaskDue(t, d || null));
+          },
+        },
+        {
+          id: 'kind',
+          label: 'switch: task ↔ Jira item',
+          run: ([i]) => i && editLine(i.data.pos, toggleTaskKind),
+        },
+      ],
+    });
+    const table = section<At>({
+      id: 'editor-table',
+      title: 'Table',
+      order: 102,
+      contextOnly: true,
+      search: () => [],
+      actions: [
+        {
+          id: 'row-below',
+          label: 'insert row below',
+          run: ([i]) => i && editTable(i.data, (lines, c) => insertRow(lines, c.row)),
+        },
+        {
+          id: 'col-right',
+          label: 'insert column to the right',
+          run: ([i]) => i && editTable(i.data, (lines, c) => insertColumn(lines, c.col)),
+        },
+        {
+          id: 'row-delete',
+          label: 'delete this row',
+          when: (items) => {
+            const t = items[0] ? tableAt(items[0].data) : null;
+            return !!t && t.row >= 0;
+          },
+          run: ([i]) => i && editTable(i.data, (lines, c) => deleteRow(lines, c.row)),
+        },
+        {
+          id: 'col-delete',
+          label: 'delete this column',
+          run: ([i]) => i && editTable(i.data, (lines, c) => deleteColumn(lines, c.col)),
+        },
+        {
+          id: 'enc-col',
+          label: 'encrypt this column',
+          run: ([i]) => {
+            const t = i ? tableAt(i.data) : null;
+            if (t) void encryptTable(t.v, t.table, { kind: 'column', index: t.col });
+          },
+        },
+        {
+          id: 'enc-row',
+          label: 'encrypt this row',
+          when: (items) => {
+            const t = items[0] ? tableAt(items[0].data) : null;
+            return !!t && t.row >= 0;
+          },
+          run: ([i]) => {
+            const t = i ? tableAt(i.data) : null;
+            if (t && t.row >= 0) void encryptTable(t.v, t.table, { kind: 'row', rowIndex: t.row });
+          },
+        },
+      ],
+    });
+    const url = section<{ url: string }>({
+      id: 'editor-url',
+      title: 'Web link',
+      order: 99,
+      contextOnly: true,
+      search: () => [],
+      actions: [
+        {
+          id: 'open',
+          label: 'open in a new tab',
+          run: ([i]) => i && void window.open(i.data.url, '_blank', 'noopener'),
+        },
+        {
+          id: 'copy',
+          label: 'copy address',
+          run: ([i]) => i && void navigator.clipboard?.writeText(i.data.url).catch(() => {}),
+        },
+      ],
+    });
+    return [selection, task, table, url];
+  }, [finder, dlg]);
+  useFinderSections('editor', editorSections);
+
+  /** What the context menu offers at a document position. */
+  const targetsAt = (
+    view: EditorView,
+    pos: number,
+    cell?: { row: number; col: number },
+  ): ContextTarget[] => {
+    const out: ContextTarget[] = [];
+    const line = view.state.doc.lineAt(pos);
+    const link = linkAt(line.text, pos - line.from);
+    if (link?.kind === 'note') out.push({ section: 'notes', id: link.target });
+    if (link?.kind === 'jira') {
+      out.push({ section: 'plan-issues', id: link.key });
+      out.push({ section: 'notes', id: `jira/${link.key}.md` });
+    }
+    if (link?.kind === 'url')
+      out.push({
+        section: 'editor-url',
+        item: { id: link.url, label: link.url, data: { url: link.url } },
+      });
+    const sel = view.state.selection.main;
+    if (!sel.empty) {
+      const text = view.state.doc.sliceString(sel.from, sel.to);
+      out.push({
+        section: 'editor-selection',
+        item: { id: 'sel', label: text.slice(0, 40), data: { text } },
+      });
+    }
+    const t = taskLine(line.text);
+    if (t)
+      out.push({
+        section: 'editor-task',
+        item: {
+          id: `task:${line.number}`,
+          label: line.text.trim(),
+          data: { pos, ...t },
+        } as FinderItem,
+      });
+    if (findTables(view.state).some((tb) => pos >= tb.from && pos <= tb.to))
+      out.push({
+        section: 'editor-table',
+        item: { id: `table:${pos}`, label: 'table', data: cell ? { pos, cell } : { pos } },
+      });
+    // and always the note itself, so the menu is never empty in a note
+    out.push({ section: 'notes', id: latest.current.path });
+    return out;
+  };
+  const targetsAtRef = useRef(targetsAt);
+  targetsAtRef.current = targetsAt;
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: registers once for the editor host; reads refs
+  useEffect(() => {
+    const root = host.current;
+    if (!root) return;
+    return ctxMenu.provide(root, ({ event }) => {
+      const view = viewRef.current;
+      if (!view) return null;
+      if (event) {
+        let pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos === null) return null;
+        // Right after a block widget (a table) changes height, the editor's
+        // height map can be stale and map the click to a neighbouring line:
+        // trust the line element that was actually clicked.
+        const clickedLine =
+          event.target instanceof Element ? event.target.closest('.cm-line') : null;
+        if (clickedLine && view.contentDOM.contains(clickedLine)) {
+          const lineStart = view.posAtDOM(clickedLine);
+          const line = view.state.doc.lineAt(lineStart);
+          if (pos < line.from || pos > line.to) pos = line.from;
+        }
+        const sel = view.state.selection.main;
+        // like any editor: a right-click outside the selection moves the cursor there
+        if (pos < sel.from || pos > sel.to || sel.empty)
+          view.dispatch({ selection: { anchor: pos } });
+        // a rendered table cell knows exactly which row and column it is
+        const td =
+          event.target instanceof Element ? event.target.closest<HTMLElement>('td, th') : null;
+        const cell =
+          td?.dataset.row !== undefined && td.dataset.col !== undefined
+            ? { row: Number(td.dataset.row), col: Number(td.dataset.col) }
+            : undefined;
+        return {
+          targets: targetsAtRef.current(view, pos, cell),
+          x: event.clientX,
+          y: event.clientY,
+        };
+      }
+      const pos = view.state.selection.main.head;
+      const coords = view.coordsAtPos(pos);
+      return {
+        targets: targetsAtRef.current(view, pos),
+        x: coords?.left ?? 0,
+        y: coords?.bottom ?? 0,
+      };
+    });
+  }, []);
 
   // (Re)create the editor whenever the note path changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: recreate only on path change; content is the initial doc, callbacks go through latest ref

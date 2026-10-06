@@ -136,6 +136,8 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
       chip.textContent = revealedText !== null ? revealedText : '\u{1F512}';
       chip.title = revealedText !== null ? 'click to hide' : 'click to reveal';
       chip.onmousedown = (e) => {
+        // only the primary button acts; a right-click opens the context menu
+        if (e.button !== 0) return;
         e.preventDefault();
         config.onSecretClick?.(cipher);
       };
@@ -155,6 +157,8 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
       link.className = `cm-cb-wikilink${unresolved ? ' unresolved' : ''}`;
       link.textContent = (alias ?? targetPart ?? '').trim();
       link.onmousedown = (e) => {
+        // only the primary button acts; a right-click opens the context menu
+        if (e.button !== 0) return;
         e.preventDefault();
         if (target) config.onNavigate(target);
       };
@@ -352,6 +356,9 @@ class TableWidget extends WidgetType {
     const headRow = document.createElement('tr');
     header.forEach((cell, i) => {
       const th = document.createElement('th');
+      // which cell this is, for the context menu (the header is row -1)
+      th.dataset.row = '-1';
+      th.dataset.col = String(i);
       th.style.textAlign = aligns[i] ?? 'left';
       renderCell(cell, th, view);
       const ciphers = ciphersInColumn(bodyRows, i);
@@ -368,6 +375,8 @@ class TableWidget extends WidgetType {
         warn.textContent = `⚠️${pendingInCol}`;
         warn.title = `${pendingInCol} new unencrypted cell(s) in this encrypted column — click to encrypt`;
         warn.onmousedown = (e) => {
+          // only the primary button acts; a right-click opens the context menu
+          if (e.button !== 0) return;
           e.preventDefault();
           config.onEncryptPending?.(livePos(view, wrap, this.tableFrom), i);
         };
@@ -383,6 +392,8 @@ class TableWidget extends WidgetType {
           ? 'Hide this column'
           : `Reveal ${ciphers.length} encrypted cell(s) in this column`;
         btn.onmousedown = (e) => {
+          // only the primary button acts; a right-click opens the context menu
+          if (e.button !== 0) return;
           e.preventDefault();
           config.onRevealMany?.(ciphers);
         };
@@ -394,10 +405,12 @@ class TableWidget extends WidgetType {
     table.appendChild(thead);
     const tbody = document.createElement('tbody');
     const secretCols = new Set(tokenColumns(lines));
-    for (const row of bodyRows) {
+    for (const [r, row] of bodyRows.entries()) {
       const tr = document.createElement('tr');
       header.forEach((_h, i) => {
         const td = document.createElement('td');
+        td.dataset.row = String(r);
+        td.dataset.col = String(i);
         td.style.textAlign = aligns[i] ?? 'left';
         const cell = row[i] ?? '';
         if (secretCols.has(i) && cell.trim() !== '' && !isWholeToken(cell)) {

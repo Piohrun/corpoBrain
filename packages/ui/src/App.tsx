@@ -29,6 +29,7 @@ import { StatusBar } from './components/StatusBar.tsx';
 import { NAV_VIEWS as VIEW_KEYS, type View, WorkspaceNav } from './components/WorkspaceNav.tsx';
 import { ContextPreview } from './context-preview.tsx';
 import { DialogProvider, useDialogs } from './dialogs.tsx';
+import { ContextMenuProvider } from './finder/ContextMenu.tsx';
 import { Finder } from './finder/Finder.tsx';
 import { rankBy } from './finder/match.ts';
 import {
@@ -37,7 +38,7 @@ import {
   useFinderActions,
   useFinderSections,
 } from './finder/registry.tsx';
-import { type FinderSection, section } from './finder/types.ts';
+import { type FinderItem, type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
 import { emptyPreview, previewPath, previewReducer } from './preview-state.ts';
 import { getSaveState, setSaveState } from './save-state.ts';
@@ -199,7 +200,9 @@ export function App() {
   return (
     <DialogProvider>
       <FinderProvider>
-        <AppShell />
+        <ContextMenuProvider>
+          <AppShell />
+        </ContextMenuProvider>
       </FinderProvider>
     </DialogProvider>
   );
@@ -532,6 +535,14 @@ function AppShell() {
         run: () => finder.open(),
       },
       {
+        id: 'context-menu',
+        keys: 'Shift+F10',
+        label:
+          'Actions for what is under the cursor (also the Menu key and right-click; Shift+right-click for the browser menu)',
+        scope: 'global',
+        passive: true,
+      },
+      {
         id: 'daily',
         keys: 'Mod+D',
         label: 'Open today’s daily note',
@@ -712,6 +723,75 @@ function AppShell() {
 
   // in-note find highlights go away with the Finder
 
+  /** Delete any note (no confirm: it goes to .trash and the toast undoes it). */
+  const deleteNote = useCallback(
+    (path: string, title: string) => {
+      const isOpen = noteRef.current?.path === path;
+      // the editor's debounced save must not resurrect the file
+      if (isOpen) discardRef.current = true;
+      api
+        .remove(path)
+        .then(() => {
+          dlg.toast({
+            message: `Deleted “${title}”`,
+            action: {
+              label: 'Undo',
+              run: () =>
+                api
+                  .restore(path)
+                  .then(() => {
+                    refreshLists();
+                    goView('notes');
+                    openPath(path);
+                  })
+                  .catch((e: Error) => dlg.alert(`Undo failed: ${e.message}`)),
+            },
+          });
+          if (isOpen) {
+            setNote(null);
+            window.history.replaceState(
+              {
+                corpoBrainNote: true,
+                index: noteHistoryIndex.current,
+                path: null,
+              } satisfies NoteHistoryState,
+              '',
+              `${window.location.pathname}${window.location.search}`,
+            );
+          }
+          refreshLists();
+        })
+        .catch((e: Error) => dlg.alert(`Delete failed: ${e.message}`))
+        .finally(() => {
+          if (isOpen) discardRef.current = false;
+        });
+    },
+    [dlg, refreshLists, goView, openPath],
+  );
+
+  /** Rename any note; the open one follows to its new path. */
+  const renameNote = useCallback(
+    (path: string, title: string) =>
+      treeApi
+        .rename(path, title)
+        .then((r) => {
+          refreshLists();
+          if (noteRef.current?.path !== path) return;
+          if (r.path !== path) openPath(r.path, 'replace');
+          else
+            api
+              .note(path)
+              .then((fresh) =>
+                setNote((prev) =>
+                  prev && prev.path === fresh.path ? { ...fresh, content: prev.content } : prev,
+                ),
+              )
+              .catch(() => {});
+        })
+        .catch((e: Error) => dlg.alert(`Rename failed: ${e.message}`)),
+    [dlg, refreshLists, openPath],
+  );
+
   // ---- Finder sections the shell owns: this note, notes, commands ----
   const notesSections = useMemo<FinderSection[]>(() => {
     const inNote: FinderSection<{ from: number; to: number }> = {
@@ -744,12 +824,43 @@ function AppShell() {
       ],
     };
     const linkable = notes.filter((n) => !n.protected);
+    const byPath = new Map(linkable.map((n) => [n.path, n]));
+    const noteItem = (n: NoteListItem): FinderItem<NoteListItem | { create: string }> => ({
+      id: n.path,
+      label: n.title,
+      detail: n.path,
+      icon: n.type === 'jira' ? '◈' : n.type === 'person' ? '👤' : '📄',
+      data: n,
+    });
+    const isNote = (items: FinderItem[]) => {
+      const data = items.length === 1 ? items[0]?.data : undefined;
+      return typeof data === 'object' && data !== null && !('create' in data);
+    };
     const noteSection: FinderSection<NoteListItem | { create: string }> = {
       id: 'notes',
       title: 'Notes',
       order: 20,
       limit: 8,
       async: true,
+      // a path (sidebar rows) or a link target as written ([[Title]], [[folder/name]], EXEC-12)
+      resolve: (id) => {
+        const direct = byPath.get(id) ?? byPath.get(`${id}.md`);
+        if (direct) return noteItem(direct);
+        const key = id.trim().toLowerCase().replace(/\.md$/, '');
+        if (!key) return null;
+        const hit =
+          linkable.find((n) => n.path.toLowerCase().replace(/\.md$/, '') === key) ??
+          linkable.find((n) => n.title.toLowerCase() === key) ??
+          linkable.find((n) => n.path.toLowerCase().endsWith(`/${key}.md`));
+        if (hit) return noteItem(hit);
+        return {
+          id: '::create::',
+          label: id,
+          detail: 'no such note yet',
+          icon: '＋',
+          data: { create: id },
+        };
+      },
       search: async (q) => {
         const titleHits = rankBy(linkable, q, (n) => [n.title, n.path], 40).map(
           ({ row, score }) => ({
@@ -798,6 +909,12 @@ function AppShell() {
         {
           id: 'open',
           label: 'open',
+          // not for the note already open (a right-click inside it)
+          when: (items) => {
+            const only =
+              items.length === 1 ? (items[0]?.data as NoteListItem | undefined) : undefined;
+            return !(only && only.path === noteRef.current?.path);
+          },
           run: ([item], ctx) => {
             ctx.close();
             if (!item) return;
@@ -830,13 +947,54 @@ function AppShell() {
           },
         },
         {
+          id: 'copy-link',
+          label: 'copy [[link]]',
+          when: isNote,
+          run: ([item], ctx) => {
+            ctx.close();
+            const n = item?.data as NoteListItem | undefined;
+            if (n) void navigator.clipboard?.writeText(`[[${n.title}]]`).catch(() => {});
+          },
+        },
+        {
+          id: 'rename',
+          label: 'rename…',
+          when: isNote,
+          run: async ([item], ctx) => {
+            ctx.close();
+            const n = item?.data as NoteListItem | undefined;
+            if (!n) return;
+            const title = await dlg.prompt({
+              title: 'Rename note',
+              label: 'New title',
+              initial: n.title,
+              confirmLabel: 'Rename',
+            });
+            if (title?.trim() && title.trim() !== n.title) await renameNote(n.path, title.trim());
+          },
+        },
+        {
+          id: 'delete',
+          label: 'delete (undo in the toast)',
+          when: isNote,
+          run: ([item], ctx) => {
+            ctx.close();
+            const n = item?.data as NoteListItem | undefined;
+            if (n) deleteNote(n.path, n.title);
+          },
+        },
+        {
           id: 'link',
           label: 'insert [[link]] here',
           keys: 'Mod+L',
           when: (items) =>
             viewRef.current === 'notes' &&
             editorApi.current !== null &&
-            !items.some((i) => 'create' in (i.data as object)),
+            !items.some(
+              (i) =>
+                'create' in (i.data as object) ||
+                (i.data as NoteListItem).path === noteRef.current?.path,
+            ),
           run: (items, ctx) => {
             ctx.close();
             const ed = editorApi.current;
@@ -890,7 +1048,20 @@ function AppShell() {
     return view === 'notes'
       ? [section(inNote), section(noteSection), section(commands)]
       : [section(noteSection), section(commands)];
-  }, [notes, view, openPath, createNote, openDaily, refreshLists, goView, togglePin, openPreview]);
+  }, [
+    notes,
+    view,
+    openPath,
+    createNote,
+    openDaily,
+    refreshLists,
+    goView,
+    togglePin,
+    openPreview,
+    dlg,
+    renameNote,
+    deleteNote,
+  ]);
   useFinderSections('app', notesSections);
 
   const titleOf = useMemo(() => new Map(notes.map((n) => [n.path, n.title])), [notes]);
@@ -1124,26 +1295,7 @@ function AppShell() {
                               note.meta?.title ??
                               note.path.replace(/^.*\//, '').replace(/\.md$/, '')
                             }
-                            onRename={(title) =>
-                              treeApi
-                                .rename(note.path, title)
-                                .then((r) => {
-                                  refreshLists();
-                                  if (r.path !== note.path) openPath(r.path, 'replace');
-                                  else
-                                    api
-                                      .note(note.path)
-                                      .then((fresh) =>
-                                        setNote((prev) =>
-                                          prev && prev.path === fresh.path
-                                            ? { ...fresh, content: prev.content }
-                                            : prev,
-                                        ),
-                                      )
-                                      .catch(() => {});
-                                })
-                                .catch((e: Error) => dlg.alert(`Rename failed: ${e.message}`))
-                            }
+                            onRename={(title) => renameNote(note.path, title)}
                           />
                           <span className="note-header-path">{note.path}</span>
                           <span className="spacer" />
@@ -1176,48 +1328,8 @@ function AppShell() {
                             title="Delete note (moved to .trash inside the vault)"
                             onClick={() => {
                               const current = noteRef.current;
-                              if (!current) return;
-                              const title = current.meta?.title ?? current.path;
-                              const path = current.path;
-                              // no confirm: the note goes to .trash and the toast undoes it
-                              // the editor's debounced save must not resurrect the file
-                              discardRef.current = true;
-                              api
-                                .remove(path)
-                                .then(() => {
-                                  dlg.toast({
-                                    message: `Deleted “${title}”`,
-                                    action: {
-                                      label: 'Undo',
-                                      run: () =>
-                                        api
-                                          .restore(path)
-                                          .then(() => {
-                                            refreshLists();
-                                            goView('notes');
-                                            openPath(path);
-                                          })
-                                          .catch((e: Error) =>
-                                            dlg.alert(`Undo failed: ${e.message}`),
-                                          ),
-                                    },
-                                  });
-                                  setNote(null);
-                                  window.history.replaceState(
-                                    {
-                                      corpoBrainNote: true,
-                                      index: noteHistoryIndex.current,
-                                      path: null,
-                                    } satisfies NoteHistoryState,
-                                    '',
-                                    `${window.location.pathname}${window.location.search}`,
-                                  );
-                                  refreshLists();
-                                })
-                                .catch((e: Error) => dlg.alert(`Delete failed: ${e.message}`))
-                                .finally(() => {
-                                  discardRef.current = false;
-                                });
+                              if (current)
+                                deleteNote(current.path, current.meta?.title ?? current.path);
                             }}
                           >
                             <Icon name="trash" />

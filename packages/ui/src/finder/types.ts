@@ -63,6 +63,14 @@ export interface FinderSection<T = unknown> {
   actions: FinderAction<T>[];
   /** a `/`-style prefix that restricts the Finder to this section */
   prefix?: string;
+  /**
+   * The item for an id, without searching: lets the context menu act on a
+   * right-clicked thing (a sidebar row, an issue card) with this section's
+   * actions. Return null when the id is unknown.
+   */
+  resolve?: (id: string) => FinderItem<T> | null;
+  /** only offered by the context menu (editor selection, task line…), never searched */
+  contextOnly?: boolean;
   emptyText?: string;
 }
 
@@ -74,6 +82,8 @@ export interface FinderRequest {
   query?: string;
   /** free-form context handed to actions through `getContext()` */
   context?: Record<string, unknown>;
+  /** open straight into a pick step (an action run from the context menu asked for one) */
+  followUp?: FinderFollowUp['pick'];
 }
 
 /** Erase the item type so sections with different `data` can live in one list. */
