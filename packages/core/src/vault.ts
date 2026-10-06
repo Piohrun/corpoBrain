@@ -17,8 +17,19 @@ export function toPosix(p: string): string {
   return sep === '/' ? p : p.split(sep).join('/');
 }
 
+const globCache = new Map<string, RegExp>();
+
 /** Minimal glob: `*`/`?` within a segment, `**` across segments. */
 export function matchesGlob(path: string, glob: string): boolean {
+  let compiled = globCache.get(glob);
+  if (!compiled) {
+    compiled = globToRegExp(glob);
+    globCache.set(glob, compiled);
+  }
+  return compiled.test(path);
+}
+
+function globToRegExp(glob: string): RegExp {
   let re = '';
   for (let i = 0; i < glob.length; i++) {
     const c = glob[i] as string;
@@ -40,7 +51,7 @@ export function matchesGlob(path: string, glob: string): boolean {
       re += c.replace(/[.+^${}()|[\]\\]/, '\\$&');
     }
   }
-  return new RegExp(`^${re}$`).test(path);
+  return new RegExp(`^${re}$`);
 }
 
 /** List every indexable file in the vault (notes + protected placeholders). */

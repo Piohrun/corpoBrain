@@ -118,6 +118,7 @@ export function layoutCalendar(input: CalendarInput): CalendarLayout {
   const inScope = new Map(open.map((i) => [i.key, i]));
   const people = new Map<string, Person>();
   const blocks: CalendarBlock[] = [];
+  const blockOf = new Map<string, CalendarBlock>();
   const unplaced: string[] = [];
   const rank = (i: ProjectIssue) => i.plan.rank ?? Number.POSITIVE_INFINITY;
 
@@ -131,7 +132,7 @@ export function layoutCalendar(input: CalendarInput): CalendarLayout {
   ) => {
     const start = cells[0] as number;
     const end = cells[cells.length - 1] as number;
-    blocks.push({
+    const block: CalendarBlock = {
       key: issue.key,
       assignee: who,
       start,
@@ -143,7 +144,9 @@ export function layoutCalendar(input: CalendarInput): CalendarLayout {
       conflict,
       clamped,
       lateDeps: [],
-    });
+    };
+    blocks.push(block);
+    if (!blockOf.has(issue.key)) blockOf.set(issue.key, block);
   };
 
   // ---- pinned blocks sit exactly where they were put -----------------------
@@ -161,7 +164,7 @@ export function layoutCalendar(input: CalendarInput): CalendarLayout {
       const other = p.taken.get(c);
       if (other) {
         conflict = true;
-        const b = blocks.find((x) => x.key === other);
+        const b = blockOf.get(other);
         if (b) b.conflict = true;
       } else {
         p.taken.set(c, issue.key);
@@ -235,16 +238,33 @@ export function arrangeCalendar(input: CalendarInput): ArrangeResult {
     );
   }
   const rankOf = (k: string) => inScope.get(k)?.plan.rank ?? Number.POSITIVE_INFINITY;
+  // Kahn's algorithm, always taking the lowest-ranked ready issue (rank,
+  // then key): the same order as re-scanning for the best ready issue at
+  // each step, in O(n log n) instead of O(n²).
+  const byRank = (a: string, b: string) => rankOf(a) - rankOf(b) || a.localeCompare(b);
   const order: string[] = [];
   const remaining = new Map(deps);
-  for (;;) {
-    const next = [...remaining.entries()]
-      .filter(([, d]) => d.every((x) => !remaining.has(x)))
-      .map(([k]) => k)
-      .sort((a, b) => rankOf(a) - rankOf(b) || a.localeCompare(b))[0];
-    if (!next) break;
+  const unmet = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  for (const [k, d] of deps) {
+    const waitingOn = d.filter((x) => deps.has(x));
+    unmet.set(k, waitingOn.length);
+    for (const x of waitingOn) dependents.set(x, [...(dependents.get(x) ?? []), k]);
+  }
+  const ready = [...deps.keys()].filter((k) => unmet.get(k) === 0).sort(byRank);
+  while (ready.length) {
+    const next = ready.shift() as string;
     order.push(next);
     remaining.delete(next);
+    for (const k of dependents.get(next) ?? []) {
+      const n = (unmet.get(k) as number) - 1;
+      unmet.set(k, n);
+      if (n === 0) {
+        let at = ready.findIndex((r) => byRank(k, r) < 0);
+        if (at < 0) at = ready.length;
+        ready.splice(at, 0, k);
+      }
+    }
   }
   const cycles = remaining.size ? [[...remaining.keys()].sort()] : [];
 

@@ -88,11 +88,14 @@ const TRACK_RANGE =
 export function trackAnchors(text: string): TrackAnchor[] {
   const out: TrackAnchor[] = [];
   TRACK_RANGE.lastIndex = 0;
+  // matches come in document order: count newlines incrementally
+  let line = 1;
+  let counted = 0;
   for (let m = TRACK_RANGE.exec(text); m; m = TRACK_RANGE.exec(text)) {
     const open = m[0].indexOf('-->') + 3;
-    let line = 1;
     const upto = m.index + open;
-    for (let i = 0; i < upto; i++) if (text.charCodeAt(i) === 10) line++;
+    for (let i = counted; i < upto; i++) if (text.charCodeAt(i) === 10) line++;
+    counted = upto;
     out.push({
       id: (m[1] as string).toUpperCase(),
       kind: (m[2] as string).toLowerCase(),
