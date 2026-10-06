@@ -101,6 +101,7 @@ export function createApp(vault?: VaultService) {
     '/api/tree',
     '/api/unresolved',
     '/api/organization',
+    '/api/tasks',
   ]);
   app.use('/api/*', async (c, next) => {
     if (c.req.method !== 'GET' || !VERSIONED.has(c.req.path)) return next();
