@@ -63,6 +63,17 @@ export class JiraSync {
   onProgress: ((p: SyncProgress) => void) | undefined;
   /** A completed profile has committed its watermark and can be indexed immediately. */
   onReport: ((report: SyncReport) => void) | undefined;
+  /**
+   * Answers from an up-to-date index, when the caller has one (the server):
+   * saves reading and parsing every mirrored issue and person file. Without
+   * it (CLI), the files are scanned.
+   */
+  lookup:
+    | {
+        mirroredKeys: (profile: JiraProfile) => string[];
+        knownPeopleIds: () => Set<string>;
+      }
+    | undefined;
 
   constructor(
     readonly root: string,
@@ -269,7 +280,7 @@ export class JiraSync {
     };
 
     const syncedAt = syncStart.toISOString();
-    const knownPeople = this.knownPeopleIds();
+    const knownPeople = this.lookup?.knownPeopleIds() ?? this.knownPeopleIds();
     const normOpts = {
       baseUrl: this.config.jira.baseUrl,
       ...(this.config.jira.estimateField ? { estimateField: this.config.jira.estimateField } : {}),
@@ -284,6 +295,8 @@ export class JiraSync {
     let issueIdx = 0;
     for (const raw of issues) {
       issueIdx++;
+      // Let the server answer other requests during a long write phase.
+      if (issueIdx % 25 === 0) await new Promise((r) => setImmediate(r));
       if (issueIdx % 5 === 0 || issueIdx === issues.length) {
         this.emit({
           profile: profile.name,
@@ -365,7 +378,7 @@ export class JiraSync {
     // the marker are theirs — but reported so the mirror is not silently stale.
     if (full) {
       const fetched = new Set(issues.map((i) => i.key));
-      for (const key of this.mirroredKeys(profile)) {
+      for (const key of this.lookup?.mirroredKeys(profile) ?? this.mirroredKeys(profile)) {
         if (!fetched.has(key)) report.gone.push(key);
       }
       report.gone.sort();

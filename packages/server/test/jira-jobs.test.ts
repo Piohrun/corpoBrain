@@ -167,6 +167,19 @@ describe('server-owned Jira jobs', () => {
     expect(Object.keys(state.lastSyncAt)).toEqual(['team']);
   });
 
+  it('reports mirrored issues that left the query, from the index, on a full sync', async () => {
+    const service = syncService(vault);
+    await service.start().completion;
+    // a second mirrored issue that the JQL no longer returns, and a person the index knows
+    writeFileSync(
+      join(root, 'jira', 'EXEC-2.md'),
+      '---\ntype: jira\nkey: EXEC-2\njira:\n  profile: team\n---\n<!-- jira:end -->\n',
+    );
+    vault.indexer.updatePaths(['jira/EXEC-2.md']);
+    const [report] = await service.start(undefined, true).completion;
+    expect(report?.gone).toEqual(['EXEC-2']);
+  });
+
   it('marks a persisted running job as interrupted and leaves no lock after restart', async () => {
     const service = syncService(vault);
     await service.start().completion;

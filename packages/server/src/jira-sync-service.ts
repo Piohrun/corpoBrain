@@ -38,6 +38,25 @@ export class JiraSyncService extends SyncJobService<SyncReport, SyncProgress, Ji
         Buffer.from(`${adapter.auth.email ?? ''}:${adapter.auth.token}`).toString('base64'),
       ]);
       const sync = new JiraSync(this.vault.root, config, adapter);
+      const db = this.vault.indexer.db;
+      sync.lookup = {
+        mirroredKeys: (profile) =>
+          (
+            db
+              .prepare(
+                'SELECT key FROM jira WHERE profile = ? AND substr(path, 1, ?) = ? ORDER BY key',
+              )
+              .all(profile.name, profile.folder.length + 1, `${profile.folder}/`) as {
+              key: string;
+            }[]
+          ).map((r) => r.key),
+        knownPeopleIds: () => {
+          const ids = new Set<string>();
+          for (const r of db.prepare('SELECT jira_id FROM people').all() as { jira_id: string }[])
+            for (const id of JSON.parse(r.jira_id) as string[]) ids.add(id);
+          return ids;
+        },
+      };
       sync.onProgress = (p) => job.progress(p);
       adapter.onRetry = (detail) => job.retry(detail);
       sync.onReport = (report) => {

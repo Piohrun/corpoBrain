@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   generateUlid,
   isCalendarDay,
@@ -88,6 +89,28 @@ export function createApp(vault?: VaultService) {
 
   if (!vault) return app;
   const v = vault;
+
+  // Lists derived purely from the index: the UI refetches them after every
+  // change, so they answer 304 while the index has not moved. The boot id
+  // keeps a tag from before a restart (versions start again at 0) from
+  // matching new data.
+  const boot = randomUUID().slice(0, 8);
+  const VERSIONED = new Set([
+    '/api/notes',
+    '/api/tags',
+    '/api/tree',
+    '/api/unresolved',
+    '/api/organization',
+  ]);
+  app.use('/api/*', async (c, next) => {
+    if (c.req.method !== 'GET' || !VERSIONED.has(c.req.path)) return next();
+    const etag = `W/"${boot}-${v.indexer.version}"`;
+    if (c.req.header('if-none-match') === etag)
+      return c.body(null, 304, { ETag: etag, 'Cache-Control': 'no-cache' });
+    await next();
+    c.res.headers.set('ETag', etag);
+    c.res.headers.set('Cache-Control', 'no-cache');
+  });
 
   app.get('/api/notes', (c) => c.json(v.list()));
 

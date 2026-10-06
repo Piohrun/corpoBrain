@@ -331,10 +331,16 @@ function calendarInput(
   };
 }
 
+/** The projects list depends on the index and the (UTC) day only. */
+const listCache = new WeakMap<VaultService, { key: string; body: unknown }>();
+
 export function projectRoutes(v: VaultService): Hono {
   const app = new Hono();
 
   app.get('/', (c) => {
+    const key = `${v.indexer.version}|${new Date().toISOString().slice(0, 10)}`;
+    const hit = listCache.get(v);
+    if (hit?.key === key) return c.json(hit.body);
     const board = buildBoard(v);
     const defs = projectDefs(v);
     const grouped = issuesByProject(board, defs);
@@ -351,12 +357,14 @@ export function projectRoutes(v: VaultService): Hono {
       };
     });
     const tagged = new Set([...grouped.values()].flat().map((i) => i.key));
-    return c.json({
+    const body = {
       projects,
       untagged: board.issues.filter((i) => !tagged.has(i.key) && i.statusCategory !== 'done')
         .length,
       unit: board.unit,
-    });
+    };
+    listCache.set(v, { key, body });
+    return c.json(body);
   });
 
   /** The day-grid calendar for one project. */

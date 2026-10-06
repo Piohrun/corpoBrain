@@ -102,7 +102,7 @@ function transitionsByKey(v: VaultService, keys?: string[]): Map<string, Transit
   return map;
 }
 
-function issueFlows(v: VaultService, board: BoardModel, now: Date): IssueFlow[] {
+function issueFlows(v: VaultService, board: BoardModel, now: Date, only?: string): IssueFlow[] {
   const created = new Map(
     (
       v.indexer.db.prepare('SELECT key, created FROM jira').all() as {
@@ -111,11 +111,14 @@ function issueFlows(v: VaultService, board: BoardModel, now: Date): IssueFlow[] 
       }[]
     ).map((r) => [r.key, r.created]),
   );
-  const byKey = transitionsByKey(v);
+  const byKey = transitionsByKey(v, only ? [only] : undefined);
   const categoryOf = categoryLookup(v);
-  const nameOf = (id: string | null) =>
-    id ? (board.people.find((p) => p.jiraIds.includes(id))?.name ?? id) : null;
-  return board.issues.map((i) => {
+  const names = new Map<string, string>();
+  for (const p of board.people)
+    for (const id of p.jiraIds) if (!names.has(id)) names.set(id, p.name);
+  const nameOf = (id: string | null) => (id ? (names.get(id) ?? id) : null);
+  const issues = only ? board.issues.filter((i) => i.key === only) : board.issues;
+  return issues.map((i) => {
     const c = created.get(i.key) ?? now.toISOString();
     const bands = statusBands(c, byKey.get(i.key) ?? [], i.status);
     return {
@@ -143,7 +146,7 @@ export function flowRoutes(v: VaultService): Hono {
     const key = c.req.query('key');
     if (!key) throw new HttpError(400, 'key required');
     const board = buildBoard(v);
-    const flow = issueFlows(v, board, new Date()).find((f) => f.key === key);
+    const flow = issueFlows(v, board, new Date(), key)[0];
     if (!flow) throw new HttpError(404, `unknown issue ${key}`);
     return c.json({ ...flow, transitions: transitionsByKey(v, [key]).get(key) ?? [] });
   });

@@ -13,23 +13,52 @@ import {
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
 
+const sourceCache = new WeakMap<VaultService, { version: number; sources: OrgSource[] }>();
+const modelCache = new WeakMap<VaultService, { version: number; model: OrgModel }>();
+
+/**
+ * Person and organization notes (the only notes relationships can point at),
+ * read once per index version. Callers must not mutate the result.
+ */
 export function organizationSources(v: VaultService): OrgSource[] {
+  const hit = sourceCache.get(v);
+  if (hit && hit.version === v.indexer.version) return hit.sources;
+  const people = `${v.config.folders.people}/`;
+  const templates = `${v.config.folders.templates}/`;
   const rows = v.indexer.db
     .prepare(
-      'SELECT path, title, type, frontmatter_json FROM notes WHERE protected = 0 ORDER BY title, path',
+      `SELECT path, title, type, frontmatter_json FROM notes
+       WHERE protected = 0
+         AND (type IN ('person', 'org_unit') OR substr(path, 1, ?) = ?)
+         AND substr(path, 1, ?) != ?
+       ORDER BY title, path`,
     )
-    .all() as { path: string; title: string; type: string; frontmatter_json: string }[];
-  return rows
-    .filter((r) => !r.path.startsWith(`${v.config.folders.templates}/`))
-    .map((r) => {
-      const fm = JSON.parse(r.frontmatter_json) as Record<string, unknown>;
-      const source = { path: r.path, title: r.title, type: r.type, fm };
-      return { ...source, type: orgSourceType(source, v.config.folders.people) };
-    });
+    .all(people.length, people, templates.length, templates) as {
+    path: string;
+    title: string;
+    type: string;
+    frontmatter_json: string;
+  }[];
+  const sources = rows.map((r) => {
+    const fm = JSON.parse(r.frontmatter_json) as Record<string, unknown>;
+    const source = { path: r.path, title: r.title, type: r.type, fm };
+    return { ...source, type: orgSourceType(source, v.config.folders.people) };
+  });
+  sourceCache.set(v, { version: v.indexer.version, sources });
+  return sources;
 }
 
 export function organizationModel(sources: OrgSource[]): OrgModel {
   return buildOrganization(sources);
+}
+
+/** The organization map for the current index, built once per version. */
+function currentModel(v: VaultService): OrgModel {
+  const hit = modelCache.get(v);
+  if (hit && hit.version === v.indexer.version) return hit.model;
+  const model = organizationModel(organizationSources(v));
+  modelCache.set(v, { version: v.indexer.version, model });
+  return model;
 }
 
 export const PERSON_ORG_FIELDS = new Set([
@@ -127,7 +156,7 @@ function readBody(value: unknown): Record<string, unknown> {
 
 export function organizationRoutes(v: VaultService): Hono {
   const app = new Hono();
-  app.get('/', (c) => c.json(organizationModel(organizationSources(v))));
+  app.get('/', (c) => c.json(currentModel(v)));
 
   for (const [route, type, fields] of [
     ['/person', 'person', PERSON_ORG_FIELDS],
