@@ -4,6 +4,7 @@ import { lsGet, lsSet } from '../storage.ts';
 import { Icon, type IconName } from './Icon.tsx';
 
 export type View =
+  | 'home'
   | 'notes'
   | 'planning'
   | 'projects'
@@ -22,6 +23,7 @@ const groups: { label: string; items: { view: View; label: string; key: string }
   {
     label: 'Workspace',
     items: [
+      { view: 'home', label: 'Home', key: 'h' },
       { view: 'planning', label: 'Planning', key: 'p' },
       { view: 'projects', label: 'Projects', key: 'j' },
       { view: 'availability', label: 'Availability', key: 'a' },

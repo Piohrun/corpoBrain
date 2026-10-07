@@ -4505,3 +4505,103 @@ button.prop-chip {
 .av-pad {
   flex: none;
 }
+
+/* ------------------------------------------------------------- home */
+.home-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  gap: 18px;
+  align-content: start;
+  max-width: 1280px;
+}
+.home-main,
+.home-side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+.home-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px 14px;
+  background: var(--bg);
+}
+.home-card .plan-h2 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+.home-card .plan-h2 .spacer {
+  flex: 1;
+}
+.home-card .plan-h2 .text-link {
+  font-size: 12px;
+  font-weight: 400;
+}
+.home-h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 12px 0 4px;
+}
+.home-h3.overdue {
+  color: var(--danger);
+}
+.home-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.home-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13.5px;
+  min-width: 0;
+}
+.home-list li .text-link {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.home-list li.cancelled .text-link {
+  text-decoration: line-through;
+  color: var(--fg-muted);
+}
+.home-time {
+  flex: none;
+  min-width: 110px;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.home-kind {
+  flex: none;
+  width: 14px;
+  color: var(--fg-muted);
+  text-align: center;
+}
+.home-list .overdue {
+  color: var(--danger);
+}
+.home-source {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.home-tasks .task-row {
+  min-width: 0;
+}
+@media (max-width: 1000px) {
+  .home-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

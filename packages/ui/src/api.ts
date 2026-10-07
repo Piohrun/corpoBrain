@@ -416,6 +416,43 @@ export interface PythonEnvStatus {
   python?: string;
 }
 
+/** Home: the day at a glance (server/home-routes.ts) */
+export interface HomeData {
+  day: string;
+  meetings: {
+    path: string;
+    title: string;
+    start: string | null;
+    end: string | null;
+    allDay: boolean;
+    location: string | null;
+    cancelled: boolean;
+  }[];
+  tasks: { path: string; line: number; text: string; due: string; title: string; kind: string }[];
+  overdueCount: number;
+  tracked: {
+    path: string;
+    title: string;
+    kind: string;
+    status: string;
+    due: string | null;
+    review: string | null;
+  }[];
+  away: {
+    path: string;
+    name: string;
+    kind: 'ooo' | 'holiday' | 'support';
+    days: string[];
+    note: string;
+  }[];
+  week: string[];
+  sprint: { name: string; end: string | null; daysLeft: number | null } | null;
+}
+
+export const homeApi = {
+  get: (day: string) => req<HomeData>(`/api/home?day=${encodeURIComponent(day)}`),
+};
+
 export const outlookApi = {
   config: () => req<OutlookConfig>('/api/outlook/config'),
   saveConfig: (patch: OutlookConfigPatch) =>

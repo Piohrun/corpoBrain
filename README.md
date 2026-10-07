@@ -124,6 +124,12 @@ only what you select, and can undo an import. Hand-edited values stay yours.
 
 ## Using it
 
+**Home** (`g h`, where the app opens) is the day at a glance: today's meeting
+notes, tasks overdue / due today / due in the next 7 days (tick them right
+there), tracked items due or up for review, who is out or on support this
+week, the active sprint and your recent notes. It only reads; **Today** (or
+Ctrl+D) is what opens today's daily note and creates it if it is missing.
+
 **Organization mapping.** Workspace → Organization (`g r`) connects Department,
 Product Area, and POD notes with your people. Keep Functional and Entity Manager
 chains independent, assign a primary POD and secondary memberships, and record
@@ -186,7 +192,7 @@ bindings come from. The ones worth knowing:
 | Alt+Shift+↑ / ↓ | open the note above / below in the sidebar |
 | Alt+← / Alt+→ | back / forward through panels and notes (⌘[ / ⌘] on a Mac) |
 | Ctrl+D | today's daily note |
-| g then n / p / j / a / t / k … | go to Notes / Planning / Projects / Availability / Tasks / Tracked…; g e focuses the editor |
+| g then h / n / p / j / a / t / k … | go to Home / Notes / Planning / Projects / Availability / Tasks / Tracked…; g e focuses the editor |
 | F3 | next match of the last find, inside the editor |
 
 Bare keys and `g` sequences only fire when you are not typing; modifier chords work

@@ -685,6 +685,7 @@ button:disabled {
     width: 60px;
   }
   .workspace-nav span,
+  .workspace-nav .workspace-search-key,
   .workspace-nav h2 {
     display: none;
   }

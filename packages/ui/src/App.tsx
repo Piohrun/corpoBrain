@@ -64,6 +64,9 @@ const JiraPage = memo(
 const TeambookPage = memo(
   lazy(() => import('./components/TeambookPage.tsx').then((m) => ({ default: m.TeambookPage }))),
 );
+const HomePage = memo(
+  lazy(() => import('./components/HomePage.tsx').then((m) => ({ default: m.HomePage }))),
+);
 const OutlookPage = memo(
   lazy(() => import('./components/OutlookPage.tsx').then((m) => ({ default: m.OutlookPage }))),
 );
@@ -120,6 +123,13 @@ function hashPath(): string {
 function hashView(): string | null {
   const m = /^#view=([a-z]+)$/.exec(window.location.hash);
   return m ? (m[1] as string) : null;
+}
+
+/** The panel the URL asks for: a note opens Notes, nothing at all opens Home. */
+function initialView(): View {
+  const v = hashView();
+  if (v && VIEW_KEYS.some((x) => x.view === v)) return v as View;
+  return hashPath() ? 'notes' : 'home';
 }
 
 type NoteHistoryMode = 'push' | 'replace' | 'none';
@@ -249,7 +259,7 @@ function AppShell() {
   const [noteOpenSequence, setNoteOpenSequence] = useState(0);
 
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [view, setView] = useState<View>('notes');
+  const [view, setView] = useState<View>(initialView);
   const viewRef = useRef<View>('notes');
   viewRef.current = view;
   const noteRef = useRef<NoteResponse | null>(null);
@@ -345,7 +355,7 @@ function AppShell() {
   // history as the in-app Back button.
   useEffect(() => {
     const fromHash = hashPath();
-    const startView = (hashView() ?? 'notes') as View;
+    const startView = initialView();
     const existing = noteHistoryState(window.history.state);
     const index = existing && existing.path === (fromHash || null) ? existing.index : 0;
     noteHistoryIndex.current = index;
@@ -468,15 +478,17 @@ function AppShell() {
     [dlg],
   );
 
+  /** Today's daily note, created if missing — shown in Notes from any page (Ctrl+D). */
   const openDaily = useCallback(() => {
     api
       .daily()
       .then((r) => {
         if (r.created) refreshLists();
+        goView('notes');
         openPath(r.path);
       })
       .catch(() => {});
-  }, [openPath, refreshLists]);
+  }, [openPath, refreshLists, goView]);
 
   const createNote = useCallback(
     (title: string) => {
@@ -1231,7 +1243,14 @@ function AppShell() {
             />
             <div className="workspace-content">
               <Suspense fallback={<div className="empty-state">Loading…</div>}>
-                {view === 'planning' ? (
+                {view === 'home' ? (
+                  <HomePage
+                    onOpenNote={openFromPlanning}
+                    onView={goView}
+                    onDaily={openDaily}
+                    recent={recentList}
+                  />
+                ) : view === 'planning' ? (
                   <PlanningPage onOpenNote={openFromPlanning} />
                 ) : view === 'projects' ? (
                   <ProjectsPage onOpenNote={openFromPlanning} />

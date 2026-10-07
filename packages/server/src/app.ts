@@ -12,6 +12,7 @@ import { availabilityRoutes } from './availability-routes.ts';
 import { digestRoutes } from './digest-routes.ts';
 import { flowRoutes } from './flow-routes.ts';
 import { gitFor } from './git-service.ts';
+import { homeRoutes } from './home-routes.ts';
 import { jiraRoutes } from './jira-routes.ts';
 import { mentionsRoutes } from './mentions-routes.ts';
 import { objectRoutes, taskRoutes } from './object-routes.ts';
@@ -335,6 +336,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/tree', treeRoutes(v));
   app.route('/api/task', taskRoutes(v));
   app.route('/api/tracked', trackedRoutes(v));
+  app.route('/api/home', homeRoutes(v));
   app.route('/api/flow', flowRoutes(v));
   app.route('/api/mentions', mentionsRoutes(v));
 
