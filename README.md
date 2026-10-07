@@ -132,6 +132,11 @@ there), tracked items due or up for review, who is out or on support this
 week, the active sprint and your recent notes. It only reads; **Today** (or
 Ctrl+D) is what opens today's daily note and creates it if it is missing.
 
+**Images.** Paste a screenshot or drop an image file into a note: it is saved
+under `attachments/` and embedded as `![[Pasted image 20261007153012.png]]`.
+`![[name.png|300]]` sets a width; `![alt](relative/path.png)` works too. Only
+images in the vault are shown — remote image URLs stay links.
+
 **Organization mapping.** Workspace → Organization (`g r`) connects Department,
 Product Area, and POD notes with your people. Keep Functional and Entity Manager
 chains independent, assign a primary POD and secondary memberships, and record

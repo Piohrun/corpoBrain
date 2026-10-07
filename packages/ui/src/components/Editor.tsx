@@ -2,7 +2,7 @@ import { Annotation, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type React from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { api, privateApi, type TrackKind, trackedApi } from '../api.ts';
+import { api, attachmentsApi, privateApi, type TrackKind, trackedApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import {
   deleteColumn,
@@ -877,6 +877,13 @@ export const Editor = memo(function Editor({
           onEncryptPending: (tableFrom, colIndex) => void onEncryptPending(tableFrom, colIndex),
           onEncryptSelection: () => void onEncryptSelection(),
           completions: () => latest.current.completions(),
+          resolveImage: (ref) => attachmentsApi.resolve(ref, latest.current.path),
+          uploadImage: async (file) => {
+            // a clipboard screenshot is called image.png: let the server name it
+            const generic = /^image\.(png|jpe?g|gif|webp)$/i.test(file.name);
+            return (await attachmentsApi.upload(file, generic ? undefined : file.name)).name;
+          },
+          onError: (message) => dlg.alert(message),
         }),
         EditorView.updateListener.of((u) => {
           if (u.selectionSet || u.docChanged || u.viewportChanged) {

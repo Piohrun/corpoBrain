@@ -156,6 +156,11 @@ export class VaultService {
    * indexes those either — and the private folder is compared
    * case-insensitively because the work laptop's filesystem is.
    */
+  /** A vault-relative path checked like any note path (no private/, no dot folders, no escape). */
+  safePath(relPath: string): string {
+    return this.assertSafe(relPath);
+  }
+
   private assertSafe(relPath: string): string {
     const p = toPosix(relPath).replace(/^\/+/, '');
     const segments = p.split('/');

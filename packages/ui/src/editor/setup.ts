@@ -16,7 +16,7 @@ import type { EditorState, Extension } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 import { findExtension } from './find.ts';
-import { livePreview } from './livePreview.ts';
+import { frontmatterRange, livePreview } from './livePreview.ts';
 import { findTables, htmlTableToMarkdown, tsvToMarkdownTable } from './tables.ts';
 
 export interface EditorConfig {
@@ -32,6 +32,11 @@ export interface EditorConfig {
   onEncryptSelection: () => void;
   /** note titles/paths for [[ autocompletion */
   completions: () => { title: string; path: string }[];
+  /** an image reference in this note → its vault path */
+  resolveImage?: (ref: string) => Promise<string | null>;
+  /** save a pasted/dropped image; returns the name to embed */
+  uploadImage?: (file: File) => Promise<string>;
+  onError?: (message: string) => void;
 }
 
 const mdHighlight = HighlightStyle.define([
@@ -83,6 +88,52 @@ function wikilinkCompletions(cfg: EditorConfig) {
   };
 }
 
+/** Image files from a paste or drop: saved under attachments/, embedded as `![[name]]`. */
+function insertImages(view: EditorView, cfg: EditorConfig, files: File[], at: number): void {
+  const upload = cfg.uploadImage;
+  if (!upload) return;
+  Promise.all(files.map((f) => upload(f))).then(
+    (names) => {
+      const pos = Math.min(at, view.state.doc.length);
+      const line = view.state.doc.lineAt(pos);
+      const before = pos > line.from ? '\n' : '';
+      const insert = `${before}${names.map((n) => `![[${n}]]`).join('\n')}\n`;
+      view.dispatch({
+        changes: { from: pos, insert },
+        selection: { anchor: pos + insert.length },
+        scrollIntoView: true,
+      });
+    },
+    (e: Error) => cfg.onError?.(`image not saved: ${e.message}`),
+  );
+}
+
+const imageFiles = (list: FileList | null | undefined): File[] =>
+  [...(list ?? [])].filter((f) => /^image\/(png|jpeg|gif|webp)$/.test(f.type));
+
+function imagePaste(event: ClipboardEvent, view: EditorView, cfg: EditorConfig): boolean {
+  const files = imageFiles(event.clipboardData?.files);
+  if (!files.length || !cfg.uploadImage) return false;
+  event.preventDefault();
+  const sel = view.state.selection.main;
+  if (!sel.empty) view.dispatch({ changes: { from: sel.from, to: sel.to, insert: '' } });
+  const fm = frontmatterRange(view.state.doc);
+  insertImages(view, cfg, files, fm && sel.from <= fm.to ? fm.to : sel.from);
+  return true;
+}
+
+function imageDrop(event: DragEvent, view: EditorView, cfg: EditorConfig): boolean {
+  const files = imageFiles(event.dataTransfer?.files);
+  if (!files.length || !cfg.uploadImage) return false;
+  event.preventDefault();
+  const pos =
+    view.posAtCoords({ x: event.clientX, y: event.clientY }) ?? view.state.selection.main.head;
+  // never into the properties block: an image line there would break it
+  const fm = frontmatterRange(view.state.doc);
+  insertImages(view, cfg, files, fm && pos <= fm.to ? fm.to : view.state.doc.lineAt(pos).to);
+  return true;
+}
+
 /** paste from Excel/OneNote/Sheets → auto-converted markdown table */
 function tablePaste(event: ClipboardEvent, view: EditorView): boolean {
   const cd = event.clipboardData;
@@ -112,7 +163,10 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     findExtension(),
     closeBrackets(),
     autocompletion({ override: [wikilinkCompletions(cfg)], icons: false }),
-    EditorView.domEventHandlers({ paste: (e, v) => tablePaste(e, v) }),
+    EditorView.domEventHandlers({
+      paste: (e, v) => imagePaste(e, v, cfg) || tablePaste(e, v),
+      drop: (e, v) => imageDrop(e, v, cfg),
+    }),
     livePreview({
       onNavigate: cfg.onNavigate,
       foldFrontmatter: cfg.foldFrontmatter,
@@ -122,6 +176,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
       onSecretClick: cfg.onSecretClick,
       onRevealMany: cfg.onRevealMany,
       onEncryptPending: cfg.onEncryptPending,
+      resolveImage: cfg.resolveImage,
     }),
     keymap.of([
       {

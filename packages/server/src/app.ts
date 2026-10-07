@@ -8,6 +8,7 @@ import {
   scanMarkdown,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
+import { attachmentRoutes } from './attachment-routes.ts';
 import { availabilityRoutes } from './availability-routes.ts';
 import { digestRoutes } from './digest-routes.ts';
 import { flowRoutes } from './flow-routes.ts';
@@ -337,6 +338,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/task', taskRoutes(v));
   app.route('/api/tracked', trackedRoutes(v));
   app.route('/api/home', homeRoutes(v));
+  app.route('/api/attachments', attachmentRoutes(v));
   app.route('/api/flow', flowRoutes(v));
   app.route('/api/mentions', mentionsRoutes(v));
 

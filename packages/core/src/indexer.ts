@@ -787,7 +787,10 @@ export class Indexer {
     return this.db
       .prepare(
         `SELECT src_path AS srcPath, dst_target AS target, line, ambiguous
-         FROM links WHERE dst_path IS NULL AND dst_target != '' ORDER BY src_path, line`,
+         FROM links WHERE dst_path IS NULL AND dst_target != ''
+           -- an embedded file (![[shot.png]]) is not a missing note
+           AND NOT (kind = 'embed' AND lower(dst_target) GLOB '*.[a-z]*' AND lower(dst_target) NOT GLOB '*.md')
+         ORDER BY src_path, line`,
       )
       .all() as unknown as { srcPath: string; target: string; line: number; ambiguous: number }[];
   }

@@ -24,6 +24,7 @@ import {
   WidgetType,
 } from '@codemirror/view';
 import { type ExternalLink, externalLinksInTree } from './externalLinks.ts';
+import { ImageWidget, imagesInLine, isImageTarget } from './images.ts';
 import { tablesField } from './tables.ts';
 
 export interface LivePreviewConfig {
@@ -43,6 +44,8 @@ export interface LivePreviewConfig {
   onEncryptPending?: (tableFrom: number, colIndex: number) => void;
   /** true = note exists; false/undefined = placeholder (Obsidian-style dimming) */
   isResolved?: (target: string) => boolean | undefined;
+  /** an image reference in this note → its vault path (null: not found) */
+  resolveImage?: (ref: string) => Promise<string | null>;
 }
 
 /** dispatch when link-resolution data changes so decorations rebuild */
@@ -314,6 +317,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           config.isResolved,
           config.getSecret,
           externalLinks,
+          config.resolveImage,
         );
       }
 
@@ -360,8 +364,28 @@ export function collectInline(
   isResolved?: (target: string) => boolean | undefined,
   getSecret?: (cipher: string) => string | null,
   externalLinks: readonly ExternalLink[] = [],
+  resolveImage?: (ref: string) => Promise<string | null>,
 ): void {
   const lineTo = lineFrom + text.length;
+
+  // images: the image replaces its syntax, or follows it while the line is edited
+  for (const img of imagesInLine(text)) {
+    const widget = new ImageWidget(img.ref, img.width, img.alt, resolveImage);
+    if (ctx.cursorTouches)
+      out.push({
+        from: lineFrom + img.to,
+        to: lineFrom + img.to,
+        deco: Decoration.widget({ widget, side: 1 }),
+        priority: 3,
+      });
+    else
+      out.push({
+        from: lineFrom + img.from,
+        to: lineFrom + img.to,
+        deco: Decoration.replace({ widget }),
+        priority: 3,
+      });
+  }
 
   // inline secret tokens replace their whole code span with a chip. The
   // parser also sees them as InlineCode, whose backtick-hiding decorations
@@ -423,6 +447,7 @@ export function collectInline(
   // wikilinks
   WIKILINK.lastIndex = 0;
   for (let m = WIKILINK.exec(text); m; m = WIKILINK.exec(text)) {
+    if (m[1] === '!' && isImageTarget(m[2] as string)) continue; // an image, handled above
     const from = lineFrom + m.index;
     const to = from + m[0].length;
     const target = ((m[2] as string) + (m[3] ?? '')).trim();

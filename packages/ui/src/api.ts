@@ -110,6 +110,37 @@ async function reqStable<T>(url: string): Promise<T> {
   return value;
 }
 
+/** resolved image references, per note (misses are not kept: the image may arrive later) */
+const imageHits = new Map<string, Promise<string | null>>();
+
+/** Images in notes: upload on paste/drop, resolve `![[name.png]]` (server/attachment-routes.ts). */
+export const attachmentsApi = {
+  upload: async (file: Blob, name?: string): Promise<{ path: string; name: string }> => {
+    const q = name ? `?name=${encodeURIComponent(name)}` : '';
+    return req(`/api/attachments${q}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    });
+  },
+  resolve: (ref: string, from: string): Promise<string | null> => {
+    const key = `${from}\u0000${ref}`;
+    const hit = imageHits.get(key);
+    if (hit) return hit;
+    const p = req<{ path: string }>(
+      `/api/attachments/resolve?ref=${encodeURIComponent(ref)}&from=${encodeURIComponent(from)}`,
+    ).then(
+      (r) => r.path,
+      () => {
+        imageHits.delete(key);
+        return null;
+      },
+    );
+    imageHits.set(key, p);
+    return p;
+  },
+};
+
 export const api = {
   health: () => req<{ ok: boolean; spec: string; vault: string | null }>('/api/health'),
   notes: () => reqStable<NoteListItem[]>('/api/notes'),
