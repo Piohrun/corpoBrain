@@ -790,3 +790,27 @@ button:disabled {
       color 120ms;
   }
 }
+.fold-head button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.fold-head button:hover {
+  color: var(--fg);
+}
+.fold-chevron {
+  width: 9px;
+}
+.fold-count {
+  margin-left: 4px;
+  opacity: 0.8;
+}

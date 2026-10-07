@@ -1,6 +1,7 @@
 import type React from 'react';
 import { memo, useEffect, useState } from 'react';
 import { api, type TagCount, type TreeModel } from '../api.ts';
+import { lsGet, lsSet } from '../storage.ts';
 import { Icon } from './Icon.tsx';
 import { NoteTree } from './NoteTree.tsx';
 
@@ -63,6 +64,17 @@ export const Sidebar = memo(function Sidebar({
       .catch(() => setTagged([]));
   }, [tagFilter]);
 
+  // folded quick sections, remembered per browser
+  const [folded, setFolded] = useState(() => ({
+    pinned: lsGet('cb.sidebar.pinned') === 'folded',
+    recent: lsGet('cb.sidebar.recent') === 'folded',
+  }));
+  const toggleFold = (key: 'pinned' | 'recent') =>
+    setFolded((f) => {
+      lsSet(`cb.sidebar.${key}`, f[key] ? null : 'folded');
+      return { ...f, [key]: !f[key] };
+    });
+
   return (
     <div className="sidebar">
       <div className="notebook-heading">
@@ -105,49 +117,61 @@ export const Sidebar = memo(function Sidebar({
           <>
             {pinned.length > 0 && (
               <>
-                <h3>Pinned</h3>
-                {pinned.map((n) => (
-                  <div
-                    key={`p${n.path}`}
-                    className={`tree-quick${n.path === currentPath ? ' active' : ''}`}
-                  >
-                    <button
-                      type="button"
-                      className="tree-item"
-                      data-quick-path={n.path}
-                      onClick={() => onOpen(n.path)}
-                      title={n.path}
+                <FoldHeading
+                  label="Pinned"
+                  count={pinned.length}
+                  open={!folded.pinned}
+                  onToggle={() => toggleFold('pinned')}
+                />
+                {!folded.pinned &&
+                  pinned.map((n) => (
+                    <div
+                      key={`p${n.path}`}
+                      className={`tree-quick${n.path === currentPath ? ' active' : ''}`}
                     >
-                      <Icon name="pin" /> {n.title}
-                    </button>
-                    <button
-                      type="button"
-                      className="tree-unpin"
-                      title="Unpin"
-                      aria-label={`Unpin ${n.title}`}
-                      onClick={() => onUnpin(n.path)}
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        type="button"
+                        className="tree-item"
+                        data-quick-path={n.path}
+                        onClick={() => onOpen(n.path)}
+                        title={n.path}
+                      >
+                        <Icon name="pin" /> {n.title}
+                      </button>
+                      <button
+                        type="button"
+                        className="tree-unpin"
+                        title="Unpin"
+                        aria-label={`Unpin ${n.title}`}
+                        onClick={() => onUnpin(n.path)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
               </>
             )}
             {recent.length > 0 && (
               <>
-                <h3>Recent</h3>
-                {recent.map((n) => (
-                  <button
-                    type="button"
-                    key={`r${n.path}`}
-                    className={`tree-item${n.path === currentPath ? ' active' : ''}`}
-                    data-quick-path={n.path}
-                    onClick={() => onOpen(n.path)}
-                    title={n.path}
-                  >
-                    {n.title}
-                  </button>
-                ))}
+                <FoldHeading
+                  label="Recent"
+                  count={recent.length}
+                  open={!folded.recent}
+                  onToggle={() => toggleFold('recent')}
+                />
+                {!folded.recent &&
+                  recent.map((n) => (
+                    <button
+                      type="button"
+                      key={`r${n.path}`}
+                      className={`tree-item${n.path === currentPath ? ' active' : ''}`}
+                      data-quick-path={n.path}
+                      onClick={() => onOpen(n.path)}
+                      title={n.path}
+                    >
+                      {n.title}
+                    </button>
+                  ))}
               </>
             )}
             <h3 className="tree-head">
@@ -222,4 +246,27 @@ export function moveBetweenRows(e: React.KeyboardEvent<HTMLElement>): void {
   const next = rows[at + (e.key === 'ArrowDown' ? 1 : -1)];
   next?.focus();
   next?.scrollIntoView({ block: 'nearest' });
+}
+
+/** A quick-section heading that folds its list (the count stays visible). */
+function FoldHeading({
+  label,
+  count,
+  open,
+  onToggle,
+}: {
+  label: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <h3 className="fold-head">
+      <button type="button" onClick={onToggle} aria-expanded={open}>
+        <span className="fold-chevron">{open ? '▾' : '▸'}</span>
+        {label}
+        {!open && <span className="fold-count">{count}</span>}
+      </button>
+    </h3>
+  );
 }
