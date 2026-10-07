@@ -31,6 +31,7 @@ import {
   findCallouts,
   QUOTE_PREFIX,
 } from './callouts.ts';
+import { diagramsField } from './diagrams.ts';
 import { type ExternalLink, externalLinksInTree } from './externalLinks.ts';
 import { ImageWidget, imagesInLine, isImageTarget } from './images.ts';
 import { tablesField } from './tables.ts';
@@ -839,6 +840,7 @@ export function livePreview(config: LivePreviewConfig): Extension {
     secretField,
     tablesField,
     calloutFoldField,
+    diagramsField,
     // mousedown so the editor does not move the cursor first
     ViewPlugin.define(() => ({}), {
       eventHandlers: { mousedown: (e, view) => e.button === 0 && clickHandler(view, e) },

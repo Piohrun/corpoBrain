@@ -144,6 +144,12 @@ question, warning, risk, decision, danger, example, quote and their aliases;
 the note. `==text==` is highlighted. Select text and right-click for
 *highlight* or *put in a callout…*.
 
+**Diagrams.** A ```` ```mermaid ```` block renders as a diagram — flowcharts,
+org charts, sequence diagrams, timelines, Gantt charts ([Mermaid
+syntax](https://mermaid.js.org/intro/)). Click a diagram to edit its source.
+Mermaid loads only when a note has a diagram and runs in its strict security
+mode. (It adds about 85 MB to `node_modules`; `npm install` fetches it.)
+
 **Organization mapping.** Workspace → Organization (`g r`) connects Department,
 Product Area, and POD notes with your people. Keep Functional and Entity Manager
 chains independent, assign a primary POD and secondary memberships, and record

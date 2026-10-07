@@ -4717,3 +4717,33 @@ button.prop-chip {
   border-radius: 3px;
   padding: 0 1px;
 }
+
+/* ---------------------------------------------------------- diagrams */
+.cm-cb-diagram {
+  padding: 10px 0;
+  overflow-x: auto;
+  cursor: pointer;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+.cm-cb-diagram svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.cm-cb-diagram.error {
+  cursor: text;
+}
+.cm-cb-diagram-error {
+  color: var(--danger);
+  margin-bottom: 4px;
+}
+.cm-cb-diagram pre {
+  margin: 0;
+  padding: 8px;
+  font-family: var(--mono);
+  background: var(--bg-panel);
+  border-radius: 6px;
+  color: var(--fg);
+}
