@@ -4,6 +4,7 @@ import type React from 'react';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { api, attachmentsApi, privateApi, type TrackKind, trackedApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
+import { CALLOUT_CHOICES, calloutStyle, toCallout, toHighlight } from '../editor/callouts.ts';
 import {
   deleteColumn,
   deleteRow,
@@ -596,6 +597,55 @@ export const Editor = memo(function Editor({
             setTrackSelection(evidence);
             setTrackDialogOpen(true);
           },
+        },
+        {
+          id: 'highlight',
+          label: 'highlight',
+          run: () => {
+            const v = view();
+            if (!v) return;
+            const sel = v.state.selection.main;
+            const text = v.state.doc.sliceString(sel.from, sel.to);
+            const next = toHighlight(text);
+            v.dispatch({
+              changes: { from: sel.from, to: sel.to, insert: next },
+              selection: { anchor: sel.from, head: sel.from + next.length },
+            });
+            v.focus();
+          },
+        },
+        {
+          id: 'callout',
+          label: 'put in a callout…',
+          run: () => ({
+            pick: {
+              title: 'Callout type',
+              section: section<{ type: string }>({
+                id: 'editor-callout-type',
+                title: 'Callout',
+                order: 0,
+                search: (q) =>
+                  CALLOUT_CHOICES.filter((t) => t.includes(q.trim().toLowerCase())).map((t) => ({
+                    id: t,
+                    label: t,
+                    icon: calloutStyle(t).icon,
+                    data: { type: t },
+                  })),
+                actions: [],
+              }),
+              onPick: (picked) => {
+                const v = view();
+                if (!v) return;
+                const sel = v.state.selection.main;
+                const from = v.state.doc.lineAt(sel.from).from;
+                const to = v.state.doc.lineAt(sel.to).to;
+                const text = v.state.doc.sliceString(from, to);
+                const next = toCallout(text, (picked.data as { type: string }).type);
+                v.dispatch({ changes: { from, to, insert: next }, selection: { anchor: from } });
+                v.focus();
+              },
+            },
+          }),
         },
         {
           id: 'task',

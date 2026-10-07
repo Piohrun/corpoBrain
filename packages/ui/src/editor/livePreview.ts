@@ -23,6 +23,14 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+import {
+  type Callout,
+  CalloutHeadWidget,
+  calloutFoldField,
+  calloutStyle,
+  findCallouts,
+  QUOTE_PREFIX,
+} from './callouts.ts';
 import { type ExternalLink, externalLinksInTree } from './externalLinks.ts';
 import { ImageWidget, imagesInLine, isImageTarget } from './images.ts';
 import { tablesField } from './tables.ts';
@@ -59,6 +67,7 @@ const WIKILINK = /(!?)\[\[([^[\]|#]*)(#[^[\]|]*)?(?:\|([^[\]]*))?\]\]/g;
 const TAG = /(^|[\s(,;])#([A-Za-z0-9_/-]*[A-Za-z_/-][A-Za-z0-9_/-]*)/g;
 export const INLINE_SECRET = /`\u{1F512}([A-Za-z0-9+/=]{8,})`/gu;
 const CHECKBOX = /^(\s*[-*+] )([jJ]?)\[( |x|X)\] /;
+const HIGHLIGHT = /==(?=\S)((?:[^=\n]|=(?!=))*?\S)==/g;
 const TRACK_RANGE =
   /<!--\s*cb-track:([0-9A-Z]+):(commitment|decision|risk|assumption)\s*-->([\s\S]*?)<!--\s*\/cb-track:\1\s*-->/gi;
 
@@ -266,6 +275,14 @@ function buildDecorations(view: EditorView): DecorationSet {
     });
   }
 
+  // callouts touching the viewport: line → its callout and the line's role
+  const firstVisible = doc.lineAt(viewportFrom).number;
+  const lastVisible = doc.lineAt(viewportTo).number;
+  const calloutLines = new Map<number, Callout>();
+  for (const c of findCallouts(doc, firstVisible, lastVisible))
+    for (let l = Math.max(c.first, firstVisible); l <= Math.min(c.last, lastVisible); l++)
+      calloutLines.set(l, c);
+
   // Folded frontmatter is a block decoration and therefore lives in a
   // StateField (frontmatterFoldField); here we only skip the hidden lines.
   const foldedTo = foldedFrontmatter(state)?.to ?? -1;
@@ -301,7 +318,45 @@ function buildDecorations(view: EditorView): DecorationSet {
             inline.push({ from: line.from, to: h.markEnd, deco: Decoration.replace({}) });
           }
         }
-        if (quoteLines.has(line.number)) {
+        const callout = calloutLines.get(line.number);
+        if (callout) {
+          const { color } = calloutStyle(callout.type);
+          const role =
+            line.number === callout.first
+              ? `cm-cb-callout-title${callout.first === callout.last ? ' cm-cb-callout-last' : ''}`
+              : `cm-cb-callout-body${line.number === callout.last ? ' cm-cb-callout-last' : ''}`;
+          builder.add(
+            line.from,
+            line.from,
+            Decoration.line({ class: `cm-cb-callout c-${color} ${role}` }),
+          );
+          if (!ctx.cursorTouches) {
+            if (line.number === callout.first)
+              inline.push({
+                from: line.from,
+                to: callout.headEnd,
+                deco: Decoration.replace({
+                  widget: new CalloutHeadWidget(
+                    callout.type,
+                    callout.fold,
+                    callout.foldAt,
+                    callout.title !== '',
+                  ),
+                }),
+                priority: 4,
+              });
+            else {
+              const prefix = QUOTE_PREFIX.exec(line.text);
+              if (prefix?.[0])
+                inline.push({
+                  from: line.from,
+                  to: line.from + prefix[0].length,
+                  deco: Decoration.replace({}),
+                  priority: 4,
+                });
+            }
+          }
+        } else if (quoteLines.has(line.number)) {
           builder.add(line.from, line.from, Decoration.line({ class: 'cm-cb-quote' }));
         }
       }
@@ -417,6 +472,24 @@ export function collectInline(
     out.push({ from: e.from, to: e.to, deco: Decoration.mark({ class: e.cls }) });
     if (!cursorIn)
       for (const [mf, mt] of e.marks) out.push({ from: mf, to: mt, deco: Decoration.replace({}) });
+  }
+
+  // ==highlight==, not inside inline code or a secret token
+  HIGHLIGHT.lastIndex = 0;
+  for (let m = HIGHLIGHT.exec(text); m; m = HIGHLIGHT.exec(text)) {
+    const from = lineFrom + m.index;
+    const to = from + m[0].length;
+    const inCode = emphasis.some((e) => e.cls === 'cm-cb-code' && from < e.to && to > e.from);
+    if (inCode || tokenSpans.some(([f, t]) => from < t && to > f)) continue;
+    // decorations here may not overlap: hide the marks, colour what is between
+    const editing = cursor >= from && cursor <= to;
+    const mark = Decoration.mark({ class: 'cm-cb-highlight' });
+    if (editing) out.push({ from, to, deco: mark });
+    else {
+      out.push({ from, to: from + 2, deco: Decoration.replace({}) });
+      out.push({ from: from + 2, to: to - 2, deco: mark });
+      out.push({ from: to - 2, to, deco: Decoration.replace({}) });
+    }
   }
 
   // checkbox
@@ -765,6 +838,7 @@ export function livePreview(config: LivePreviewConfig): Extension {
     trackField,
     secretField,
     tablesField,
+    calloutFoldField,
     // mousedown so the editor does not move the cursor first
     ViewPlugin.define(() => ({}), {
       eventHandlers: { mousedown: (e, view) => e.button === 0 && clickHandler(view, e) },

@@ -137,6 +137,13 @@ under `attachments/` and embedded as `![[Pasted image 20261007153012.png]]`.
 `![[name.png|300]]` sets a width; `![alt](relative/path.png)` works too. Only
 images in the vault are shown — remote image URLs stay links.
 
+**Callouts and highlights** (same syntax as Obsidian). A quote starting with
+`> [!warning] Title` becomes a coloured box — note, info, tip, success,
+question, warning, risk, decision, danger, example, quote and their aliases;
+`[!type]-` is folded, `[!type]+` foldable, and the chevron saves the state in
+the note. `==text==` is highlighted. Select text and right-click for
+*highlight* or *put in a callout…*.
+
 **Organization mapping.** Workspace → Organization (`g r`) connects Department,
 Product Area, and POD notes with your people. Keep Functional and Entity Manager
 chains independent, assign a primary POD and secondary memberships, and record

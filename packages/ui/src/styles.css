@@ -4622,7 +4622,8 @@ button.prop-chip {
 /* ------------------------------------------------------- images in notes */
 .cm-cb-image {
   display: block;
-  margin: 6px 0;
+  /* padding, never margin: CodeMirror measures lines without margins */
+  padding: 6px 0;
   line-height: 0;
 }
 .cm-cb-image img {
@@ -4640,4 +4641,79 @@ button.prop-chip {
   padding: 2px 8px;
   border: 1px dashed color-mix(in srgb, var(--danger) 45%, var(--border));
   border-radius: 6px;
+}
+
+/* ------------------------------------------------- callouts and highlights */
+.cm-cb-callout {
+  --c: var(--st-progress);
+  background: color-mix(in srgb, var(--c) 8%, transparent);
+  border-left: 3px solid var(--c);
+}
+/* beats CodeMirror's own .cm-line padding without !important */
+.cm-editor .cm-line.cm-cb-callout {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.cm-cb-callout.c-blue {
+  --c: var(--st-progress);
+}
+.cm-cb-callout.c-teal {
+  --c: #0d9488;
+}
+.cm-cb-callout.c-green {
+  --c: var(--st-done);
+}
+.cm-cb-callout.c-yellow {
+  --c: #ca8a04;
+}
+.cm-cb-callout.c-orange {
+  --c: #d97706;
+}
+.cm-cb-callout.c-red {
+  --c: var(--danger);
+}
+.cm-cb-callout.c-purple {
+  --c: var(--st-ready);
+}
+.cm-cb-callout.c-gray {
+  --c: var(--fg-muted);
+}
+.cm-cb-callout-title {
+  font-weight: 600;
+  color: var(--c);
+  border-top-right-radius: 6px;
+}
+/* padding, never margin: CodeMirror measures lines without their margins */
+.cm-editor .cm-line.cm-cb-callout-title {
+  padding-top: 6px;
+}
+.cm-cb-callout-last {
+  border-bottom-right-radius: 6px;
+}
+.cm-editor .cm-line.cm-cb-callout-last {
+  padding-bottom: 6px;
+}
+.cm-cb-callout-head {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-right: 6px;
+}
+.cm-cb-callout-icon {
+  width: 1.1em;
+  text-align: center;
+}
+.cm-cb-callout-fold {
+  cursor: pointer;
+  width: 1em;
+  text-align: center;
+  user-select: none;
+}
+.cm-cb-callout-fold:hover {
+  opacity: 0.7;
+}
+.cm-cb-highlight {
+  background: color-mix(in srgb, #facc15 45%, transparent);
+  border-radius: 3px;
+  padding: 0 1px;
 }
