@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import type { NoteResponse } from '../api.ts';
+import { useNoteTitle } from '../note-titles.tsx';
 
 /** keys that are bookkeeping, not something a person wants to read */
 const HIDDEN = new Set([
@@ -55,6 +56,10 @@ export const PropertiesBar = memo(function PropertiesBar({
   onNavigate: (target: string) => void;
 }) {
   const fm = note.meta?.frontmatter ?? {};
+  const titleFor = useNoteTitle();
+  /** what a link shows: its alias, else the linked note's title, else the target */
+  const shown = (l: { target: string; label: string }) =>
+    l.label !== l.target ? l.label : (titleFor(l.target) ?? l.target);
   // a note without a frontmatter block gets no bar at all
   if (!/^\ufeff?---[ \t]*\r?\n/.test(note.content)) return null;
   const type = typeof fm.type === 'string' ? fm.type : null;
@@ -118,7 +123,7 @@ export const PropertiesBar = memo(function PropertiesBar({
           onClick={() => onNavigate(parent)}
           title="parent note"
         >
-          ↑ {parent}
+          ↑ {titleFor(parent) ?? parent}
         </button>
       )}
       {aliases.map((a) => (
@@ -147,7 +152,7 @@ export const PropertiesBar = memo(function PropertiesBar({
                     onClick={() => onNavigate(l.target)}
                     title={l.target}
                   >
-                    {l.label}
+                    {shown(l)}
                   </button>
                 </span>
               ))}
@@ -162,7 +167,7 @@ export const PropertiesBar = memo(function PropertiesBar({
             onClick={() => onNavigate(single.target)}
             title={`${k}: ${single.target}`}
           >
-            <span className="prop-key">{k}</span> {single.label}
+            <span className="prop-key">{k}</span> {shown(single)}
           </button>
         ) : (
           <button

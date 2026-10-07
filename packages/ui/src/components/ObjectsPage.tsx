@@ -6,12 +6,14 @@ import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { type TitleFor, useNoteTitle } from '../note-titles.tsx';
 import { naturalCompare } from '../sort.ts';
 import { useProgressive } from './progressive.tsx';
 
 const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
 
 export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+  const titleFor = useNoteTitle();
   const dlg = useDialogs();
   const [types, setTypes] = useState<TypeCount[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -65,12 +67,20 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
 
   const columns = useMemo(() => {
     const keys = new Map<string, number>();
+    // how often a property's value is already part of the title (a Jira key, its summary)
+    const inTitle = new Map<string, number>();
     for (const r of rows) {
-      for (const k of Object.keys(r.frontmatter)) {
-        if (!HIDDEN_KEYS.has(k)) keys.set(k, (keys.get(k) ?? 0) + 1);
+      const title = r.title.toLowerCase();
+      for (const [k, v] of Object.entries(r.frontmatter)) {
+        if (HIDDEN_KEYS.has(k)) continue;
+        keys.set(k, (keys.get(k) ?? 0) + 1);
+        if (typeof v === 'string' && v.trim() && title.includes(v.trim().toLowerCase()))
+          inTitle.set(k, (inTitle.get(k) ?? 0) + 1);
       }
     }
     return [...keys.entries()]
+      .filter(([k, n]) => (inTitle.get(k) ?? 0) < n * 0.9)
+      .filter(([k]) => !(k === 'status_category' && keys.has('status')))
       .sort((a, b) => b[1] - a[1])
       .slice(0, 8)
       .map(([k]) => k);
@@ -152,7 +162,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                       const hits = rankBy(keys, q, (k) => [k]).map(({ row: key }) => ({
                         id: key,
                         label: key,
-                        hint: formatValue(row.frontmatter[key]) || undefined,
+                        hint: formatValue(row.frontmatter[key], titleFor) || undefined,
                         data: { key, isNew: false },
                       }));
                       const typed = q
@@ -172,7 +182,8 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                   }),
                   onPick: async (picked) => {
                     const { key } = picked.data as { key: string };
-                    const current = formatValue(row.frontmatter[key]);
+                    // as written, so a link stays a link when saved back
+                    const current = rawValue(row.frontmatter[key]);
                     const value = await dlg.prompt({
                       title: `Set ${key}`,
                       label: `${key} of ${row.title} (empty removes it)`,
@@ -212,20 +223,20 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
         ],
       }),
     ];
-  }, [selected, rows, columns, types, onOpenNote, dlg, refresh, reloadRows]);
+  }, [selected, rows, columns, types, onOpenNote, dlg, refresh, reloadRows, titleFor]);
   useFinderSections('objects', finderSections);
 
   const groups = useMemo(() => {
     if (!groupBy) return [['', rows]] as [string, ObjectRow[]][];
     const m = new Map<string, ObjectRow[]>();
     for (const r of rows) {
-      const key = formatValue(r.frontmatter[groupBy]) || '(none)';
+      const key = formatValue(r.frontmatter[groupBy], titleFor) || '(none)';
       const arr = m.get(key) ?? [];
       arr.push(r);
       m.set(key, arr);
     }
     return [...m.entries()].sort(([a], [b]) => naturalCompare(a, b));
-  }, [rows, groupBy]);
+  }, [rows, groupBy, titleFor]);
 
   // Thousands of objects (every Jira issue): rows arrive as the table scrolls
   // into view; one budget across the groups, in display order.
@@ -301,7 +312,9 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
         >
           <option value="">no grouping</option>
           {columns.map((c) => (
-            <option key={c}>{c}</option>
+            <option key={c} value={c}>
+              {columnLabel(c)}
+            </option>
           ))}
         </select>
       </div>
@@ -315,7 +328,9 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                   <tr>
                     <th>Title</th>
                     {columns.map((c) => (
-                      <th key={c}>{c}</th>
+                      <th key={c} title={c}>
+                        {columnLabel(c)}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -331,11 +346,15 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                           {r.title}
                         </button>
                       </td>
-                      {columns.map((c) => (
-                        <td key={c} className="muted">
-                          {formatValue(r.frontmatter[c])}
-                        </td>
-                      ))}
+                      {columns.map((c) => {
+                        const text = formatValue(r.frontmatter[c], titleFor);
+                        // short values (statuses, sprints, dates) stay on one line
+                        return (
+                          <td key={c} className={text.length <= 18 ? 'muted nowrap' : 'muted'}>
+                            {text}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -354,10 +373,31 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
   );
 }
 
-function formatValue(v: unknown): string {
+function rawValue(v: unknown): string {
   if (v === null || v === undefined) return '';
-  if (typeof v === 'string') return v.replace(/^\[\[|\]\]$/g, '');
-  if (Array.isArray(v)) return v.map(formatValue).join(', ');
+  if (Array.isArray(v)) return v.map(rawValue).join(', ');
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+/** `status_category` → "Status category" */
+const columnLabel = (key: string) => {
+  const words = key.replace(/[_-]+/g, ' ').trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+const WIKILINK = /^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]$/;
+
+/** A property value as text; links show the linked note's title. */
+function formatValue(v: unknown, titleFor: TitleFor): string {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'string') {
+    const m = WIKILINK.exec(v.trim());
+    if (!m) return v;
+    const target = (m[1] as string).trim();
+    return m[2]?.trim() || titleFor(target) || target;
+  }
+  if (Array.isArray(v)) return v.map((x) => formatValue(x, titleFor)).join(', ');
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }

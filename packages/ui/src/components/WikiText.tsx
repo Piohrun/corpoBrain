@@ -2,6 +2,7 @@ import type React from 'react';
 import { api } from '../api.ts';
 import { useContextPreview } from '../context-preview.tsx';
 import { type ExternalLink, externalLinksInText } from '../editor/externalLinks.ts';
+import { useNoteTitle } from '../note-titles.tsx';
 
 interface Props {
   text: string;
@@ -24,6 +25,7 @@ interface LinkToken {
 /** Render plain text with wiki/external links and #tags as interactive elements. */
 export function WikiText({ text, className, onOpen, onTag }: Props) {
   const preview = useContextPreview();
+  const titleFor = useNoteTitle();
   const parts: React.ReactNode[] = [];
   const tokens: LinkToken[] = externalLinksInText(text).map((external) => ({
     from: external.from,
@@ -46,8 +48,8 @@ export function WikiText({ text, className, onOpen, onTag }: Props) {
     const m = token.wiki;
     if (m) {
       const target = ((m[1] ?? '') + (m[2] ?? '')).trim();
-      const label = (m[3] ?? m[1] ?? '').trim() || target;
       const bare = (m[1] ?? '').trim();
+      const label = m[3]?.trim() || titleFor(bare) || bare || target;
       if (!bare) {
         parts.push(m[0]);
       } else {

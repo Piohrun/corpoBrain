@@ -13,6 +13,7 @@ import { rankBy } from '../finder/match.ts';
 import { useFinderActions, useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { useNoteTitle } from '../note-titles.tsx';
 import { naturalCompare } from '../sort.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { ProjectNotes } from './ProjectNotes.tsx';
@@ -34,6 +35,13 @@ const shortDate = (iso: string | null): string =>
 /** Projects: rollup cards on the left, the day-grid calendar on the right. */
 export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const dlg = useDialogs();
+  const titleFor = useNoteTitle();
+  /** a rule as stored (`[[EXEC-1]]`, `EXEC-1`) → the linked note's title, else its plain text */
+  const ruleLabel = (raw: string) => {
+    const m = /^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]$/.exec(raw.trim());
+    const target = (m?.[1] ?? raw).trim();
+    return m?.[2]?.trim() || titleFor(target) || target;
+  };
   const finder = useFinderActions();
   const [board, setBoard] = useState<BoardModel | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -512,7 +520,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                     title="Remove this rule"
                     onClick={() => removeRule('epics', k)}
                   >
-                    epic {k} ✕
+                    epic <span className="proj-rule-name">{ruleLabel(k)}</span> ✕
                   </button>
                 ))}
                 {model.rules.labels.map((l) => (
@@ -534,7 +542,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                     title="Remove this rule"
                     onClick={() => removeRule('keys', k)}
                   >
-                    {k} ✕
+                    <span className="proj-rule-name">{ruleLabel(k)}</span> ✕
                   </button>
                 ))}
               </div>

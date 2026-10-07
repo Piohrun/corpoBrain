@@ -40,6 +40,7 @@ import {
 } from './finder/registry.tsx';
 import { type FinderItem, type FinderSection, section } from './finder/types.ts';
 import { useVaultEvents } from './hooks.ts';
+import { NoteTitlesProvider, titleResolver } from './note-titles.tsx';
 import { emptyPreview, previewPath, previewReducer } from './preview-state.ts';
 import { getSaveState, setSaveState } from './save-state.ts';
 import { installShortcuts, isMac, type Shortcut } from './shortcuts.ts';
@@ -1071,6 +1072,7 @@ function AppShell() {
   useFinderSections('app', notesSections);
 
   const titleOf = useMemo(() => new Map(notes.map((n) => [n.path, n.title])), [notes]);
+  const titleFor = useMemo(() => titleResolver(notes), [notes]);
   const mtimeOf = useMemo(() => {
     const m = new Map(notes.map((n) => [n.path, n.mtime]));
     return (path: string) => m.get(path) ?? 0;
@@ -1217,240 +1219,242 @@ function AppShell() {
 
   return (
     <ContextPreview value={previewContext}>
-      <div className="app-shell">
-        <div className={`app${preview.pinned || previewPath(preview) ? ' has-preview' : ''}`}>
-          <WorkspaceNav
-            view={view}
-            onView={goView}
-            onFind={openFinder}
-            pinned={navPinned}
-            onPreview={openPreview}
-          />
-          <div className="workspace-content">
-            <Suspense fallback={<div className="empty-state">Loading…</div>}>
-              {view === 'planning' ? (
-                <PlanningPage onOpenNote={openFromPlanning} />
-              ) : view === 'projects' ? (
-                <ProjectsPage onOpenNote={openFromPlanning} />
-              ) : view === 'availability' ? (
-                <AvailabilityPage onOpenNote={openFromPlanning} />
-              ) : view === 'organization' ? (
-                <OrganizationPage onOpenNote={openFromPlanning} />
-              ) : view === 'digest' ? (
-                <DigestPage onOpenNote={openFromPlanning} />
-              ) : view === 'tasks' ? (
-                <TasksPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
-              ) : view === 'tracked' ? (
-                <TrackedPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
-              ) : view === 'objects' ? (
-                <ObjectsPage onOpenNote={openFromPlanning} />
-              ) : view === 'jira' ? (
-                <JiraPage onOpenNote={openFromPlanning} />
-              ) : view === 'outlook' ? (
-                <OutlookPage onOpenNote={openFromPlanning} onNotesChanged={refreshLists} />
-              ) : view === 'teambook' ? (
-                <TeambookPage />
-              ) : view === 'settings' ? (
-                <SettingsPage />
-              ) : view === 'private' ? (
-                <PrivatePage />
-              ) : (
-                <>
-                  <Sidebar
-                    openSequence={noteOpenSequence}
-                    tree={tree}
-                    tags={tags}
-                    tagFilter={tagFilter}
-                    onTagFilter={openTag}
-                    currentPath={note?.path ?? null}
-                    onOpen={openPath}
-                    onDaily={openDaily}
-                    onNew={openFinderNotes}
-                    recent={recentList}
-                    pinned={pinnedList}
-                    onUnpin={togglePin}
-                    sort={treeSort}
-                    onSort={setTreeSort}
-                    mtimeOf={mtimeOf}
-                    onTreeChanged={onTreeChanged}
-                  />
-                  <div className="main">
-                    {note ? (
-                      <>
-                        <div className="main-header">
-                          <button
-                            type="button"
-                            className="note-back"
-                            disabled={!canGoBack}
-                            title={`Back to previous note (${isMac ? '⌘[' : 'Alt+←'})`}
-                            aria-label="Back to previous note"
-                            onClick={goBack}
-                          >
-                            <Icon name="back" />
-                          </button>
-                          <button
-                            type="button"
-                            className="note-back"
-                            disabled={!canGoForward}
-                            title={`Forward again (${isMac ? '⌘]' : 'Alt+→'})`}
-                            aria-label="Forward to the next note"
-                            onClick={goForward}
-                          >
-                            <Icon name="forward" />
-                          </button>
-                          <RenameableTitle
-                            key={note.path}
-                            title={
-                              note.meta?.title ??
-                              note.path.replace(/^.*\//, '').replace(/\.md$/, '')
-                            }
-                            onRename={(title) => renameNote(note.path, title)}
-                          />
-                          <span className="note-header-path">{note.path}</span>
-                          <span className="spacer" />
-                          <button
-                            type="button"
-                            className={`icon-button${detailsOpen ? ' selected' : ''}`}
-                            aria-label="Note details"
-                            aria-pressed={detailsOpen}
-                            title="Toggle note details and outline"
-                            onClick={() => setDetailsOpen((open) => !open)}
-                          >
-                            <Icon name="panel" />
-                          </button>
-                          <button
-                            type="button"
-                            className={`note-pin${pinnedPaths.includes(note.path) ? ' on' : ''}`}
-                            title={
-                              pinnedPaths.includes(note.path)
-                                ? 'Unpin from the sidebar'
-                                : 'Pin to the top of the sidebar'
-                            }
-                            aria-label="Pin note"
-                            onClick={() => togglePin(note.path)}
-                          >
-                            <Icon name="pin" />
-                          </button>
-                          <button
-                            type="button"
-                            className="note-delete"
-                            title="Delete note (moved to .trash inside the vault)"
-                            onClick={() => {
-                              const current = noteRef.current;
-                              if (current)
-                                deleteNote(current.path, current.meta?.title ?? current.path);
-                            }}
-                          >
-                            <Icon name="trash" />
-                          </button>
-                        </div>
-                        <PropertiesBar
-                          note={note}
-                          folded={foldFrontmatter}
-                          onToggleFold={() => setFoldFrontmatter((f) => !f)}
-                          onEdit={() => {
-                            // reveal by putting the cursor on the first property line
-                            const text = editorApi.current?.text() ?? note.content;
-                            const secondLine = text.indexOf('\n') + 1;
-                            editorApi.current?.goTo({ from: secondLine, to: secondLine });
-                          }}
-                          onTag={openTag}
-                          onNavigate={navigate}
-                        />
-                        {note.path.startsWith('people/') && (
-                          <PersonPanel path={note.path} onOpen={openPreview} />
-                        )}
-                        <Editor
-                          path={note.path}
-                          content={note.content}
-                          completions={completions}
-                          resolveMap={resolveMap}
-                          onNavigate={navigate}
-                          onSnapshot={onSnapshot}
-                          onSaveState={onSaveState}
-                          onSaved={onSaved}
-                          onTrackedCreated={trackedCreated}
-                          onShowTracked={showTracked}
-                          discardRef={discardRef}
-                          apiRef={editorApi}
-                          onFind={openFinder}
-                          foldFrontmatter={foldFrontmatter}
-                        />
-                        {note.tags.length > 0 && (
-                          <div className="tag-footer">
-                            {note.tags.map((t) => (
-                              <button
-                                type="button"
-                                key={t}
-                                className="tag-row clickable"
-                                onClick={() => openTag(t)}
-                              >
-                                #{t}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="empty-state">
-                        <div>
-                          <p>
-                            <strong>corpoBrain</strong>
-                          </p>
-                          <p>
-                            Ctrl+F finds anything · Ctrl+D opens today’s daily note · ? lists the
-                            shortcuts
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {detailsOpen && !preview.pinned && !previewPath(preview) && (
-                    <RightPanel
-                      note={note}
-                      notes={notes}
-                      onOpen={openPreview}
-                      onClose={closeDetails}
-                      onTag={openTag}
-                      beforeMetaChange={saveBeforeMetaChange}
-                      onJump={jumpTo}
-                      onMetaChanged={onMetaChanged}
+      <NoteTitlesProvider value={titleFor}>
+        <div className="app-shell">
+          <div className={`app${preview.pinned || previewPath(preview) ? ' has-preview' : ''}`}>
+            <WorkspaceNav
+              view={view}
+              onView={goView}
+              onFind={openFinder}
+              pinned={navPinned}
+              onPreview={openPreview}
+            />
+            <div className="workspace-content">
+              <Suspense fallback={<div className="empty-state">Loading…</div>}>
+                {view === 'planning' ? (
+                  <PlanningPage onOpenNote={openFromPlanning} />
+                ) : view === 'projects' ? (
+                  <ProjectsPage onOpenNote={openFromPlanning} />
+                ) : view === 'availability' ? (
+                  <AvailabilityPage onOpenNote={openFromPlanning} />
+                ) : view === 'organization' ? (
+                  <OrganizationPage onOpenNote={openFromPlanning} />
+                ) : view === 'digest' ? (
+                  <DigestPage onOpenNote={openFromPlanning} />
+                ) : view === 'tasks' ? (
+                  <TasksPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
+                ) : view === 'tracked' ? (
+                  <TrackedPage onOpenNote={openFromPlanning} onNoteChanged={refreshOpenNote} />
+                ) : view === 'objects' ? (
+                  <ObjectsPage onOpenNote={openFromPlanning} />
+                ) : view === 'jira' ? (
+                  <JiraPage onOpenNote={openFromPlanning} />
+                ) : view === 'outlook' ? (
+                  <OutlookPage onOpenNote={openFromPlanning} onNotesChanged={refreshLists} />
+                ) : view === 'teambook' ? (
+                  <TeambookPage />
+                ) : view === 'settings' ? (
+                  <SettingsPage />
+                ) : view === 'private' ? (
+                  <PrivatePage />
+                ) : (
+                  <>
+                    <Sidebar
+                      openSequence={noteOpenSequence}
+                      tree={tree}
+                      tags={tags}
+                      tagFilter={tagFilter}
+                      onTagFilter={openTag}
+                      currentPath={note?.path ?? null}
+                      onOpen={openPath}
+                      onDaily={openDaily}
+                      onNew={openFinderNotes}
+                      recent={recentList}
+                      pinned={pinnedList}
+                      onUnpin={togglePin}
+                      sort={treeSort}
+                      onSort={setTreeSort}
+                      mtimeOf={mtimeOf}
+                      onTreeChanged={onTreeChanged}
                     />
-                  )}
-                </>
-              )}
-            </Suspense>
+                    <div className="main">
+                      {note ? (
+                        <>
+                          <div className="main-header">
+                            <button
+                              type="button"
+                              className="note-back"
+                              disabled={!canGoBack}
+                              title={`Back to previous note (${isMac ? '⌘[' : 'Alt+←'})`}
+                              aria-label="Back to previous note"
+                              onClick={goBack}
+                            >
+                              <Icon name="back" />
+                            </button>
+                            <button
+                              type="button"
+                              className="note-back"
+                              disabled={!canGoForward}
+                              title={`Forward again (${isMac ? '⌘]' : 'Alt+→'})`}
+                              aria-label="Forward to the next note"
+                              onClick={goForward}
+                            >
+                              <Icon name="forward" />
+                            </button>
+                            <RenameableTitle
+                              key={note.path}
+                              title={
+                                note.meta?.title ??
+                                note.path.replace(/^.*\//, '').replace(/\.md$/, '')
+                              }
+                              onRename={(title) => renameNote(note.path, title)}
+                            />
+                            <span className="note-header-path">{note.path}</span>
+                            <span className="spacer" />
+                            <button
+                              type="button"
+                              className={`icon-button${detailsOpen ? ' selected' : ''}`}
+                              aria-label="Note details"
+                              aria-pressed={detailsOpen}
+                              title="Toggle note details and outline"
+                              onClick={() => setDetailsOpen((open) => !open)}
+                            >
+                              <Icon name="panel" />
+                            </button>
+                            <button
+                              type="button"
+                              className={`note-pin${pinnedPaths.includes(note.path) ? ' on' : ''}`}
+                              title={
+                                pinnedPaths.includes(note.path)
+                                  ? 'Unpin from the sidebar'
+                                  : 'Pin to the top of the sidebar'
+                              }
+                              aria-label="Pin note"
+                              onClick={() => togglePin(note.path)}
+                            >
+                              <Icon name="pin" />
+                            </button>
+                            <button
+                              type="button"
+                              className="note-delete"
+                              title="Delete note (moved to .trash inside the vault)"
+                              onClick={() => {
+                                const current = noteRef.current;
+                                if (current)
+                                  deleteNote(current.path, current.meta?.title ?? current.path);
+                              }}
+                            >
+                              <Icon name="trash" />
+                            </button>
+                          </div>
+                          <PropertiesBar
+                            note={note}
+                            folded={foldFrontmatter}
+                            onToggleFold={() => setFoldFrontmatter((f) => !f)}
+                            onEdit={() => {
+                              // reveal by putting the cursor on the first property line
+                              const text = editorApi.current?.text() ?? note.content;
+                              const secondLine = text.indexOf('\n') + 1;
+                              editorApi.current?.goTo({ from: secondLine, to: secondLine });
+                            }}
+                            onTag={openTag}
+                            onNavigate={navigate}
+                          />
+                          {note.path.startsWith('people/') && (
+                            <PersonPanel path={note.path} onOpen={openPreview} />
+                          )}
+                          <Editor
+                            path={note.path}
+                            content={note.content}
+                            completions={completions}
+                            resolveMap={resolveMap}
+                            onNavigate={navigate}
+                            onSnapshot={onSnapshot}
+                            onSaveState={onSaveState}
+                            onSaved={onSaved}
+                            onTrackedCreated={trackedCreated}
+                            onShowTracked={showTracked}
+                            discardRef={discardRef}
+                            apiRef={editorApi}
+                            onFind={openFinder}
+                            foldFrontmatter={foldFrontmatter}
+                          />
+                          {note.tags.length > 0 && (
+                            <div className="tag-footer">
+                              {note.tags.map((t) => (
+                                <button
+                                  type="button"
+                                  key={t}
+                                  className="tag-row clickable"
+                                  onClick={() => openTag(t)}
+                                >
+                                  #{t}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="empty-state">
+                          <div>
+                            <p>
+                              <strong>corpoBrain</strong>
+                            </p>
+                            <p>
+                              Ctrl+F finds anything · Ctrl+D opens today’s daily note · ? lists the
+                              shortcuts
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {detailsOpen && !preview.pinned && !previewPath(preview) && (
+                      <RightPanel
+                        note={note}
+                        notes={notes}
+                        onOpen={openPreview}
+                        onClose={closeDetails}
+                        onTag={openTag}
+                        beforeMetaChange={saveBeforeMetaChange}
+                        onJump={jumpTo}
+                        onMetaChanged={onMetaChanged}
+                      />
+                    )}
+                  </>
+                )}
+              </Suspense>
+            </div>
+            <ContextDock
+              state={preview}
+              dispatch={(action) => {
+                ++previewResolveSeq.current;
+                dispatchPreview(action);
+              }}
+              onOpen={openPreviewInEditor}
+              onPreview={openPreview}
+              onResolve={navigate}
+              onChanged={() => {
+                refreshLists();
+                onSaved();
+              }}
+              onProtected={() => {
+                dispatchPreview({ type: 'close' });
+                goView('private');
+              }}
+            />
           </div>
-          <ContextDock
-            state={preview}
-            dispatch={(action) => {
-              ++previewResolveSeq.current;
-              dispatchPreview(action);
-            }}
-            onOpen={openPreviewInEditor}
-            onPreview={openPreview}
-            onResolve={navigate}
-            onChanged={() => {
-              refreshLists();
-              onSaved();
-            }}
-            onProtected={() => {
-              dispatchPreview({ type: 'close' });
-              goView('private');
-            }}
+          <StatusBar
+            notePath={view === 'notes' ? (note?.path ?? null) : null}
+            onOpenJira={() => goView('jira')}
+            onOpenSettings={() => goView('settings')}
+            onHelp={() => setHelpOpen(true)}
           />
+          <Finder />
+          <ClearFindOnClose editorApi={editorApi} />
+          {helpOpen && <ShortcutHelp shortcuts={shortcuts} onClose={() => setHelpOpen(false)} />}
+          {chord && <div className="chord-pending">{chord} … then a letter (? for the list)</div>}
         </div>
-        <StatusBar
-          notePath={view === 'notes' ? (note?.path ?? null) : null}
-          onOpenJira={() => goView('jira')}
-          onOpenSettings={() => goView('settings')}
-          onHelp={() => setHelpOpen(true)}
-        />
-        <Finder />
-        <ClearFindOnClose editorApi={editorApi} />
-        {helpOpen && <ShortcutHelp shortcuts={shortcuts} onClose={() => setHelpOpen(false)} />}
-        {chord && <div className="chord-pending">{chord} … then a letter (? for the list)</div>}
-      </div>
+      </NoteTitlesProvider>
     </ContextPreview>
   );
 }

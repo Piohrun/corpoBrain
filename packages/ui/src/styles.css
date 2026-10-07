@@ -3897,6 +3897,17 @@ tr.wb-conflict td {
   border: 1px solid var(--border);
   color: var(--fg-muted);
 }
+.issue-table td.nowrap {
+  white-space: nowrap;
+}
+.proj-rule-name {
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .proj-rules {
   display: flex;
   flex-wrap: wrap;
