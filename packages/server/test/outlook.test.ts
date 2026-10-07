@@ -176,7 +176,7 @@ describe('Outlook sync service', () => {
       asked++;
       return result(req, [meeting('Roadmap'), outsider]);
     });
-    expect(() => service.createMeetingNotes(['V'])).toThrow('run Preview again');
+    expect(() => service.createMeetingNotes(['V'])).toThrow('run Preview (or refresh Home) again');
     await service.preview();
     const report = service.createMeetingNotes(['V']);
     expect(report.created).toEqual(['meetings/2026-10-06 Vendor pitch.md']);
@@ -187,10 +187,57 @@ describe('Outlook sync service', () => {
       ['Roadmap', 'create', null],
       ['Vendor pitch', 'update', 'meetings/2026-10-06 Vendor pitch.md'],
     ]);
-    expect(() => service.createMeetingNotes(['nope'])).toThrow('not in the last preview');
+    expect(() => service.createMeetingNotes(['nope'])).toThrow('not in what was last read');
     expect(() => service.createMeetingNotes(['V'], Date.now() + 2 * 3600_000)).toThrow(
-      'out of date',
+      'read too long ago',
     );
+  });
+
+  it("reads today's meetings for Home at most every 10 minutes, and can make notes from them", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-06T10:00:00'));
+    try {
+      const vendor = {
+        ...meeting('Vendor pitch'),
+        id: 'V',
+        organizer: { name: 'X', email: 'x@v.com' },
+      };
+      const declined = { ...meeting('Declined one'), id: 'D', response: 'declined' as const };
+      const tomorrow = { ...meeting('Tomorrow'), id: 'T', day: '2026-10-07' };
+      const requests: ExportRequest[] = [];
+      const service = new OutlookSyncService(vault, async (req) => {
+        requests.push(req);
+        return result(req, [meeting('Roadmap'), vendor, declined, tomorrow]);
+      });
+      const first = await service.today();
+      expect(requests[0]?.calendar).toEqual({ from: '2026-10-06', to: '2026-10-07' });
+      expect(first.meetings.map((m) => [m.subject, m.action, m.suggested])).toEqual([
+        ['Roadmap', 'create', true],
+        ['Vendor pitch', 'skip', false],
+      ]);
+      // cached: Home refreshing after every save does not start Python again
+      await service.today();
+      expect(requests).toHaveLength(1);
+      // picking a skipped meeting from Home
+      expect(service.createMeetingNotes(['V']).created).toEqual([
+        'meetings/2026-10-06 Vendor pitch.md',
+      ]);
+      const after = await service.today();
+      expect(after.meetings.find((m) => m.id === 'V')).toMatchObject({
+        action: 'update',
+        path: 'meetings/2026-10-06 Vendor pitch.md',
+      });
+      expect(requests).toHaveLength(1);
+      await service.today(true);
+      expect(requests).toHaveLength(2);
+      vi.setSystemTime(new Date('2026-10-06T10:11:00'));
+      await service.today();
+      expect(requests).toHaveLength(3);
+      vault.config.outlook.calendar.enabled = false;
+      await expect(service.today()).rejects.toThrow('Calendar sync is off');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("in 'pick' mode a sync creates no new notes and the preview marks suggestions", async () => {

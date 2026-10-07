@@ -402,6 +402,25 @@ export interface OutlookPreview {
   }[];
 }
 
+/** Today's Outlook meetings for Home (server: OutlookSyncService.today). */
+export interface OutlookToday {
+  day: string;
+  fetchedAt: string;
+  meetings: {
+    id: string;
+    subject: string;
+    start: string;
+    end: string;
+    allDay: boolean;
+    location: string | null;
+    attendeeCount: number;
+    action: 'create' | 'update' | 'skip';
+    reason: string | null;
+    suggested: boolean;
+    path: string | null;
+  }[];
+}
+
 /** The .venv the Outlook connector runs in, and its one-click setup. */
 export interface PythonEnvStatus {
   running: boolean;
@@ -472,6 +491,8 @@ export const outlookApi = {
       method: 'POST',
       body: JSON.stringify({ ids }),
     }),
+  /** today's calendar for Home; Outlook is read at most every 10 minutes unless `refresh` */
+  today: (refresh = false) => req<OutlookToday>(`/api/outlook/today${refresh ? '?refresh=1' : ''}`),
   python: () => req<PythonEnvStatus>('/api/outlook/python'),
   setupPython: () => req<PythonEnvStatus>('/api/outlook/python/setup', { method: 'POST' }),
   start: () => req<{ id: string }>('/api/outlook/sync/start', { method: 'POST' }),

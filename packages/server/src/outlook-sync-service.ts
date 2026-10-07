@@ -248,8 +248,32 @@ export interface OutlookPreview {
 
 export const outlookService = perVault((v) => new OutlookSyncService(v));
 
-/** how long a preview's meetings can be picked from */
+/** how long meetings read from Outlook (preview, Home) can be picked from */
 const PREVIEW_TTL_MS = 60 * 60_000;
+/** Home re-reads today's calendar at most this often unless asked to */
+const TODAY_TTL_MS = 10 * 60_000;
+
+/** Today's calendar for Home: what has a note, what could get one. */
+export interface OutlookToday {
+  day: string;
+  fetchedAt: string;
+  meetings: {
+    id: string;
+    subject: string;
+    start: string;
+    end: string;
+    allDay: boolean;
+    location: string | null;
+    attendeeCount: number;
+    action: 'create' | 'update' | 'skip';
+    reason: string | null;
+    suggested: boolean;
+    path: string | null;
+  }[];
+}
+
+/** never offered on Home: not meetings the user will be in */
+const NOT_ON_HOME = new Set(['declined', 'cancelled', 'no attendees']);
 
 export class OutlookSyncService extends SyncJobService<
   OutlookReport,
@@ -263,8 +287,19 @@ export class OutlookSyncService extends SyncJobService<
     super(join(vault.root, '.corpobrain', 'outlook-cache', 'sync-history.json'));
   }
 
-  /** the calendar part of the last preview, for createMeetingNotes() */
-  private previewed: (ExportResult['calendar'] & { at: number; me: string | null }) | null = null;
+  /** meetings recently read from Outlook (preview, Home), for createMeetingNotes() */
+  private readMeetings = new Map<string, { meeting: OutlookMeeting; at: number }>();
+  private mailbox: string | null = null;
+  /** Home's last read of today's calendar, and the read in flight */
+  private todayCache: { day: string; at: number; meetings: OutlookMeeting[] } | null = null;
+  private todayRun: Promise<{ day: string; at: number; meetings: OutlookMeeting[] }> | null = null;
+
+  private remember(me: string | null, meetings: OutlookMeeting[], at = Date.now()): void {
+    this.mailbox = me ?? this.mailbox;
+    for (const [id, seen] of this.readMeetings)
+      if (at - seen.at > PREVIEW_TTL_MS) this.readMeetings.delete(id);
+    for (const meeting of meetings) this.readMeetings.set(meeting.id, { meeting, at });
+  }
 
   private request(config: VaultConfig) {
     const o = config.outlook;
@@ -356,7 +391,7 @@ export class OutlookSyncService extends SyncJobService<
       ...this.request(config),
       signal: AbortSignal.timeout(config.outlook.timeoutSeconds * 1000),
     });
-    this.previewed = data.calendar ? { at: Date.now(), me: data.me, ...data.calendar } : null;
+    if (data.calendar) this.remember(data.me, data.calendar.meetings);
     const ctx = { me: data.me, resolve: this.resolver() };
     const known = knownMeetings(this.vault);
     const state = readMailState(this.vault.root);
@@ -390,18 +425,31 @@ export class OutlookSyncService extends SyncJobService<
   }
 
   /**
-   * Notes for meetings picked in the preview, whatever the rules say. Uses the
-   * meetings the last preview read, so Outlook is not asked again.
+   * Notes for meetings picked in the preview or on Home, whatever the rules
+   * say. Uses the meetings already read from Outlook, so it is not asked again.
    */
   createMeetingNotes(ids: string[], now = Date.now()): MeetingsReport {
-    const seen = this.previewed;
-    if (!seen || now - seen.at > PREVIEW_TTL_MS)
-      throw new HttpError(409, 'The preview is out of date: run Preview again.');
-    const missing = ids.filter((id) => !seen.meetings.some((m) => m.id === id));
-    if (missing.length)
-      throw new HttpError(409, 'That meeting is not in the last preview: run Preview again.');
+    const picked = ids.map((id) => this.readMeetings.get(id));
+    if (picked.some((p) => !p))
+      throw new HttpError(
+        409,
+        'That meeting is not in what was last read from Outlook: run Preview (or refresh Home) again.',
+      );
+    if (picked.some((p) => p && now - p.at > PREVIEW_TTL_MS))
+      throw new HttpError(
+        409,
+        'Outlook was read too long ago: run Preview (or refresh Home) again.',
+      );
     if (this.status.syncing)
       throw new HttpError(409, 'A sync is running: try again when it finishes.');
+    const meetings = picked.map((p) => (p as { meeting: OutlookMeeting }).meeting);
+    const days = meetings.map((m) => m.day).sort();
+    const seen = {
+      me: this.mailbox,
+      from: days[0] as string,
+      to: days[days.length - 1] as string,
+      meetings,
+    };
     const report = applyMeetings(this.vault.root, this.vault.config, seen, {
       known: knownMeetings(this.vault),
       resolve: this.resolver(),
@@ -411,6 +459,63 @@ export class OutlookSyncService extends SyncJobService<
     const touched = [...report.created, ...report.updated];
     if (touched.length) this.vault.indexer.updatePaths(touched);
     return report;
+  }
+
+  /**
+   * Today's calendar for Home, planned like the preview. Outlook is read at
+   * most every 10 minutes (one read at a time); `force` reads it now.
+   */
+  async today(force = false): Promise<OutlookToday> {
+    const config = this.vault.config;
+    if (!config.outlook.calendar.enabled)
+      throw new HttpError(409, 'Calendar sync is off in Tools → Outlook.');
+    const day = localDay();
+    const cached = this.todayCache;
+    let read =
+      cached && cached.day === day && !force && Date.now() - cached.at < TODAY_TTL_MS
+        ? cached
+        : null;
+    if (!read) {
+      this.todayRun ??= this.exporter({
+        python: resolvePython(config.outlook.python).python,
+        calendar: exportWindow({ daysBack: 0, daysAhead: 0 }),
+        timeoutSeconds: Math.min(120, config.outlook.timeoutSeconds),
+        signal: AbortSignal.timeout(120_000),
+      })
+        .then((data) => {
+          const at = Date.now();
+          const meetings = data.calendar?.meetings ?? [];
+          this.remember(data.me, meetings, at);
+          this.todayCache = { day, at, meetings };
+          return this.todayCache;
+        })
+        .finally(() => {
+          this.todayRun = null;
+        });
+      read = await this.todayRun;
+    }
+    const ctx = { me: this.mailbox, resolve: this.resolver() };
+    const known = knownMeetings(this.vault);
+    const meetings: OutlookToday['meetings'] = [];
+    for (const m of read.meetings) {
+      if (m.day !== day) continue;
+      const plan = planMeeting(m, config.outlook.calendar, ctx, known);
+      if (plan.action === 'skip' && NOT_ON_HOME.has(plan.reason)) continue;
+      meetings.push({
+        id: m.id,
+        subject: m.subject,
+        start: m.startUtc,
+        end: m.endUtc,
+        allDay: m.allDay,
+        location: m.location,
+        attendeeCount: m.attendeeCount,
+        action: plan.action,
+        reason: plan.action === 'skip' ? plan.reason : null,
+        suggested: plan.action === 'create' || (plan.action === 'skip' && plan.suggested === true),
+        path: plan.action === 'update' ? plan.path : null,
+      });
+    }
+    return { day, fetchedAt: new Date(read.at).toISOString(), meetings };
   }
 
   /** A quick look at today's calendar, without writing anything. */

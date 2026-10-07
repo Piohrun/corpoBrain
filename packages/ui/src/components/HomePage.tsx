@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, type HomeData, homeApi } from '../api.ts';
+import { api, type HomeData, homeApi, type OutlookToday, outlookApi } from '../api.ts';
 import { localISODate } from '../dates.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { WikiText } from './WikiText.tsx';
@@ -29,8 +29,174 @@ const KIND_ICON: Record<string, string> = {
 };
 const AWAY_LABEL = { ooo: 'out', holiday: 'holiday', support: 'support' } as const;
 
+type OutlookState =
+  | { kind: 'loading' }
+  | { kind: 'off' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready'; data: OutlookToday };
+
 /**
- * Home: the day at a glance. Read-only — it never creates notes; "Today"
+ * Today's meetings: meeting notes, plus today's Outlook meetings that have no
+ * note yet, each one click from one. Outlook is read in the background (a
+ * few seconds) and at most every 10 minutes; ↻ reads it now.
+ */
+function MeetingsCard({
+  day,
+  notes,
+  onOpenNote,
+  onView,
+  onCreated,
+}: {
+  day: string;
+  notes: HomeData['meetings'];
+  onOpenNote: (path: string) => void;
+  onView: (view: View) => void;
+  /** a meeting note was written: reload the notes list */
+  onCreated: () => void;
+}) {
+  const [outlook, setOutlook] = useState<OutlookState>({ kind: 'loading' });
+  const [busy, setBusy] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback((refresh = false) => {
+    if (refresh) setOutlook({ kind: 'loading' });
+    outlookApi
+      .today(refresh)
+      .then((data) => setOutlook({ kind: 'ready', data }))
+      .catch((e: Error) =>
+        setOutlook(
+          /calendar sync is off/i.test(e.message)
+            ? { kind: 'off' }
+            : { kind: 'error', message: e.message },
+        ),
+      );
+  }, []);
+  useEffect(() => load(), [load]);
+  // replanned from the server's cached read: a new note shows up as a note
+  useVaultEvents(() => load());
+
+  const create = (id: string) => {
+    setBusy((b) => new Set(b).add(id));
+    setError(null);
+    outlookApi
+      .createMeetings([id])
+      .then(() => {
+        onCreated();
+        load();
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() =>
+        setBusy((b) => {
+          const next = new Set(b);
+          next.delete(id);
+          return next;
+        }),
+      );
+  };
+
+  const noteRows = notes.map((m) => ({
+    key: m.path,
+    allDay: m.allDay,
+    start: m.start ?? '',
+    node: (
+      <li key={m.path} data-path={m.path} className={m.cancelled ? 'cancelled' : ''}>
+        <span className="home-time">
+          {m.allDay ? 'all day' : `${time(m.start)}${m.end ? `–${time(m.end)}` : ''}`}
+        </span>
+        <button type="button" className="text-link" onClick={() => onOpenNote(m.path)}>
+          {/* meeting notes are named "<day> <subject>"; the day is this page's */}
+          {m.title.startsWith(`${day} `) ? m.title.slice(day.length + 1) : m.title}
+        </button>
+        {m.location && <span className="muted small">{m.location}</span>}
+        {m.cancelled && <span className="muted small">cancelled</span>}
+      </li>
+    ),
+  }));
+  const unpicked = outlook.kind === 'ready' ? outlook.data.meetings.filter((m) => !m.path) : [];
+  const outlookRows = unpicked.map((m) => ({
+    key: m.id,
+    allDay: m.allDay,
+    start: m.start,
+    node: (
+      <li key={m.id} className={m.suggested ? 'home-unpicked' : 'home-unpicked muted'}>
+        <span className="home-time">
+          {m.allDay ? 'all day' : `${time(m.start)}–${time(m.end)}`}
+        </span>
+        <span
+          className="home-subject"
+          title={
+            m.suggested ? 'Suggested by your Outlook rules' : `Skipped by the rules: ${m.reason}`
+          }
+        >
+          {m.subject || '(no subject)'}
+        </span>
+        {m.location && <span className="muted small">{m.location}</span>}
+        <button
+          type="button"
+          className={m.suggested ? 'risk-chip home-pick' : 'props-toggle home-pick'}
+          disabled={busy.has(m.id)}
+          title="Create the meeting note; syncs keep it up to date from then on"
+          onClick={() => create(m.id)}
+        >
+          {busy.has(m.id) ? 'creating…' : '+ note'}
+        </button>
+      </li>
+    ),
+  }));
+  const rows = [...noteRows, ...outlookRows].sort(
+    (a, b) => Number(b.allDay) - Number(a.allDay) || a.start.localeCompare(b.start),
+  );
+  const fetched =
+    outlook.kind === 'ready'
+      ? new Date(outlook.data.fetchedAt).toLocaleTimeString(undefined, {
+          hour: 'numeric',
+          minute: '2-digit',
+        })
+      : null;
+
+  return (
+    <section className="home-card">
+      <h2 className="plan-h2">
+        Meetings <span className="health-badge">{rows.length}</span>
+        <span className="spacer" />
+        {outlook.kind === 'loading' && <span className="muted small">reading Outlook…</span>}
+        {outlook.kind !== 'off' && outlook.kind !== 'loading' && (
+          <button
+            type="button"
+            className="text-link small"
+            onClick={() => load(true)}
+            title={fetched ? `Outlook read at ${fetched}; read it again` : 'Read Outlook again'}
+          >
+            ↻ Outlook
+          </button>
+        )}
+      </h2>
+      {error && <p className="plan-error wrap small">{error}</p>}
+      {outlook.kind === 'error' && (
+        <p className="muted small">
+          Outlook could not be read ({outlook.message}).{' '}
+          <button type="button" className="text-link" onClick={() => onView('outlook')}>
+            Tools → Outlook
+          </button>
+        </p>
+      )}
+      {rows.length === 0 ? (
+        <p className="muted small">
+          {outlook.kind === 'loading'
+            ? 'No meeting notes for today yet.'
+            : outlook.kind === 'off'
+              ? 'No meeting notes for today. Turn on calendar sync in Tools → Outlook to pick meetings here.'
+              : 'Nothing in the calendar today.'}
+        </p>
+      ) : (
+        <ul className="home-list">{rows.map((r) => r.node)}</ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Home: the day at a glance. It never creates notes by itself; "Today"
  * (sidebar, Ctrl+D) is what opens or creates the daily note.
  */
 export function HomePage({
@@ -142,40 +308,13 @@ export function HomePage({
       ) : (
         <div className="planning-scroll home-grid">
           <div className="home-main">
-            <section className="home-card">
-              <h2 className="plan-h2">
-                Meetings <span className="health-badge">{data.meetings.length}</span>
-              </h2>
-              {data.meetings.length === 0 ? (
-                <p className="muted small">
-                  No meeting notes for today.{' '}
-                  <button type="button" className="text-link" onClick={() => onView('outlook')}>
-                    Outlook → Preview
-                  </button>{' '}
-                  picks meetings to make notes for.
-                </p>
-              ) : (
-                <ul className="home-list">
-                  {data.meetings.map((m) => (
-                    <li key={m.path} data-path={m.path} className={m.cancelled ? 'cancelled' : ''}>
-                      <span className="home-time">
-                        {m.allDay ? 'all day' : `${time(m.start)}${m.end ? `–${time(m.end)}` : ''}`}
-                      </span>
-                      <button
-                        type="button"
-                        className="text-link"
-                        onClick={() => onOpenNote(m.path)}
-                      >
-                        {/* meeting notes are named "<day> <subject>"; the day is this page's */}
-                        {m.title.startsWith(`${day} `) ? m.title.slice(day.length + 1) : m.title}
-                      </button>
-                      {m.location && <span className="muted small">{m.location}</span>}
-                      {m.cancelled && <span className="muted small">cancelled</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
+            <MeetingsCard
+              day={day}
+              notes={data.meetings}
+              onOpenNote={onOpenNote}
+              onView={onView}
+              onCreated={refresh}
+            />
 
             <section className="home-card">
               <h2 className="plan-h2">

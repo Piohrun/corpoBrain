@@ -148,6 +148,16 @@ export function outlookRoutes(v: VaultService): Hono {
     return c.json(jobs.createMeetingNotes(body.ids as string[]));
   });
 
+  /** Today's meetings for Home (read from Outlook at most every 10 minutes). */
+  app.get('/today', async (c) => {
+    try {
+      return c.json(await jobs.today(c.req.query('refresh') === '1'));
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw outlookError(e, 'read');
+    }
+  });
+
   app.get('/status', (c) => c.json(jobs.status));
 
   /** The Python environment the exporter needs: is it there, and set it up in one click. */

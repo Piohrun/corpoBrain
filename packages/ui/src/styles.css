@@ -4582,6 +4582,19 @@ button.prop-chip {
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
+.home-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.home-unpicked.muted .home-subject {
+  color: var(--fg-muted);
+}
+.home-pick {
+  margin-left: auto;
+  flex: none;
+}
 .home-kind {
   flex: none;
   width: 14px;

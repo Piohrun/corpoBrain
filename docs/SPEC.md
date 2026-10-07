@@ -446,11 +446,13 @@ Rules, as for Jira (§6.2):
   An existing note is always kept current, whatever the rules say now.
   Matching is case-insensitive. With `newNotes: "pick"` the rules only
   suggest: a sync creates no new notes, and the preview lists the suggestions.
-- Picking (Tools → Outlook → Preview): the user can create the note for any
-  occurrence in the last preview — suggested, skipped by the rules, even
-  declined. It is written exactly as a sync would write it, from the meetings
-  that preview read (Outlook is not asked again; a preview older than an hour
-  must be re-run), and from then on every sync keeps it current.
+- Picking (Tools → Outlook → Preview, or Home for today's meetings): the user
+  can create the note for any occurrence read from Outlook in the last hour —
+  suggested, skipped by the rules, even declined (Home does not offer declined,
+  cancelled or attendee-less items). It is written exactly as a sync would
+  write it, from the meetings already read (Outlook is not asked again; after
+  an hour, Preview or Home's ↻ must read it again), and from then on every
+  sync keeps it current. Home reads today's calendar at most every 10 minutes.
 - A note whose occurrence is no longer in the exported window gets
   `outlook.gone: true`; notes are never deleted. A rescheduled occurrence of a
   recurring series is a new occurrence (new note); the old one is flagged gone.
