@@ -2,6 +2,7 @@ import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { ctxTarget } from '../finder/ContextMenu.tsx';
+import { naturalCompare } from '../sort.ts';
 import { useProgressive } from './progressive.tsx';
 
 interface Option {
@@ -218,7 +219,7 @@ export const SprintTable = memo(function SprintTable({
       const ra = a.plan.rank ?? Number.POSITIVE_INFINITY;
       const rb = b.plan.rank ?? Number.POSITIVE_INFINITY;
       if (ra !== rb) return ra - rb;
-      return a.key.localeCompare(b.key);
+      return naturalCompare(a.key, b.key);
     });
   }, [issues, board.columns]);
 

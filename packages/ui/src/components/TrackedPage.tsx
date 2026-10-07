@@ -400,7 +400,7 @@ export function TrackedPage({
                   {item.sourcePath && (
                     <button
                       type="button"
-                      className="key-link"
+                      className="text-link"
                       onClick={() => onOpenNote(item.sourcePath as string)}
                     >
                       {item.sourceTitle ?? item.sourcePath}

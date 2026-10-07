@@ -158,7 +158,7 @@ export function DigestPage({ onOpenNote }: { onOpenNote: (path: string) => void 
                 <h2 className="plan-h2">
                   <button
                     type="button"
-                    className="key-link"
+                    className="text-link"
                     onClick={() => g.path && onOpenNote(g.path)}
                     disabled={!g.path}
                   >

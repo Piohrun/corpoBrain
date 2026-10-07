@@ -4,6 +4,7 @@ import {
   adjustCapacity,
   type HolidayEntry,
   isCalendarDay,
+  naturalCompare,
 } from '@corpobrain/core';
 import { Hono } from 'hono';
 import {
@@ -99,12 +100,12 @@ export function availabilityRoutes(v: VaultService): Hono {
       holidays: readHolidays(v).entries,
       holidayWarnings: readHolidays(v).warnings,
       rows: rows.sort((a, b) => {
-        if (a.sprint !== b.sprint) return a.sprint.localeCompare(b.sprint);
+        if (a.sprint !== b.sprint) return naturalCompare(a.sprint, b.sprint);
         const oa =
           board.people.find((p) => p.path === a.person)?.sortOrder ?? Number.POSITIVE_INFINITY;
         const ob =
           board.people.find((p) => p.path === b.person)?.sortOrder ?? Number.POSITIVE_INFINITY;
-        return oa - ob || a.name.localeCompare(b.name);
+        return oa - ob || naturalCompare(a.name, b.name);
       }),
     };
     return c.json(body);

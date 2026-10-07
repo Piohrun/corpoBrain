@@ -209,6 +209,7 @@ export type {
 export { maskInlineCode, scanMarkdown, stripTrackMarkers, trackAnchors } from './scan.ts';
 export type { SecretName } from './secrets.ts';
 export { readSecret, readSecretsFile, SECRET_ENV, writeSecrets } from './secrets.ts';
+export { naturalCompare } from './sort.ts';
 export type { TeambookWrite, TeambookWrites } from './teambook/apply.ts';
 export { buildTeambookWrites, nextBaseline } from './teambook/apply.ts';
 export type { TeambookClientOptions } from './teambook/client.ts';

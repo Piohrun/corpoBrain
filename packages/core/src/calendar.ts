@@ -9,6 +9,7 @@
  */
 import { weekdaysIn } from './availability.ts';
 import { addWorkingDays, type ProjectIssue } from './projects.ts';
+import { naturalCompare } from './sort.ts';
 
 export interface CalendarInput {
   /** workday dates, ascending, YYYY-MM-DD */
@@ -176,7 +177,7 @@ export function layoutCalendar(input: CalendarInput): CalendarLayout {
   // ---- unpinned work flows into the first free gap of its sprint -----------
   const flowing = open
     .filter((i) => !i.plan.start)
-    .sort((a, b) => rank(a) - rank(b) || a.key.localeCompare(b.key));
+    .sort((a, b) => rank(a) - rank(b) || naturalCompare(a.key, b.key));
   for (const issue of flowing) {
     const from = input.sprintFrom[issue.effectiveSprint];
     if (from === undefined) {
@@ -241,7 +242,7 @@ export function arrangeCalendar(input: CalendarInput): ArrangeResult {
   // Kahn's algorithm, always taking the lowest-ranked ready issue (rank,
   // then key): the same order as re-scanning for the best ready issue at
   // each step, in O(n log n) instead of O(n²).
-  const byRank = (a: string, b: string) => rankOf(a) - rankOf(b) || a.localeCompare(b);
+  const byRank = (a: string, b: string) => rankOf(a) - rankOf(b) || naturalCompare(a, b);
   const order: string[] = [];
   const remaining = new Map(deps);
   const unmet = new Map<string, number>();

@@ -1,4 +1,5 @@
 import { memo, useEffect, useState } from 'react';
+import { isMac } from '../shortcuts.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { Icon, type IconName } from './Icon.tsx';
 
@@ -81,7 +82,8 @@ export const WorkspaceNav = memo(function WorkspaceNav({
         aria-label="Find anything"
       >
         <Icon name="search" />
-        <span>Find anything</span>
+        <span>Search</span>
+        <kbd className="workspace-search-key">{isMac ? '⌘F' : 'Ctrl+F'}</kbd>
       </button>
       <div className="workspace-nav-scroll">
         {pinned.length > 0 && (

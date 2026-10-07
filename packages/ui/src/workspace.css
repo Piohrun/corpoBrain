@@ -124,6 +124,21 @@ button:disabled {
 }
 .workspace-nav-item:hover,
 .workspace-collapse:hover,
+.workspace-search > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-search-key {
+  margin-left: auto;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 11px;
+  opacity: 0.8;
+}
+.workspace-nav.collapsed .workspace-search-key {
+  display: none;
+}
 .workspace-search:hover {
   color: var(--fg);
   background: var(--bg-hover);
@@ -188,9 +203,6 @@ button:disabled {
 .sidebar-actions button {
   padding: 7px;
   font-size: 11.5px;
-}
-.sidebar-search {
-  padding: 0 12px 12px;
 }
 .sidebar-scroll {
   padding: 0 8px 16px;

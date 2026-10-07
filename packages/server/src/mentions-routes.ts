@@ -1,5 +1,5 @@
 /** Unlinked mentions of a note (its title or aliases as plain text elsewhere) and one-click linking. */
-import { findMentions, linkMention, parseFrontmatter } from '@corpobrain/core';
+import { findMentions, linkMention, naturalCompare, parseFrontmatter } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
 
@@ -66,7 +66,7 @@ export function mentionsRoutes(v: VaultService): Hono {
       });
       if (mentions.length >= 30) break;
     }
-    mentions.sort((a, b) => a.title.localeCompare(b.title));
+    mentions.sort((a, b) => naturalCompare(a.title, b.title));
     return c.json({ title, names, mentions });
   });
 

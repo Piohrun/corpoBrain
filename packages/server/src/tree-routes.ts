@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 /** Note hierarchy (SPEC §3.5) and note-metadata edits (type/parent/order). */
-import { deleteFrontmatterKey, parseFrontmatter, setFrontmatterKey } from '@corpobrain/core';
+import {
+  deleteFrontmatterKey,
+  naturalCompare,
+  parseFrontmatter,
+  setFrontmatterKey,
+} from '@corpobrain/core';
 import { Hono } from 'hono';
 import {
   organizationSources,
@@ -369,7 +374,6 @@ interface Row {
   ord: unknown;
 }
 
-const collator = new Intl.Collator();
 /** One tree per index version: the sidebar asks for it after every change. */
 const treeCache = new WeakMap<VaultService, { version: number; tree: TreeModel }>();
 
@@ -445,7 +449,7 @@ function computeTree(v: VaultService): TreeModel {
     list.sort(
       (a, b) =>
         (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
-        collator.compare(a.title, b.title),
+        naturalCompare(a.title, b.title),
     );
     for (const n of list) sortRec(n.children);
   };
@@ -462,7 +466,7 @@ function computeTree(v: VaultService): TreeModel {
   return {
     dailyFolder: v.config.folders.daily,
     folders: [...byFolder.entries()]
-      .sort(([a], [b]) => collator.compare(a, b))
+      .sort(([a], [b]) => naturalCompare(a, b))
       .map(([folder, list]) => ({ folder, roots: list })),
   };
 }

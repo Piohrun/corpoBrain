@@ -2,6 +2,7 @@ import { cloneElement, memo, useCallback, useEffect, useMemo, useRef, useState }
 import type { BoardIssue, BoardModel, PlanPatch } from '../api.ts';
 import { nameColor, statusColor, statusTitle } from '../colors.ts';
 import { ctxTarget } from '../finder/ContextMenu.tsx';
+import { naturalCompare } from '../sort.ts';
 import { lsGet, lsJson, lsSet, lsSetJson } from '../storage.ts';
 import { EditableNumber } from './EditableNumber.tsx';
 import { type GroupBy, personName, type Row, UNASSIGNED } from './planningShared.ts';
@@ -231,7 +232,7 @@ export const BandwidthGrid = memo(function BandwidthGrid({
           return a.label.startsWith('(') ? 1 : -1;
         const oa = hubOrder.get(a.label.toLowerCase()) ?? Number.POSITIVE_INFINITY;
         const ob = hubOrder.get(b.label.toLowerCase()) ?? Number.POSITIVE_INFINITY;
-        return oa - ob || a.label.localeCompare(b.label);
+        return oa - ob || naturalCompare(a.label, b.label);
       });
     const byKey = (rows: Row[], keyOf: (r: Row) => string): Map<string, Row[]> => {
       const m = new Map<string, Row[]>();

@@ -13,6 +13,7 @@ import { rankBy } from '../finder/match.ts';
 import { useFinderActions, useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { naturalCompare } from '../sort.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { ProjectNotes } from './ProjectNotes.tsx';
 
@@ -447,7 +448,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
               <span className="cal-zoom">
                 <button
                   type="button"
-                  className="plan-btn"
+                  className="plan-btn ghost"
                   onClick={() => zoom(-1)}
                   disabled={ZOOMS.indexOf(day) === 0}
                   title="Smaller day boxes — more weeks on screen"
@@ -457,7 +458,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                 <span className="muted small">{day}px</span>
                 <button
                   type="button"
-                  className="plan-btn"
+                  className="plan-btn ghost"
                   onClick={() => zoom(1)}
                   disabled={ZOOMS.indexOf(day) === ZOOMS.length - 1}
                   title="Bigger day boxes"
@@ -475,7 +476,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
               </button>
               <button
                 type="button"
-                className="plan-btn"
+                className="plan-btn ghost"
                 onClick={() => finder.open({ section: 'proj-people' })}
                 title="Add people to this project so they have a row before any issues are assigned"
               >
@@ -483,7 +484,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
               </button>
               <button
                 type="button"
-                className="plan-btn"
+                className="plan-btn ghost"
                 onClick={arrange}
                 title="Compute a dependency- and absence-aware schedule and pin every block to it"
               >
@@ -491,7 +492,7 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
               </button>
               <button
                 type="button"
-                className="plan-btn"
+                className="plan-btn ghost"
                 onClick={() => onOpenNote(model.project.path)}
               >
                 note
@@ -763,7 +764,7 @@ function Calendar({
               {r.color && <i className="proj-dot" style={{ background: r.color }} />}
               <button
                 type="button"
-                className="key-link"
+                className="text-link"
                 onClick={() => r.path && onOpenNote(r.path)}
                 disabled={!r.path}
               >
@@ -1033,7 +1034,7 @@ function ComingUp({
   const nameOf = new Map(model.rows.map((r) => [r.assignee, r.name]));
   const upcoming = model.blocks
     .filter((b) => model.today === null || b.start + b.span > model.today)
-    .sort((a, b) => a.start - b.start || a.key.localeCompare(b.key))
+    .sort((a, b) => a.start - b.start || naturalCompare(a.key, b.key))
     .slice(0, 14);
   if (!upcoming.length) return null;
   const fmt = (idx: number) =>

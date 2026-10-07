@@ -280,7 +280,7 @@ export function TeambookPage() {
             {status?.syncing && status.runId ? (
               <button
                 type="button"
-                className="plan-btn"
+                className="plan-btn ghost"
                 disabled={status.cancelling}
                 onClick={() =>
                   status.runId &&
@@ -310,7 +310,7 @@ export function TeambookPage() {
                 {cfg.fixtureFound && (
                   <button
                     type="button"
-                    className="plan-btn"
+                    className="plan-btn ghost"
                     title=".corpobrain/teambook-cache/fixture.json"
                     onClick={() => startPreview('fixture')}
                   >

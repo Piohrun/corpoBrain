@@ -6,6 +6,7 @@ import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { naturalCompare } from '../sort.ts';
 import { useProgressive } from './progressive.tsx';
 
 const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
@@ -223,7 +224,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
       arr.push(r);
       m.set(key, arr);
     }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return [...m.entries()].sort(([a], [b]) => naturalCompare(a, b));
   }, [rows, groupBy]);
 
   // Thousands of objects (every Jira issue): rows arrive as the table scrolls
@@ -324,7 +325,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                       <td>
                         <button
                           type="button"
-                          className="key-link"
+                          className="text-link"
                           onClick={() => onOpenNote(r.path)}
                         >
                           {r.title}

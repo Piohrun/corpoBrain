@@ -12,6 +12,7 @@ import { ctxTarget } from '../finder/ContextMenu.tsx';
 import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
+import { naturalCompare } from '../sort.ts';
 import { revealRow, useVirtualRows } from './virtualRows.tsx';
 
 /** rows keep a stable client id so editing and deleting do not shuffle inputs */
@@ -259,14 +260,14 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
         {archivable > 0 && (
           <button
             type="button"
-            className="plan-btn"
+            className="plan-btn ghost"
             onClick={archive}
             title={`Move entries that ended more than ${ARCHIVE_MONTHS} months ago into per-year archive notes`}
           >
             🗄 archive {archivable} old
           </button>
         )}
-        <button type="button" className="plan-btn" onClick={() => onOpenNote(data.file)}>
+        <button type="button" className="plan-btn ghost" onClick={() => onOpenNote(data.file)}>
           open note
         </button>
       </div>
@@ -372,7 +373,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
 
         <button
           type="button"
-          className="plan-btn add-row"
+          className="plan-btn ghost add-row"
           onClick={() => {
             setDraft((rows) => [
               ...rows,
@@ -477,7 +478,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
         <div className="hol-actions">
           <button
             type="button"
-            className="plan-btn add-row"
+            className="plan-btn ghost add-row"
             onClick={() => {
               setHolidays((rows) => [
                 ...rows,
@@ -501,7 +502,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
           )}
           <button
             type="button"
-            className="plan-btn add-row"
+            className="plan-btn ghost add-row"
             onClick={seed}
             title="Merge the built-in 2026–27 bank holidays for China, India, Poland, UK, USA and Canada (no duplicates)"
           >
@@ -509,7 +510,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
           </button>
           <button
             type="button"
-            className="plan-btn add-row"
+            className="plan-btn ghost add-row"
             onClick={() => onOpenNote(data.holidaysFile)}
           >
             open holidays note
@@ -541,7 +542,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
                     <td>
                       <button
                         type="button"
-                        className="key-link"
+                        className="text-link"
                         onClick={() => r.path && onOpenNote(r.path)}
                       >
                         {r.name}
@@ -739,7 +740,7 @@ function MonthGrid({
       [...data.people].sort(
         (a, b) =>
           (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
-          a.name.localeCompare(b.name),
+          naturalCompare(a.name, b.name),
       ),
     [data.people],
   );
@@ -763,11 +764,16 @@ function MonthGrid({
   return (
     <section className="av-cal">
       <div className="health-head">
-        <button type="button" className="plan-btn" onClick={() => nav(-1)} title="Previous month">
+        <button
+          type="button"
+          className="plan-btn ghost"
+          onClick={() => nav(-1)}
+          title="Previous month"
+        >
           ‹
         </button>
         <span className="av-cal-label">{label}</span>
-        <button type="button" className="plan-btn" onClick={() => nav(1)} title="Next month">
+        <button type="button" className="plan-btn ghost" onClick={() => nav(1)} title="Next month">
           ›
         </button>
         <span className="health-stat">
@@ -780,14 +786,14 @@ function MonthGrid({
           draw as
           <button
             type="button"
-            className={`plan-btn small${drawKind === 'ooo' ? ' active' : ''}`}
+            className={`plan-btn ghost small${drawKind === 'ooo' ? ' active' : ''}`}
             onClick={() => setDrawKind('ooo')}
           >
             out of office
           </button>
           <button
             type="button"
-            className={`plan-btn small${drawKind === 'support' ? ' active' : ''}`}
+            className={`plan-btn ghost small${drawKind === 'support' ? ' active' : ''}`}
             onClick={() => setDrawKind('support')}
           >
             support
@@ -887,7 +893,7 @@ const AvRow = memo(function AvRow({
       }}
     >
       <span className="av-name">
-        <button type="button" className="key-link" onClick={() => onOpenNote(person.path)}>
+        <button type="button" className="text-link" onClick={() => onOpenNote(person.path)}>
           {person.name}
         </button>
       </span>
@@ -977,7 +983,7 @@ function WeekStrip({
         }
       }
     }
-    return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...m.values()].sort((a, b) => naturalCompare(a.name, b.name));
   };
   const out = collect(['ooo', 'holiday']);
   const support = collect(['support']);
@@ -991,7 +997,7 @@ function WeekStrip({
     rows.map((r, i) => (
       <span key={r.path}>
         {i > 0 && ', '}
-        <button type="button" className="key-link" onClick={() => onOpenNote(r.path)}>
+        <button type="button" className="text-link" onClick={() => onOpenNote(r.path)}>
           {r.name}
         </button>
         <span className="muted"> {span(r)}</span>

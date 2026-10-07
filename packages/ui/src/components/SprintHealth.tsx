@@ -152,7 +152,7 @@ export function SprintHealth({
                       {p.personName && !p.issueKey && (
                         <button
                           type="button"
-                          className="key-link"
+                          className="text-link"
                           onClick={() => p.personPath && onOpenNote(p.personPath)}
                           disabled={!p.personPath}
                         >

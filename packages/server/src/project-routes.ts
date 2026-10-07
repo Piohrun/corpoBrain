@@ -8,6 +8,7 @@ import {
   endExclusive,
   layoutCalendar,
   localDay,
+  naturalCompare,
   normalizeCountry,
   type ProjectDef,
   type ProjectIssue,
@@ -110,6 +111,7 @@ export function projectDefs(v: VaultService): ProjectDef[] {
       "SELECT path, title, frontmatter_json FROM notes WHERE (type = 'project' OR path LIKE ?) AND protected = 0 ORDER BY title",
     )
     .all(`${folder}/%`) as { path: string; title: string; frontmatter_json: string }[];
+  rows.sort((a, b) => naturalCompare(a.title, b.title));
   const defs: ProjectDef[] = [];
   for (const r of rows) {
     let fm: Record<string, unknown> = {};
@@ -466,7 +468,7 @@ export function projectRoutes(v: VaultService): Hono {
       const p = board.people.find((x) => x.path === path);
       return p?.sortOrder ?? Number.POSITIVE_INFINITY;
     };
-    rows.sort((a, b) => orderOf(a.path) - orderOf(b.path) || a.name.localeCompare(b.name));
+    rows.sort((a, b) => orderOf(a.path) - orderOf(b.path) || naturalCompare(a.name, b.name));
     addRow('(unassigned)', false);
 
     // ---- per-sprint load footer -------------------------------------------

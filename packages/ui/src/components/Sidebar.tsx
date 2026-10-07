@@ -1,7 +1,6 @@
 import type React from 'react';
 import { memo, useEffect, useState } from 'react';
 import { api, type TagCount, type TreeModel } from '../api.ts';
-import { isMac } from '../shortcuts.ts';
 import { Icon } from './Icon.tsx';
 import { NoteTree } from './NoteTree.tsx';
 
@@ -15,7 +14,6 @@ interface Props {
   onOpen: (path: string) => void;
   onDaily: () => void;
   onNew: () => void;
-  onFind: () => void;
   onTreeChanged: (moved?: { from: string; to: string }) => void;
   /** last opened first */
   recent: { path: string; title: string }[];
@@ -38,7 +36,6 @@ export const Sidebar = memo(function Sidebar({
   onOpen,
   onDaily,
   onNew,
-  onFind,
   onTreeChanged,
   recent,
   pinned,
@@ -78,15 +75,6 @@ export const Sidebar = memo(function Sidebar({
         </button>
         <button type="button" onClick={onNew} title="Create a note">
           + Note
-        </button>
-        <button type="button" onClick={onFind} title={isMac ? '⌘F' : 'Ctrl+F'}>
-          Go to…
-        </button>
-      </div>
-      <div className="sidebar-search">
-        <button type="button" className="finder-trigger" onClick={onFind}>
-          <span>Find anything…</span>
-          <kbd>{isMac ? '⌘F' : 'Ctrl+F'}</kbd>
         </button>
       </div>
       {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move focus between the tree's own buttons */}

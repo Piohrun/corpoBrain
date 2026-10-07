@@ -8,6 +8,7 @@ import {
 } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { useJiraSync, useVaultEvents } from '../hooks.ts';
+import { naturalCompare } from '../sort.ts';
 import { useProgressive } from './progressive.tsx';
 import { SyncHistory } from './SyncHistory.tsx';
 import { lastSyncSummary, SyncProgressBar } from './SyncProgressBar.tsx';
@@ -506,7 +507,7 @@ function SprintsSection({
               {s.path ? (
                 <button
                   type="button"
-                  className="key-link"
+                  className="text-link"
                   onClick={() => onOpenNote(s.path as string)}
                 >
                   {s.name}
@@ -550,7 +551,7 @@ function SprintsSection({
           value={end}
           onChange={(e) => setEnd(e.target.value)}
         />
-        <button type="button" className="plan-btn" onClick={create}>
+        <button type="button" className="plan-btn ghost" onClick={create}>
           + Create local sprint
         </button>
         {err && <span className="plan-error">{err}</span>}
@@ -608,7 +609,7 @@ function IssuesSection({
       arr.push(i);
       m.set(k, arr);
     }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
+    return [...m.entries()].sort(([a], [b]) => naturalCompare(a, b));
   }, [filtered, groupByEpic]);
 
   // Rows render progressively: thousands of issues at once took ~300 ms of

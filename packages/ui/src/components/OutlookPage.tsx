@@ -136,7 +136,7 @@ function PythonEnv({ onFinished }: { onFinished: () => void }) {
         {!env.running && (
           <button
             type="button"
-            className="plan-btn"
+            className={env.ready ? 'plan-btn ghost' : 'plan-btn'}
             title={`Creates ${env.venv} and installs comtypes into it`}
             onClick={() =>
               outlookApi
@@ -275,7 +275,7 @@ function MeetingsPreview({
                 {m.path ? (
                   <button
                     type="button"
-                    className="outlook-subject"
+                    className="text-link"
                     onClick={() => m.path && onOpenNote(m.path)}
                   >
                     {m.subject || '(no subject)'}
@@ -436,7 +436,7 @@ export function OutlookPage({
         </button>
         <button
           type="button"
-          className="plan-btn"
+          className="plan-btn ghost"
           disabled={!anyEnabled || preview === 'loading'}
           title="Read Outlook and list what a sync would do; pick meetings to make notes for"
           onClick={runPreview}
@@ -446,7 +446,7 @@ export function OutlookPage({
         {status?.syncing && status.runId ? (
           <button
             type="button"
-            className="plan-btn"
+            className="plan-btn ghost"
             disabled={status.cancelling}
             onClick={() =>
               status.runId &&

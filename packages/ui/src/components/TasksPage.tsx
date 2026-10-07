@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type TaskItem } from '../api.ts';
 import { localISODate } from '../dates.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { naturalCompare } from '../sort.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { useProgressive } from './progressive.tsx';
 import { WikiText } from './WikiText.tsx';
@@ -19,7 +20,7 @@ function groupByNote(items: TaskItem[]): [string, TaskItem[]][] {
     else m.set(t.title, [t]);
   }
   return [...m.entries()]
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => naturalCompare(a[0], b[0]))
     .map(([title, list]) => [title, [...list].sort((a, b) => a.done - b.done || a.line - b.line)]);
 }
 
@@ -263,11 +264,7 @@ export function TasksPage({
                       → today
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="key-link small"
-                    onClick={() => onOpenNote(t.path)}
-                  >
+                  <button type="button" className="text-link" onClick={() => onOpenNote(t.path)}>
                     {t.title}
                   </button>
                 </div>

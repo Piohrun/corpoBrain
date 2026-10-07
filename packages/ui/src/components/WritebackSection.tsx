@@ -316,7 +316,7 @@ export function WritebackSection({
       )}
 
       <p className="muted small">
-        <button type="button" className="key-link" onClick={() => setShowJournal((v) => !v)}>
+        <button type="button" className="text-link" onClick={() => setShowJournal((v) => !v)}>
           {showJournal ? 'hide' : 'show'} journal ({journal.length})
         </button>{' '}
         — every action is logged to <code>.corpobrain/jira-writeback.log</code> in the vault.

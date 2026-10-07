@@ -9,7 +9,7 @@
       try {
         const t = localStorage.getItem('cb.theme');
         if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-      } catch (e) {}
+      } catch {}
     </script>
     <style>
       /* shown until React replaces #root; matches the server's loading screen (boot.ts) */

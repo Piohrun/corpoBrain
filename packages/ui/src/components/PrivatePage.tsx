@@ -185,7 +185,7 @@ export function PrivatePage() {
                 <span className="spacer" />
                 <button
                   type="button"
-                  className="key-link"
+                  className="text-link"
                   onClick={async () => {
                     if (await dlg.confirm('Delete this protected note permanently?'))
                       act(async () => {

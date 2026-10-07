@@ -3,6 +3,7 @@ import {
   createJiraAdapter,
   JiraError,
   loadJiraAuth,
+  naturalCompare,
   type SyncReport,
   type VaultConfig,
 } from '@corpobrain/core';
@@ -186,7 +187,8 @@ export function jiraRoutes(v: VaultService): Hono {
            FROM jira j LEFT JOIN plan p ON p.key = j.key
            ORDER BY j.key`,
         )
-        .all(),
+        .all()
+        .sort((a, b) => naturalCompare(String(a.key), String(b.key))),
     ),
   );
 
@@ -234,7 +236,8 @@ export function jiraRoutes(v: VaultService): Hono {
         .prepare(
           'SELECT path, jira_id, name, capacity, overrides_json, active FROM people ORDER BY name',
         )
-        .all(),
+        .all()
+        .sort((a, b) => naturalCompare(String(a.name), String(b.name))),
     ),
   );
 

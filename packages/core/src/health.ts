@@ -20,6 +20,7 @@ export interface HealthIssue {
 }
 
 import { type Absence, endExclusive, sprintStart } from './availability.ts';
+import { naturalCompare } from './sort.ts';
 
 export interface HealthPerson {
   path: string;
@@ -344,7 +345,7 @@ export function sprintHealth(
     (a, b) =>
       SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] ||
       a.kind.localeCompare(b.kind) ||
-      (a.issueKey ?? a.personName ?? '').localeCompare(b.issueKey ?? b.personName ?? ''),
+      naturalCompare(a.issueKey ?? a.personName ?? '', b.issueKey ?? b.personName ?? ''),
   );
 
   const counts: Record<string, number> = {};

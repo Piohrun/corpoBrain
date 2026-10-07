@@ -1,4 +1,6 @@
 /** Typed-object views and task roll-up (Phase 5). */
+
+import { naturalCompare } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { categoryFields } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
@@ -39,6 +41,7 @@ export function objectRoutes(v: VaultService): Hono {
          WHERE type = ? AND protected = 0 ORDER BY title COLLATE NOCASE`,
       )
       .all(type) as { path: string; title: string; mtime: number; frontmatter_json: string }[];
+    rows.sort((a, b) => naturalCompare(a.title, b.title));
     return c.json(
       rows.map((r) => ({
         path: r.path,

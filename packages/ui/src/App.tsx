@@ -1266,7 +1266,6 @@ function AppShell() {
                     onOpen={openPath}
                     onDaily={openDaily}
                     onNew={openFinderNotes}
-                    onFind={openFinder}
                     recent={recentList}
                     pinned={pinnedList}
                     onUnpin={togglePin}

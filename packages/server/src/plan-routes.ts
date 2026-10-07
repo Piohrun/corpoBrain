@@ -211,7 +211,7 @@ function computeBoard(v: VaultService, now: Date): BoardModel {
   people.sort(
     (a, b) =>
       (a.sortOrder ?? Number.POSITIVE_INFINITY) - (b.sortOrder ?? Number.POSITIVE_INFINITY) ||
-      a.name.localeCompare(b.name),
+      naturalCompare(a.name, b.name),
   );
 
   // out-of-office and support rota reduce bandwidth before anything else reads it
@@ -673,7 +673,7 @@ export function planRoutes(v: VaultService): Hono {
 }
 
 // small local helpers around core (avoid importing delete twice)
-import { deleteFrontmatterKey } from '@corpobrain/core';
+import { deleteFrontmatterKey, naturalCompare } from '@corpobrain/core';
 
 function deleteKey(text: string, key: string): string {
   return deleteFrontmatterKey(text, key);

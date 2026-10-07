@@ -1,6 +1,7 @@
 import {
   buildOrganization,
   deleteFrontmatterKey,
+  naturalCompare,
   ORG_KINDS,
   type OrgKind,
   type OrgModel,
@@ -39,6 +40,7 @@ export function organizationSources(v: VaultService): OrgSource[] {
     type: string;
     frontmatter_json: string;
   }[];
+  rows.sort((a, b) => naturalCompare(a.title, b.title) || naturalCompare(a.path, b.path));
   const sources = rows.map((r) => {
     const fm = JSON.parse(r.frontmatter_json) as Record<string, unknown>;
     const source = { path: r.path, title: r.title, type: r.type, fm };

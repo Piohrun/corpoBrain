@@ -110,18 +110,6 @@ button {
 .sidebar-actions button:hover {
   background: var(--bg-hover);
 }
-.sidebar-search {
-  padding: 0 8px 8px;
-}
-.sidebar-search input {
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-}
 .tree-more {
   padding: 4px 8px 4px 22px;
 }
@@ -1039,6 +1027,23 @@ button {
 .key-link:hover {
   text-decoration: underline;
 }
+/* a link-styled button for names and titles; key-link is for issue keys only */
+.text-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-align: left;
+}
+.text-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.text-link:disabled {
+  color: inherit;
+  cursor: default;
+}
 .cell-input {
   font: inherit;
   font-size: 12.5px;
@@ -1617,18 +1622,6 @@ button {
 }
 .outlook-meetings tr.muted td {
   color: var(--fg-muted);
-}
-.outlook-subject {
-  border: 0;
-  padding: 0;
-  background: none;
-  font: inherit;
-  color: var(--accent);
-  cursor: pointer;
-  text-align: left;
-}
-.outlook-subject:hover {
-  text-decoration: underline;
 }
 .outlook-suggested {
   color: var(--accent);
@@ -3077,9 +3070,6 @@ tr.wb-conflict td {
   font-size: 12px;
   color: var(--fg-muted);
 }
-.av-draw .plan-btn:not(.active) {
-  opacity: 0.5;
-}
 .health-head .spacer {
   flex: 1;
 }
@@ -3617,7 +3607,7 @@ tr.wb-conflict td {
   color: var(--fg-muted);
   font-size: 11px;
 }
-.tracked-source-row .key-link {
+.tracked-source-row .text-link {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3894,22 +3884,6 @@ tr.wb-conflict td {
   font-size: 13px;
   padding: 3px 0;
 }
-/* the sidebar search box becomes a Finder trigger styled like an input */
-.sidebar-search button.finder-trigger {
-  width: 100%;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--fg-muted);
-  cursor: text;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 .chord-pending {
   position: fixed;
   bottom: 12px;
@@ -3990,10 +3964,22 @@ tr.wb-conflict td {
   gap: 8px;
   margin-top: 4px;
 }
+/* secondary actions: everything on a page that is not its main action */
 .plan-btn.ghost {
   background: transparent;
   color: var(--fg);
   border: 1px solid var(--border);
+  font-weight: 500;
+}
+.plan-btn.ghost:not(:disabled):hover {
+  background: var(--bg-hover);
+  filter: none;
+}
+/* a ghost toggle that is on */
+.plan-btn.ghost.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 .plan-btn.danger {
   background: var(--danger);
