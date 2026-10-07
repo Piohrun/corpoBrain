@@ -4747,3 +4747,35 @@ button.prop-chip {
   border-radius: 6px;
   color: var(--fg);
 }
+
+/* ------------------------------------------- the safe inline HTML set */
+.cm-cb-html-u {
+  text-decoration: underline;
+}
+.cm-cb-html-s {
+  text-decoration: line-through;
+}
+.cm-cb-html-small {
+  font-size: 0.85em;
+}
+.cm-cb-html-sup,
+.cm-cb-html-sub {
+  font-size: 0.75em;
+  vertical-align: super;
+}
+.cm-cb-html-sub {
+  vertical-align: sub;
+}
+.cm-cb-html-kbd {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-panel);
+}
+.cm-cb-html-mark {
+  background: color-mix(in srgb, #facc15 45%, transparent);
+  border-radius: 3px;
+}

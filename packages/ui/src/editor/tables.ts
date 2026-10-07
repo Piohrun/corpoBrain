@@ -8,6 +8,7 @@ import { type EditorState, RangeSetBuilder, StateField } from '@codemirror/state
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 import { type ExternalLink, externalLinksInText } from './externalLinks.ts';
 import { INLINE_SECRET, linksUpdated, livePreviewConfig } from './livePreview.ts';
+import { type HtmlSpan, inlineHtml } from './safeHtml.ts';
 
 interface TableBlock {
   from: number;
@@ -78,12 +79,14 @@ interface CellToken {
   to: number;
   external?: ExternalLink;
   match?: RegExpExecArray;
+  html?: HtmlSpan;
 }
 
 /** cell text → DOM with wikilinks, external links, secrets, bold and code */
 function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
   const config = view.state.facet(livePreviewConfig);
-  const pattern = /(`\u{1F512}[A-Za-z0-9+/=]{8,}`)|(`[^`]+`)|(\[\[[^[\]]+\]\])|(\*\*[^*]+\*\*)/gu;
+  const pattern =
+    /(`\u{1F512}[A-Za-z0-9+/=]{8,}`)|(`[^`]+`)|(\[\[[^[\]]+\]\])|(\*\*[^*]+\*\*)|(==(?:[^=]|=(?!=))+==)|(<br\s*\/?>)/giu;
   const tokens: CellToken[] = externalLinksInText(cell).map((external) => ({
     from: external.from,
     to: external.to,
@@ -93,6 +96,7 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
   for (let match = pattern.exec(cell); match; match = pattern.exec(cell)) {
     tokens.push({ from: match.index, to: match.index + match[0].length, match });
   }
+  for (const html of inlineHtml(cell)) tokens.push({ from: html.from, to: html.to, html });
   // Containers such as a wikilink win over a URL-looking substring inside it.
   tokens.sort((a, b) => a.from - b.from || b.to - a.to);
 
@@ -119,9 +123,21 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
       continue;
     }
 
+    if (token.html) {
+      // a new element with plain text: the cell never becomes HTML
+      const h = token.html;
+      const el = document.createElement(h.tag);
+      if (h.style) el.setAttribute('style', h.style);
+      else el.className = `cm-cb-html-${h.tag}`;
+      el.textContent = cell.slice(h.innerFrom, h.innerTo);
+      td.appendChild(el);
+      last = token.to;
+      continue;
+    }
+
     const m = token.match;
     if (!m) continue;
-    const [whole, secret, code, wiki, bold] = m;
+    const [whole, secret, code, wiki, bold, highlight, br] = m;
     if (secret) {
       const cipher = tokenCipher(whole);
       if (cipher === null) {
@@ -167,6 +183,14 @@ function renderCell(cell: string, td: HTMLElement, view: EditorView): void {
       const el = document.createElement('b');
       el.textContent = bold.slice(2, -2);
       td.appendChild(el);
+    } else if (highlight) {
+      const el = document.createElement('mark');
+      el.className = 'cm-cb-highlight';
+      el.textContent = highlight.slice(2, -2);
+      td.appendChild(el);
+    } else if (br) {
+      // a cell cannot hold a newline in Markdown: <br> is the usual way
+      td.appendChild(document.createElement('br'));
     }
     last = token.to;
   }

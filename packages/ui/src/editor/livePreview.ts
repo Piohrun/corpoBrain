@@ -34,6 +34,7 @@ import {
 import { diagramsField } from './diagrams.ts';
 import { type ExternalLink, externalLinksInTree } from './externalLinks.ts';
 import { ImageWidget, imagesInLine, isImageTarget } from './images.ts';
+import { inlineHtml } from './safeHtml.ts';
 import { tablesField } from './tables.ts';
 
 export interface LivePreviewConfig {
@@ -490,6 +491,24 @@ export function collectInline(
       out.push({ from, to: from + 2, deco: Decoration.replace({}) });
       out.push({ from: from + 2, to: to - 2, deco: mark });
       out.push({ from: to - 2, to, deco: Decoration.replace({}) });
+    }
+  }
+
+  // the safe inline HTML set: tags hide off the cursor, the text gets the style
+  for (const h of inlineHtml(text)) {
+    const from = lineFrom + h.from;
+    const to = lineFrom + h.to;
+    if (tokenSpans.some(([f, t]) => from < t && to > f)) continue;
+    if (emphasis.some((e) => e.cls === 'cm-cb-code' && from < e.to && to > e.from)) continue;
+    const deco =
+      h.tag === 'span'
+        ? Decoration.mark({ attributes: { style: h.style as string } })
+        : Decoration.mark({ class: `cm-cb-html-${h.tag}` });
+    if (cursor >= from && cursor <= to) out.push({ from, to, deco });
+    else {
+      out.push({ from, to: lineFrom + h.innerFrom, deco: Decoration.replace({}) });
+      out.push({ from: lineFrom + h.innerFrom, to: lineFrom + h.innerTo, deco });
+      out.push({ from: lineFrom + h.innerTo, to, deco: Decoration.replace({}) });
     }
   }
 

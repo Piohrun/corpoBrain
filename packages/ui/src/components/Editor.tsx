@@ -20,6 +20,7 @@ import {
 } from '../editor/contextTargets.ts';
 import { clearFind, type FindMatch, findMatches, selectMatch, setFind } from '../editor/find.ts';
 import { linksUpdated } from '../editor/livePreview.ts';
+import { TEXT_COLORS, toColored } from '../editor/safeHtml.ts';
 import { editorExtensions } from '../editor/setup.ts';
 import { encryptTableCells, findTables, pendingCells, splitCells } from '../editor/tables.ts';
 import { type ContextTarget, useContextMenu } from '../finder/ContextMenu.tsx';
@@ -613,6 +614,41 @@ export const Editor = memo(function Editor({
             });
             v.focus();
           },
+        },
+        {
+          id: 'color',
+          label: 'text colour…',
+          run: () => ({
+            pick: {
+              title: 'Text colour',
+              section: section<{ value: string }>({
+                id: 'editor-text-color',
+                title: 'Colour',
+                order: 0,
+                search: (q) =>
+                  TEXT_COLORS.filter((c) => c.name.includes(q.trim().toLowerCase())).map((c) => ({
+                    id: c.name,
+                    label: c.name,
+                    icon: '●',
+                    hint: c.value,
+                    data: { value: c.value },
+                  })),
+                actions: [],
+              }),
+              onPick: (picked) => {
+                const v = view();
+                if (!v) return;
+                const sel = v.state.selection.main;
+                const text = v.state.doc.sliceString(sel.from, sel.to);
+                const next = toColored(text, (picked.data as { value: string }).value);
+                v.dispatch({
+                  changes: { from: sel.from, to: sel.to, insert: next },
+                  selection: { anchor: sel.from + next.length },
+                });
+                v.focus();
+              },
+            },
+          }),
         },
         {
           id: 'callout',

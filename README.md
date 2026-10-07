@@ -150,6 +150,15 @@ syntax](https://mermaid.js.org/intro/)). Click a diagram to edit its source.
 Mermaid loads only when a note has a diagram and runs in its strict security
 mode. (It adds about 85 MB to `node_modules`; `npm install` fetches it.)
 
+**Rich paste and a little HTML.** Pasting from Outlook, Word, Confluence or a
+web page keeps the formatting as Markdown: headings, lists (Word's too),
+bold/italic/strikethrough, links, quotes, code, tables, highlights and
+coloured text. Ctrl+Shift+V pastes plain text. Where Markdown has no syntax a
+note may use `<u>`, `<sup>`, `<sub>`, `<kbd>`, `<mark>`, `<s>`, `<small>` and
+`<span style="color: …; background-color: …">` (colour properties only), and
+`<br>` inside table cells. Nothing else is rendered as HTML. Select text and
+right-click for *text colour…*.
+
 **Organization mapping.** Workspace → Organization (`g r`) connects Department,
 Product Area, and POD notes with your people. Keep Functional and Entity Manager
 chains independent, assign a primary POD and secondary memberships, and record

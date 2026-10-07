@@ -10,13 +10,15 @@ import {
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { findNext, findPrevious, highlightSelectionMatches } from '@codemirror/search';
 import type { EditorState, Extension } from '@codemirror/state';
 import { drawSelection, EditorView, keymap } from '@codemirror/view';
+import type { SyntaxNode } from '@lezer/common';
 import { tags } from '@lezer/highlight';
 import { findExtension } from './find.ts';
 import { frontmatterRange, livePreview } from './livePreview.ts';
+import { htmlToMarkdown } from './richPaste.ts';
 import { findTables, htmlTableToMarkdown, tsvToMarkdownTable } from './tables.ts';
 
 export interface EditorConfig {
@@ -134,6 +136,34 @@ function imageDrop(event: DragEvent, view: EditorView, cfg: EditorConfig): boole
   return true;
 }
 
+/** formatted text from Outlook/Word/Confluence/the web → Markdown (Ctrl+Shift+V stays plain) */
+function richPaste(event: ClipboardEvent, view: EditorView): boolean {
+  const html = event.clipboardData?.getData('text/html');
+  if (!html) return false;
+  const sel = view.state.selection.main;
+  // inside a table or code, a paste is literal text
+  if (findTables(view.state).some((t) => sel.head >= t.from && sel.head <= t.to)) return false;
+  for (
+    let n: SyntaxNode | null = syntaxTree(view.state).resolveInner(sel.head, -1);
+    n;
+    n = n.parent
+  )
+    if (n.name === 'FencedCode' || n.name === 'CodeBlock' || n.name === 'InlineCode') return false;
+  const md = htmlToMarkdown(html);
+  if (!md) return false;
+  event.preventDefault();
+  const doc = view.state.doc;
+  const block = md.includes('\n');
+  const atLineStart = sel.from === doc.lineAt(sel.from).from;
+  const insert = block && !atLineStart ? `\n${md}\n` : block ? `${md}\n` : md;
+  view.dispatch({
+    changes: { from: sel.from, to: sel.to, insert },
+    selection: { anchor: sel.from + insert.length },
+    scrollIntoView: true,
+  });
+  return true;
+}
+
 /** paste from Excel/OneNote/Sheets → auto-converted markdown table */
 function tablePaste(event: ClipboardEvent, view: EditorView): boolean {
   const cd = event.clipboardData;
@@ -164,7 +194,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     closeBrackets(),
     autocompletion({ override: [wikilinkCompletions(cfg)], icons: false }),
     EditorView.domEventHandlers({
-      paste: (e, v) => imagePaste(e, v, cfg) || tablePaste(e, v),
+      paste: (e, v) => imagePaste(e, v, cfg) || richPaste(e, v) || tablePaste(e, v),
       drop: (e, v) => imageDrop(e, v, cfg),
     }),
     livePreview({
