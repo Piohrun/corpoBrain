@@ -32,4 +32,22 @@ describe('templates in the index', () => {
     expect(JSON.parse(row.frontmatter_json).date).toBe('{{date}}');
     expect(warnings.filter((w) => String(w).includes('stringified'))).toHaveLength(0);
   });
+
+  it('keeps template checkboxes and empty checkboxes out of the task list', () => {
+    writeFileSync(
+      join(root, 'templates', 'daily.md'),
+      '# {{date}}\n\n## Tasks\n- [ ] \n- [ ] review the board\n',
+    );
+    mkdirSync(join(root, 'daily'), { recursive: true });
+    writeFileSync(
+      join(root, 'daily', '2026-11-20.md'),
+      '# 2026-11-20\n\n## Tasks\n- [ ] \n- [ ]\n- j[ ]   \n- [ ] call Anna 📅 2026-11-21\n- [x] done thing\n',
+    );
+    const idx = new Indexer(root, structuredClone(DEFAULT_CONFIG), openDb(':memory:'));
+    idx.update();
+    expect(idx.db.prepare('SELECT path, text, done FROM tasks ORDER BY line').all()).toEqual([
+      { path: 'daily/2026-11-20.md', text: 'call Anna', done: 0 },
+      { path: 'daily/2026-11-20.md', text: 'done thing', done: 1 },
+    ]);
+  });
 });

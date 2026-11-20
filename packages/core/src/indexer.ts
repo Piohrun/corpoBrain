@@ -440,8 +440,12 @@ export class Indexer {
     const insTask = this.q(
       'INSERT INTO tasks(path, line, block_id, text, done, due, kind) VALUES (?, ?, ?, ?, ?, ?, ?)',
     );
-    for (const t of scan.tasks)
-      insTask.run(f.path, t.line, t.blockId, t.text, t.done ? 1 : 0, t.due, t.kind);
+    // A template's checkboxes are text for the notes made from it, and a bare
+    // `- [ ]` is a placeholder: neither is something to do.
+    if (!inTemplates)
+      for (const t of scan.tasks)
+        if (t.text.trim())
+          insTask.run(f.path, t.line, t.blockId, t.text, t.done ? 1 : 0, t.due, t.kind);
 
     const insHeading = this.q('INSERT INTO headings(path, level, text, line) VALUES (?, ?, ?, ?)');
     for (const h of scan.headings) insHeading.run(f.path, h.level, h.text, h.line);

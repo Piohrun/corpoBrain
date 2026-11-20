@@ -119,7 +119,8 @@ type `property` in addition to being a property.
   The ID addresses that block (paragraph, list item, heading, table row).
 - Tasks: GFM `- [ ]` / `- [x]`. The indexer records each task with its text,
   state, containing note, block ID (if any), and any `📅 YYYY-MM-DD` or
-  `@due(YYYY-MM-DD)` token.
+  `@due(YYYY-MM-DD)` token. A checkbox with no text and the checkboxes of
+  notes in the templates folder are not recorded.
 - Jira items: `- j[ ]` / `- j[x]` marks a task as a Jira to create or
   prioritise rather than a personal to-do. The marker is a prefix so the kind
   and the checkbox state stay independent; the Tasks page shows the two kinds
