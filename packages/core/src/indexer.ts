@@ -65,6 +65,26 @@ const NOTE_TABLES = [
 /** Note types the planning models read (see Indexer.planningVersion). */
 const PLANNING_TYPES = new Set(['jira', 'person', 'sprint']);
 
+/** how much more a match in the title counts than one in the body */
+export const TITLE_WEIGHT = 8;
+
+/**
+ * The FTS5 MATCH expression for what was typed: every word has to be there,
+ * and the last one may still be unfinished ("laten" finds "latency") — the
+ * search runs on every keystroke, and whole words only meant an empty list
+ * until the word was complete. Words without a letter or digit ("-", "&")
+ * are dropped: they tokenise to nothing and would match nothing.
+ */
+export function ftsQuery(query: string): string {
+  const words = query
+    .split(/\s+/)
+    .filter((t) => /[\p{L}\p{N}]/u.test(t))
+    .map((t) => `"${t.replace(/"/g, '""')}"`);
+  if (!words.length) return '';
+  words[words.length - 1] += '*';
+  return words.join(' ');
+}
+
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' ? v : null);
 
@@ -793,18 +813,16 @@ export class Indexer {
   // ---------------------------------------------------------------- queries
 
   search(query: string, limit = 20): SearchHit[] {
-    const ftsQuery = query
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '""')}"`)
-      .join(' ');
-    if (!ftsQuery) return [];
+    const match = ftsQuery(query);
+    if (!match) return [];
     return this.db
       .prepare(
+        // a word in the title says more about a note than the same word in its text
         `SELECT path, title, snippet(notes_fts, 2, '<<', '>>', ' … ', 12) AS snippet
-         FROM notes_fts WHERE notes_fts MATCH ? ORDER BY rank LIMIT ?`,
+         FROM notes_fts WHERE notes_fts MATCH ?
+         ORDER BY bm25(notes_fts, 0.0, ${TITLE_WEIGHT}, 1.0) LIMIT ?`,
       )
-      .all(ftsQuery, limit) as unknown as SearchHit[];
+      .all(match, limit) as unknown as SearchHit[];
   }
 
   backlinks(path: string): Backlink[] {

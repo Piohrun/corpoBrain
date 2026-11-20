@@ -12,11 +12,13 @@ import {
   createKeystore,
   decryptNote,
   encryptNote,
+  ftsQuery,
   type Keystore,
   loadKeystore,
   opaqueName,
   parseFrontmatter,
   saveKeystore,
+  TITLE_WEIGHT,
   unlockKeystore,
   writeFileAtomic,
 } from '@corpobrain/core';
@@ -198,16 +200,14 @@ export class PrivateService {
   search(query: string): { file: string; title: string; snippet: string }[] {
     this.requireUnlocked();
     if (!this.mem) return [];
-    const fts = query
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `"${t.replace(/"/g, '""')}"`)
-      .join(' ');
+    // the same matching as the main search: unfinished last word, titles first
+    const fts = ftsQuery(query);
     if (!fts) return [];
     return this.mem
       .prepare(
         `SELECT file, title, snippet(fts, 2, '<<', '>>', ' … ', 12) AS snippet
-         FROM fts WHERE fts MATCH ? ORDER BY rank LIMIT 20`,
+         FROM fts WHERE fts MATCH ?
+         ORDER BY bm25(fts, 0.0, ${TITLE_WEIGHT}, 1.0) LIMIT 20`,
       )
       .all(fts) as unknown as { file: string; title: string; snippet: string }[];
   }

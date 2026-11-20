@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, type VaultConfig } from '../src/config.ts';
 import { openDb } from '../src/db.ts';
-import { Indexer } from '../src/indexer.ts';
+import { ftsQuery, Indexer } from '../src/indexer.ts';
 
 let root: string;
 let indexer: Indexer;
@@ -204,6 +204,28 @@ describe('Indexer', () => {
     expect(indexer.db.prepare("SELECT * FROM links WHERE src_path LIKE 'private%'").all()).toEqual(
       [],
     );
+  });
+
+  it('search finds a word that is still being typed, and puts title matches first', () => {
+    write('notes/latency.md', '---\ntitle: Latency budget\n---\nNumbers for the gateway.\n');
+    write(
+      'notes/meeting.md',
+      '---\ntitle: Weekly sync\n---\nWe discussed latency, latency and latency again. Latency!\n',
+    );
+    indexer.rebuild();
+    const paths = (q: string) => indexer.search(q).map((h) => h.path);
+    // every prefix of the word finds it, as the Finder types it
+    for (const q of ['lat', 'laten', 'latency'])
+      expect(paths(q)).toEqual(['notes/latency.md', 'notes/meeting.md']);
+    // earlier words are whole words, the last one may be unfinished
+    expect(paths('latency budg')).toEqual(['notes/latency.md']);
+    expect(paths('laten budget')).toEqual([]);
+    // words that are only punctuation do not empty the result
+    expect(paths('latency - budget')).toEqual(['notes/latency.md']);
+    expect(paths('  ')).toEqual([]);
+    expect(paths('"')).toEqual([]);
+    expect(paths('say "latency')).toEqual([]);
+    expect(ftsQuery('tick "trade')).toBe('"tick" """trade"*');
   });
 
   it('full-text search hits titles and bodies', () => {

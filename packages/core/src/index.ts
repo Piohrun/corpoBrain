@@ -85,7 +85,7 @@ export {
   normalizeIdentity,
 } from './identities.ts';
 export type { Backlink, SearchHit, UpdateSummary } from './indexer.ts';
-export { Indexer, JIRA_KEY_RE, JIRA_MARKER } from './indexer.ts';
+export { ftsQuery, Indexer, JIRA_KEY_RE, JIRA_MARKER, TITLE_WEIGHT } from './indexer.ts';
 export type {
   ChangeHistory,
   FetchFn,
