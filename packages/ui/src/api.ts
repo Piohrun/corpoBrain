@@ -456,6 +456,12 @@ export interface OutlookToday {
   }[];
 }
 
+/** What Home gets: today's calendar, or why there is none to read. */
+export type OutlookTodayState =
+  | ({ state: 'ready' } & OutlookToday)
+  | { state: 'off' }
+  | { state: 'unconnected' };
+
 /** The .venv the Outlook connector runs in, and its one-click setup. */
 export interface PythonEnvStatus {
   running: boolean;
@@ -527,7 +533,8 @@ export const outlookApi = {
       body: JSON.stringify({ ids }),
     }),
   /** today's calendar for Home; Outlook is read at most every 10 minutes unless `refresh` */
-  today: (refresh = false) => req<OutlookToday>(`/api/outlook/today${refresh ? '?refresh=1' : ''}`),
+  today: (refresh = false) =>
+    req<OutlookTodayState>(`/api/outlook/today${refresh ? '?refresh=1' : ''}`),
   python: () => req<PythonEnvStatus>('/api/outlook/python'),
   setupPython: () => req<PythonEnvStatus>('/api/outlook/python/setup', { method: 'POST' }),
   start: () => req<{ id: string }>('/api/outlook/sync/start', { method: 'POST' }),

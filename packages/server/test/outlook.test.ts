@@ -193,6 +193,45 @@ describe('Outlook sync service', () => {
     );
   });
 
+  it('Home leaves Outlook alone until it has answered once for this vault', async () => {
+    let fail = true;
+    const requests: ExportRequest[] = [];
+    const exporter = async (req: ExportRequest) => {
+      requests.push(req);
+      if (fail) throw new Error('comtypes is not installed for this Python');
+      return result(req, [meeting('Roadmap')]);
+    };
+    const service = new OutlookSyncService(vault, exporter);
+    // never used: no Python run, no error to show
+    expect(await service.todayForHome()).toEqual({ state: 'unconnected' });
+    expect(requests).toHaveLength(0);
+    // asking explicitly tries, and a failure is reported
+    await expect(service.todayForHome(true)).rejects.toThrow('comtypes is not installed');
+    expect(await service.todayForHome()).toEqual({ state: 'unconnected' });
+    expect(requests).toHaveLength(1);
+    // once Outlook answers (here: Test connection), Home reads it by itself
+    fail = false;
+    await service.test();
+    expect(await service.todayForHome()).toMatchObject({ state: 'ready' });
+    expect(requests).toHaveLength(3);
+    // …and after a restart too
+    const restarted = new OutlookSyncService(vault, exporter);
+    expect(restarted.connected).toBe(true);
+    // turned off is an answer as well, not an error
+    vault.config.outlook.calendar.enabled = false;
+    expect(await restarted.todayForHome()).toEqual({ state: 'off' });
+  });
+
+  it('a vault that already has meeting notes counts as connected', async () => {
+    const first = new OutlookSyncService(vault, async (req) => result(req, [meeting('Roadmap')]));
+    await first.preview();
+    first.createMeetingNotes([meeting('Roadmap').id]);
+    // the marker from that read is gone (a vault from before it existed)
+    rmSync(join(root, '.corpobrain', 'outlook-cache'), { recursive: true, force: true });
+    const later = new OutlookSyncService(vault, async (req) => result(req, []));
+    expect(later.connected).toBe(true);
+  });
+
   it("reads today's meetings for Home at most every 10 minutes, and can make notes from them", async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-06T10:00:00'));

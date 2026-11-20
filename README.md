@@ -126,7 +126,8 @@ only what you select, and can undo an import. Hand-edited values stay yours.
 
 **Home** (`g h`, where the app opens) is the day at a glance: today's meeting
 notes plus today's Outlook meetings that have none yet, each with **+ note**
-(Outlook is read in the background at most every 10 minutes; ↻ reads it now;
+(once Outlook has answered for this vault — a test, preview or sync under Tools →
+Outlook — it is read in the background at most every 10 minutes; ↻ reads it now;
 declined, cancelled and attendee-less items are left out), tasks overdue / due today / due in the next 7 days (tick them right
 there), tracked items due or up for review, who is out or on support this
 week, the active sprint and your recent notes. It only reads; **Today** (or

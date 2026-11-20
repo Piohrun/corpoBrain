@@ -32,6 +32,8 @@ const AWAY_LABEL = { ooo: 'out', holiday: 'holiday', support: 'support' } as con
 type OutlookState =
   | { kind: 'loading' }
   | { kind: 'off' }
+  /** Outlook has never been used with this vault: nothing was tried */
+  | { kind: 'unconnected' }
   | { kind: 'error'; message: string }
   | { kind: 'ready'; data: OutlookToday };
 
@@ -62,14 +64,8 @@ function MeetingsCard({
     if (refresh) setOutlook({ kind: 'loading' });
     outlookApi
       .today(refresh)
-      .then((data) => setOutlook({ kind: 'ready', data }))
-      .catch((e: Error) =>
-        setOutlook(
-          /calendar sync is off/i.test(e.message)
-            ? { kind: 'off' }
-            : { kind: 'error', message: e.message },
-        ),
-      );
+      .then((r) => setOutlook(r.state === 'ready' ? { kind: 'ready', data: r } : { kind: r.state }))
+      .catch((e: Error) => setOutlook({ kind: 'error', message: e.message }));
   }, []);
   useEffect(() => load(), [load]);
   // replanned from the server's cached read: a new note shows up as a note
@@ -160,7 +156,7 @@ function MeetingsCard({
         Meetings <span className="health-badge">{rows.length}</span>
         <span className="spacer" />
         {outlook.kind === 'loading' && <span className="muted small">reading Outlook…</span>}
-        {outlook.kind !== 'off' && outlook.kind !== 'loading' && (
+        {(outlook.kind === 'ready' || outlook.kind === 'error') && (
           <button
             type="button"
             className="text-link small"
@@ -182,11 +178,20 @@ function MeetingsCard({
       )}
       {rows.length === 0 ? (
         <p className="muted small">
-          {outlook.kind === 'loading'
-            ? 'No meeting notes for today yet.'
-            : outlook.kind === 'off'
-              ? 'No meeting notes for today. Turn on calendar sync in Tools → Outlook to pick meetings here.'
-              : 'Nothing in the calendar today.'}
+          {outlook.kind === 'loading' ? (
+            'No meeting notes for today yet.'
+          ) : outlook.kind === 'off' ? (
+            'No meeting notes for today. Turn on calendar sync in Tools → Outlook to pick meetings here.'
+          ) : outlook.kind === 'unconnected' ? (
+            <>
+              No meeting notes for today. Connect Outlook to see today’s meetings here:{' '}
+              <button type="button" className="text-link" onClick={() => onView('outlook')}>
+                Tools → Outlook
+              </button>
+            </>
+          ) : (
+            'Nothing in the calendar today.'
+          )}
         </p>
       ) : (
         <ul className="home-list">{rows.map((r) => r.node)}</ul>

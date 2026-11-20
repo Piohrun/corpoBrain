@@ -3,7 +3,7 @@
  * classic Outlook, then writes meeting notes and email tasks through core.
  */
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
@@ -272,6 +272,14 @@ export interface OutlookToday {
   }[];
 }
 
+/** What Home gets: today's calendar, or why there is none to read. */
+export type OutlookTodayState =
+  | ({ state: 'ready' } & OutlookToday)
+  /** calendar sync is turned off */
+  | { state: 'off' }
+  /** Outlook has never answered for this vault */
+  | { state: 'unconnected' };
+
 /** never offered on Home: not meetings the user will be in */
 const NOT_ON_HOME = new Set(['declined', 'cancelled', 'no attendees']);
 
@@ -293,6 +301,44 @@ export class OutlookSyncService extends SyncJobService<
   /** Home's last read of today's calendar, and the read in flight */
   private todayCache: { day: string; at: number; meetings: OutlookMeeting[] } | null = null;
   private todayRun: Promise<{ day: string; at: number; meetings: OutlookMeeting[] }> | null = null;
+
+  private everConnected = false;
+  private get cacheDir(): string {
+    return join(this.vault.root, '.corpobrain', 'outlook-cache');
+  }
+
+  /**
+   * Has Outlook been used with this vault? True once it has answered (a
+   * marker file remembers that), and for vaults from before the marker when
+   * a sync has run or meeting notes exist. Until then Home leaves Outlook
+   * alone instead of starting Python on every visit to report that it failed.
+   */
+  get connected(): boolean {
+    if (this.everConnected) return true;
+    let used = false;
+    try {
+      used = readdirSync(this.cacheDir).length > 0;
+    } catch {
+      // no cache folder yet
+    }
+    this.everConnected = used || knownMeetings(this.vault).size > 0;
+    return this.everConnected;
+  }
+
+  /** Run the exporter; an answer means Outlook works here. */
+  private async read(req: ExportRequest): Promise<ExportResult> {
+    const data = await this.exporter(req);
+    if (!this.everConnected) {
+      this.everConnected = true;
+      try {
+        mkdirSync(this.cacheDir, { recursive: true });
+        writeFileSync(join(this.cacheDir, 'connected'), `${new Date().toISOString()}\n`);
+      } catch {
+        // remembered for this run only
+      }
+    }
+    return data;
+  }
 
   private remember(me: string | null, meetings: OutlookMeeting[], at = Date.now()): void {
     this.mailbox = me ?? this.mailbox;
@@ -332,7 +378,7 @@ export class OutlookSyncService extends SyncJobService<
     };
     return this.launch(plan, async (job) => {
       job.progress({ profile: 'outlook', phase: 'export', current: 0, total: 0 });
-      const data = await this.exporter({
+      const data = await this.read({
         ...req,
         signal: job.signal,
         onScanned: (scanned) =>
@@ -387,7 +433,7 @@ export class OutlookSyncService extends SyncJobService<
   /** What a sync would do, without writing anything. */
   async preview(): Promise<OutlookPreview> {
     const config = this.vault.config;
-    const data = await this.exporter({
+    const data = await this.read({
       ...this.request(config),
       signal: AbortSignal.timeout(config.outlook.timeoutSeconds * 1000),
     });
@@ -476,7 +522,7 @@ export class OutlookSyncService extends SyncJobService<
         ? cached
         : null;
     if (!read) {
-      this.todayRun ??= this.exporter({
+      this.todayRun ??= this.read({
         python: resolvePython(config.outlook.python).python,
         calendar: exportWindow({ daysBack: 0, daysAhead: 0 }),
         timeoutSeconds: Math.min(120, config.outlook.timeoutSeconds),
@@ -518,6 +564,17 @@ export class OutlookSyncService extends SyncJobService<
     return { day, fetchedAt: new Date(read.at).toISOString(), meetings };
   }
 
+  /**
+   * Today for Home, which must stay quiet when there is nothing to show:
+   * calendar sync turned off, or Outlook never used with this vault. Asking
+   * explicitly (`force`, the ↻ button) always tries.
+   */
+  async todayForHome(force = false): Promise<OutlookTodayState> {
+    if (!this.vault.config.outlook.calendar.enabled) return { state: 'off' };
+    if (!force && !this.connected) return { state: 'unconnected' };
+    return { state: 'ready', ...(await this.today(force)) };
+  }
+
   /** A quick look at today's calendar, without writing anything. */
   async test(): Promise<{
     outlookVersion: string | null;
@@ -527,7 +584,7 @@ export class OutlookSyncService extends SyncJobService<
   }> {
     const o = this.vault.config.outlook;
     const python = resolvePython(o.python).python;
-    const data = await this.exporter({
+    const data = await this.read({
       python,
       calendar: exportWindow({ daysBack: 0, daysAhead: 0 }),
       timeoutSeconds: Math.min(60, o.timeoutSeconds),
