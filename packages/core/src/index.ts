@@ -243,3 +243,27 @@ export type { VaultFile } from './vault.ts';
 export { matchesGlob, toPosix, walkVault, writeFileAtomic } from './vault.ts';
 export type { VaultWatcher } from './watch.ts';
 export { watchVault } from './watch.ts';
+export {
+  applyWorkPatch,
+  applyWorkReport,
+  findWorkNote,
+  isWorkStage,
+  isWorkWaiting,
+  readWorkNotes,
+  reportWork,
+  WORK_MARKER,
+  WORK_STAGE_LABEL,
+  WORK_STAGES,
+  WORK_WAITING,
+  WorkError,
+  type WorkItem,
+  type WorkPatch,
+  type WorkReport,
+  type WorkStage,
+  type WorkWaiting,
+  workAgentInstructions,
+  workItemFromFrontmatter,
+  workNotePath,
+  workNoteRegions,
+  workStamp,
+} from './work.ts';

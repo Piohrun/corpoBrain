@@ -4579,6 +4579,56 @@ button.prop-chip {
   text-decoration: line-through;
   color: var(--fg-muted);
 }
+/* work in progress: the branches agents report on */
+.work-list li {
+  gap: 10px;
+}
+.work-list li .text-link {
+  flex: 0 1 auto;
+  font-weight: 500;
+}
+.work-stage {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.work-stage.in-uat-branch,
+.work-stage.on-uat {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  color: var(--accent);
+}
+.work-stage.pr-open {
+  border-color: color-mix(in srgb, var(--link-unresolved) 55%, var(--border));
+  color: var(--link-unresolved);
+}
+.work-next {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-waiting {
+  flex: none;
+  color: var(--fg-muted);
+}
+.work-waiting.me {
+  color: var(--danger);
+  font-weight: 600;
+}
+.work-age {
+  flex: none;
+}
+.work-age.quiet {
+  color: var(--link-unresolved);
+}
+.health-badge.work-mine-count {
+  color: var(--danger);
+}
 .home-time {
   flex: none;
   min-width: 110px;

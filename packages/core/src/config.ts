@@ -20,6 +20,8 @@ export interface VaultConfig {
     people: string;
     organization: string;
     projects: string;
+    /** one note per branch that agents report progress into (work.ts) */
+    work: string;
     planning: string;
     templates: string;
     private: string;
@@ -147,6 +149,7 @@ export const DEFAULT_CONFIG: VaultConfig = {
     people: 'people',
     organization: 'organization',
     projects: 'projects',
+    work: 'work',
     planning: 'planning',
     templates: 'templates',
     private: 'private',

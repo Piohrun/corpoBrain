@@ -15,6 +15,22 @@ const HIDDEN = new Set([
   'excerpt',
 ]);
 
+/** a work note's own status block shows these (core/work.ts): chips would only repeat it */
+const WORK_STATUS_KEYS = new Set([
+  'repo',
+  'branch',
+  'stage',
+  'waiting_on',
+  'state',
+  'next',
+  'chat',
+  'updated',
+  'clone',
+  'uat_branch',
+  'release_branch',
+  'pr',
+]);
+
 const fmt = (v: unknown): string => {
   if (v === null || v === undefined) return '';
   if (Array.isArray(v)) return v.map(fmt).filter(Boolean).join(', ');
@@ -69,6 +85,7 @@ export const PropertiesBar = memo(function PropertiesBar({
   const rest = Object.entries(fm).filter(
     ([k, v]) =>
       !HIDDEN.has(k) &&
+      !(type === 'work' && WORK_STATUS_KEYS.has(k)) &&
       !['type', 'tags', 'created', 'parent', 'aliases', 'plan'].includes(k) &&
       v !== null &&
       v !== '' &&

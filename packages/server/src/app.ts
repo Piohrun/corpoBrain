@@ -29,6 +29,7 @@ import { teambookRoutes } from './teambook-routes.ts';
 import { trackedRoutes } from './tracked-routes.ts';
 import { treeRoutes } from './tree-routes.ts';
 import { HttpError, type VaultService } from './vault-service.ts';
+import { workRoutes } from './work-routes.ts';
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]', '::1']);
 
@@ -112,6 +113,7 @@ export function createApp(vault?: VaultService) {
     '/api/jira/issues',
     '/api/objects/types',
     '/api/objects/list',
+    '/api/work',
   ]);
   app.use('/api/*', async (c, next) => {
     if (c.req.method !== 'GET' || !VERSIONED.has(c.req.path)) return next();
@@ -355,6 +357,7 @@ export function createApp(vault?: VaultService) {
   app.route('/api/attachments', attachmentRoutes(v));
   app.route('/api/flow', flowRoutes(v));
   app.route('/api/mentions', mentionsRoutes(v));
+  app.route('/api/work', workRoutes(v));
 
   // Server-sent events: notify the UI when files change externally.
   app.get('/api/events', () => {

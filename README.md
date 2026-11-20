@@ -133,6 +133,31 @@ there), tracked items due or up for review, who is out or on support this
 week, the active sprint and your recent notes. It only reads; **Today** (or
 Ctrl+D) is what opens today's daily note and creates it if it is missing.
 
+**Work in progress: let your coding agents report.** Each branch an agent works
+on gets one note under `work/`: where it stands (in development → in the UAT
+branch → on UAT → PR to release → released), where the last chat stopped, what
+is next and whose move it is, with a log of every report above the
+`<!-- work:end -->` line and your own notes below it. Home lists the branches
+in progress, the ones that need you first and the ones nobody has reported on
+for a week marked.
+
+Agents report by running one command from the repository they work in
+(repository and branch are taken from the folder):
+
+```
+node dist\corpobrain-cli.js work report --vault <vault> --summary "what was done"
+     --state "where it stands" --next "next step" --waiting me --chat "name of the chat"
+```
+
+Click **agent instructions** on the Home card (or run `corpobrain-cli.js work
+instructions --vault <vault>`) to copy a ready-made paragraph, with this
+machine's paths, into the repository's `AGENTS.md` or
+`.github/copilot-instructions.md`. Agents that speak MCP can use the
+`report_progress` and `get_work` tools of `corpobrain-cli.js mcp` instead.
+`work show` prints a branch's note — reports and your notes — so a new chat can
+pick up where the last one stopped. No branch naming is assumed: the UAT and
+release branches are just fields (`--uat-branch`, `--release-branch`, `--pr`).
+
 **Images.** Paste a screenshot or drop an image file into a note: it is saved
 under `attachments/` and embedded as `![[Pasted image 20261007153012.png]]`.
 `![[name.png|300]]` sets a width; `![alt](relative/path.png)` works too. Only
@@ -255,7 +280,9 @@ npm run build        # -> dist/corpobrain.js, dist/corpobrain-cli.js, dist/ui/
 node dist/corpobrain-cli.js <command> [--vault <path>]
   init | index | rebuild | search <q> | backlinks <path> | links [--unresolved]
   tags | jira probe | jira sync [--profile <name>] | mcp | version
+  work report | work show | work list | work instructions
 ```
 
 `mcp` runs a stdio MCP server over the vault for coding agents: read tools plus
 allowlisted note writes; edits are proposed on `agent/*` git branches for review.
+`report_progress` and `get_work` are the work log's tools.

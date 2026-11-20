@@ -1,5 +1,6 @@
 /** Typed client for the corpobrain server API. */
 import type { OrgKind, OrgModel } from '../../core/src/organization.ts';
+import type { WorkItem, WorkStage, WorkWaiting } from '../../core/src/work-model.ts';
 
 export const organizationApi = {
   get: () => req<OrgModel>('/api/organization'),
@@ -511,6 +512,23 @@ export interface HomeData {
   week: string[];
   sprint: { name: string; end: string | null; daysLeft: number | null } | null;
 }
+
+/** The work log: branches agents report on (server/work-routes.ts). */
+export const workApi = {
+  list: () => reqStable<WorkItem[]>('/api/work'),
+  patch: (
+    path: string,
+    patch: {
+      stage?: WorkStage;
+      waitingOn?: WorkWaiting;
+      next?: string | null;
+      uatBranch?: string | null;
+      releaseBranch?: string | null;
+      pr?: string | null;
+    },
+  ) => req<WorkItem>('/api/work', { method: 'PUT', body: JSON.stringify({ path, ...patch }) }),
+  instructions: () => req<{ text: string; cli: string; vault: string }>('/api/work/instructions'),
+};
 
 export const homeApi = {
   get: (day: string) => req<HomeData>(`/api/home?day=${encodeURIComponent(day)}`),

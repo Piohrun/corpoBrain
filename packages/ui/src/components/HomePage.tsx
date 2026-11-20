@@ -3,6 +3,7 @@ import { api, type HomeData, homeApi, type OutlookToday, outlookApi } from '../a
 import { localISODate } from '../dates.ts';
 import { useVaultEvents } from '../hooks.ts';
 import { WikiText } from './WikiText.tsx';
+import { WorkCard } from './WorkCard.tsx';
 import type { View } from './WorkspaceNav.tsx';
 
 type Task = HomeData['tasks'][number];
@@ -320,6 +321,8 @@ export function HomePage({
               onView={onView}
               onCreated={refresh}
             />
+
+            <WorkCard onOpenNote={onOpenNote} />
 
             <section className="home-card">
               <h2 className="plan-h2">

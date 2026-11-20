@@ -12,13 +12,17 @@ import {
   SPEC_VERSION,
 } from '@corpobrain/core';
 import { runMcpServer } from './mcp.ts';
+import { runWorkCommand } from './work.ts';
 
 const args = process.argv.slice(2);
 const flags = new Map<string, string>();
 const positional: string[] = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i] as string;
-  if (a.startsWith('--')) {
+  if (a.startsWith('--') && a.includes('=')) {
+    // --key=value, as agents often write it
+    flags.set(a.slice(2, a.indexOf('=')), a.slice(a.indexOf('=') + 1));
+  } else if (a.startsWith('--')) {
     const next = args[i + 1];
     if (next !== undefined && !next.startsWith('--')) {
       flags.set(a.slice(2), next);
@@ -128,6 +132,16 @@ switch (command) {
     runMcpServer(vaultRoot);
     break;
 
+  case 'work': {
+    const result = runWorkCommand(vaultRoot, positional[1], flags, {
+      cwd: process.cwd(),
+      cli: resolve(process.argv[1] ?? 'corpobrain-cli.js'),
+    });
+    (result.code ? console.error : console.log)(result.out);
+    process.exitCode = result.code;
+    break;
+  }
+
   case 'jira': {
     const sub = positional[1];
     const config = loadConfig(vaultRoot);
@@ -189,6 +203,8 @@ Commands:
   links [--unresolved]  list link table / unresolved links
   tags                tag counts
   mcp                 run a stdio MCP server over this vault (for agents)
+  work report|show|list|instructions
+                      the work log agents report progress into (corpobrain work help)
   jira probe          check Jira connectivity and deployment type
   jira sync           run Jira sync (all profiles, or --profile <name>)
   version             print spec version

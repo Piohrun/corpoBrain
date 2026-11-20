@@ -32,6 +32,7 @@ Key words MUST / SHOULD / MAY are used as in RFC 2119.
   people/              type: person
   jira/                one file per mirrored issue, KEY.md
   planning/            saved views and scenarios
+  work/                type: work, one per branch agents report on (§6.6)
   templates/           note templates
   private/             *.md.enc — encrypted, never indexed
   attachments/         binary files referenced from notes
@@ -482,6 +483,65 @@ one task line appended to `config.outlook.mail.note`:
 - `.corpobrain/outlook-cache/mail-state.json` remembers every mail seen; a
   task the user deleted is never added again, nor one completed before its
   first sync.
+
+### 6.6 Work log
+
+One note per repository and branch in `config.folders.work` (default `work/`),
+`type: work`, that coding agents report their progress into through
+`corpobrain work report` or the MCP tool `report_progress`. Like the mirrors
+above it has two owners:
+
+```markdown
+---
+type: work
+title: Order-book replication       # set on the first report; yours to change
+repo: exec-gateway
+branch: feature/EXEC-104-replication
+stage: in-uat-branch                # dev | in-uat-branch | on-uat | pr-open | released | parked
+waiting_on: me                      # me | agent | tester | reviewer | nobody
+state: 2 tests still failing        # where the work stopped   } replaced by every report,
+next: fix the ordering assumption   # the next step            } removed when a report
+chat: retry logic                   # the chat that reported   } leaves them out
+updated: 2026-11-19T13:10:00.000Z
+issue: "[[EXEC-104]]"               # optional
+uat_branch: uat/2026-w47            # optional: plain facts, no naming scheme is assumed
+release_branch: release/2026.12
+pr: https://…
+clone: C:/src/exec-gateway          # where the reporting agent ran, for git checks
+---
+
+# Order-book replication
+
+**In the UAT branch** · waiting on me · updated 2026-11-19 14:10 · chat “retry logic”
+
+**Stopped at:** 2 tests still failing
+
+**Next:** fix the ordering assumption
+
+## Updates
+
+- 2026-11-19 14:10 · **retry logic** — Added backoff. · _Stopped at:_ … · _Next:_ …
+
+<!-- work:end -->
+
+## My notes
+```
+
+- Everything above `<!-- work:end -->` is rewritten on each report from the
+  frontmatter and the log; everything below it is the user's and MUST be
+  preserved byte for byte. A note whose marker was removed keeps its whole
+  body below a new marker.
+- A report replaces `state`, `next` and `chat` (it describes the work as it is
+  now), sets `stage`, `waiting_on`, `issue` and the branch facts only when it
+  names them, and prepends one line to `## Updates` (newest first). Frontmatter
+  keys the tool does not own are kept.
+- The note is found by its `repo` and `branch`, not by its file name, so it
+  MAY be renamed or retitled. A new note is `work/<repo> <branch>.md` with
+  the characters a file name cannot hold replaced by `-`.
+- Agent text is data: collapsed to one line, clipped, `[[`/`]]` and `<!--`
+  neutralised, so a report can neither link into the vault nor forge the marker.
+- Edits from the app (stage, whose move it is, the next step, the branch
+  facts) go through the same rendering; a stage change is logged as **you**.
 
 ---
 
