@@ -42,10 +42,19 @@ export function PrivatePage() {
   }, [current]);
   useEffect(refresh, [refresh]);
 
-  // the server locks itself after idle time; notice before the next click fails
+  // The server locks itself after idle time; notice before the next click fails.
+  // Ask for the status only: every other call counts as use and restarts the
+  // idle timer, which kept the session unlocked for as long as this page was open.
   useEffect(() => {
     if (!status?.unlocked) return;
-    const t = setInterval(refresh, 30_000);
+    const t = setInterval(() => {
+      privateApi
+        .status()
+        .then((s) => {
+          if (!s.unlocked) refresh();
+        })
+        .catch(() => {});
+    }, 30_000);
     return () => clearInterval(t);
   }, [status?.unlocked, refresh]);
 

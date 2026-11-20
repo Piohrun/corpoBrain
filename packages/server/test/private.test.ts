@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.ts';
 import { VaultService } from '../src/vault-service.ts';
 
@@ -112,6 +112,37 @@ describe('protected notes API', () => {
     expect((await post('/api/private/unlock', { passphrase: 'second passphrase' })).status).toBe(
       200,
     );
+  });
+
+  it('asking for the status never postpones the auto-lock; using the notes does', async () => {
+    const unlocked = async () =>
+      ((await json(await app.request('/api/private/status'))) as { unlocked: boolean }).unlocked;
+    vi.useFakeTimers();
+    try {
+      expect((await post('/api/private/init', { passphrase: 'a fine passphrase' })).status).toBe(
+        200,
+      );
+      // a page that only watches the status (every 30 s) must not keep the session open
+      for (let i = 0; i < 19; i++) {
+        vi.advanceTimersByTime(30_000);
+        expect(await unlocked()).toBe(true);
+      }
+      vi.advanceTimersByTime(30_000); // 10 minutes idle
+      expect(await unlocked()).toBe(false);
+
+      // listing is use: it restarts the idle time
+      expect((await post('/api/private/unlock', { passphrase: 'a fine passphrase' })).status).toBe(
+        200,
+      );
+      vi.advanceTimersByTime(9 * 60_000);
+      expect((await app.request('/api/private/list')).status).toBe(200);
+      vi.advanceTimersByTime(9 * 60_000);
+      expect(await unlocked()).toBe(true);
+      vi.advanceTimersByTime(60_000);
+      expect(await unlocked()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects non-opaque filenames', async () => {
