@@ -2718,6 +2718,11 @@ tr.wb-conflict td {
 }
 
 /* ----------------------------------------------------------- availability */
+/* "show N earlier entries" beside the Entries heading */
+.avail-past-toggle {
+  margin-left: 12px;
+  font-weight: normal;
+}
 .avail-warn {
   color: var(--link-unresolved);
   font-size: 12px;

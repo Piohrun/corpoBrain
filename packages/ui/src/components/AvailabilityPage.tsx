@@ -13,12 +13,35 @@ import { rankBy } from '../finder/match.ts';
 import { useFinderSections } from '../finder/registry.tsx';
 import { type FinderSection, section } from '../finder/types.ts';
 import { naturalCompare } from '../sort.ts';
+import { useProgressive } from './progressive.tsx';
 import { revealRow, useVirtualRows } from './virtualRows.tsx';
 
 /** rows keep a stable client id so editing and deleting do not shuffle inputs */
 type DraftEntry = AvailabilityEntry & { rowId: string };
 let rowSeq = 0;
 const withId = (e: AvailabilityEntry): DraftEntry => ({ ...e, rowId: `r${++rowSeq}` });
+const entryKey = (e: AvailabilityEntry): string =>
+  JSON.stringify([e.person, e.from, e.to, e.kind, e.note]);
+/**
+ * The table as the server has it, keeping the row ids of entries that were
+ * already on screen: a reload after every save must not throw away and
+ * rebuild every input of every row.
+ */
+function keepIds(prev: DraftEntry[], next: AvailabilityEntry[]): DraftEntry[] {
+  const free = new Map<string, string[]>();
+  for (const row of prev) {
+    const key = entryKey(row);
+    const ids = free.get(key);
+    if (ids) ids.push(row.rowId);
+    else free.set(key, [row.rowId]);
+  }
+  return next.map((e) => {
+    const rowId = free.get(entryKey(e))?.shift();
+    return rowId ? { ...e, rowId } : withId(e);
+  });
+}
+/** over before today: folded away under "earlier entries" */
+const isPast = (e: AvailabilityEntry, today: string): boolean => (e.to || e.from) < today;
 
 const ARCHIVE_MONTHS = 3;
 const archiveCutoff = (): string => monthsAgo(ARCHIVE_MONTHS);
@@ -34,6 +57,17 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   const dlg = useDialogs();
   const [data, setData] = useState<AvailabilityResponse | null>(null);
   const [draft, setDraft] = useState<DraftEntry[]>([]);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  /** rows that were already over when the table was loaded (edits never hide a row mid-typing) */
+  const [pastIds, setPastIds] = useState<ReadonlySet<string>>(new Set());
+  /** rows added on this visit: always on screen, wherever a long table has got to */
+  const [freshIds, setFreshIds] = useState<ReadonlySet<string>>(new Set());
+  const fresh = (e: AvailabilityEntry): DraftEntry => {
+    const row = withId(e);
+    setFreshIds((ids) => new Set(ids).add(row.rowId));
+    return row;
+  };
   const [dirty, setDirty] = useState(false);
   const [holidays, setHolidays] = useState<(HolidayEntry & { rowId: string })[]>([]);
   const [holidaysDirty, setHolidaysDirty] = useState(false);
@@ -57,7 +91,11 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
       .then((d) => {
         setData(d);
         if (replace === 'entries' || replace === 'all' || !dirtyRef.current.entries) {
-          setDraft(d.entries.map(withId));
+          const rows = keepIds(draftRef.current, d.entries);
+          const today = localISODate();
+          draftRef.current = rows;
+          setDraft(rows);
+          setPastIds(new Set(rows.filter((r) => isPast(r, today)).map((r) => r.rowId)));
           setDirty(false);
           dirtyRef.current.entries = false;
         }
@@ -72,10 +110,19 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   }, []);
   useEffect(() => load('all'), [load]);
 
-  const edit = (idx: number, patch: Partial<AvailabilityEntry>) => {
-    setDraft((rows) => rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
-    markDirty('entries');
-  };
+  // stable, and by row id: the table's rows are memoized and may be filtered
+  const edit = useCallback((rowId: string, patch: Partial<AvailabilityEntry>) => {
+    setDraft((rows) => rows.map((r) => (r.rowId === rowId ? { ...r, ...patch } : r)));
+    dirtyRef.current.entries = true;
+    setDirty(true);
+  }, []);
+  const remove = useCallback((rowId: string) => {
+    setDraft((rows) => rows.filter((r) => r.rowId !== rowId));
+    dirtyRef.current.entries = true;
+    setDirty(true);
+  }, []);
+  // the summaries follow the table a moment later, so typing in it stays instant
+  const settledDraft = useDeferredValue(draft);
 
   const persist = (rows: DraftEntry[]) => {
     setSaving(true);
@@ -94,7 +141,7 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
 
   /** Drawn on the month grid: goes straight into the table and is saved. */
   const addEntry = (e: AvailabilityEntry) => {
-    const next = [...draft, withId(e)];
+    const next = [...draft, fresh(e)];
     setDraft(next);
     persist(next);
   };
@@ -241,7 +288,6 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
   }
 
   const people = data.people;
-  const impact = data.rows;
 
   return (
     <div className="planning">
@@ -280,111 +326,30 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
       ))}
 
       <div className="planning-scroll">
-        <WeekStrip data={data} entries={draft} onOpenNote={onOpenNote} />
+        <WeekStrip data={data} entries={settledDraft} onOpenNote={onOpenNote} />
         <MonthGrid data={data} entries={draft} onAdd={addEntryStable} onOpenNote={onOpenNote} />
 
-        <h2 className="plan-h2">Entries</h2>
-        <div className="grid-wrap">
-          <table className="issue-table avail-table">
-            <thead>
-              <tr>
-                <th>Person</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Type</th>
-                <th>Note</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {draft.map((e, i) => (
-                <tr key={e.rowId}>
-                  <td>
-                    <input
-                      className="cell-input"
-                      list="avail-people"
-                      aria-label="person"
-                      value={e.person}
-                      onChange={(ev) => edit(i, { person: ev.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="cell-input"
-                      type="date"
-                      aria-label="from"
-                      value={e.from}
-                      onChange={(ev) => edit(i, { from: ev.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      className="cell-input"
-                      type="date"
-                      aria-label="to"
-                      value={e.to}
-                      onChange={(ev) => edit(i, { to: ev.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <select
-                      className="cell-input"
-                      aria-label="type"
-                      value={e.kind}
-                      onChange={(ev) =>
-                        edit(i, { kind: ev.target.value as AvailabilityEntry['kind'] })
-                      }
-                    >
-                      <option value="ooo">out of office</option>
-                      <option value="support">support rota</option>
-                    </select>
-                  </td>
-                  <td>
-                    <input
-                      className="cell-input wide"
-                      aria-label="note"
-                      value={e.note}
-                      onChange={(ev) => edit(i, { note: ev.target.value })}
-                    />
-                  </td>
-                  <td>
-                    <button
-                      type="button"
-                      className="row-del"
-                      title="Remove this entry"
-                      onClick={() => {
-                        setDraft((rows) => rows.filter((_, j) => j !== i));
-                        markDirty('entries');
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <datalist id="avail-people">
-            {people.map((p) => (
-              <option key={p.path} value={p.name} />
-            ))}
-          </datalist>
-        </div>
+        <EntriesTable
+          rows={draft}
+          pastIds={pastIds}
+          freshIds={freshIds}
+          people={people}
+          onEdit={edit}
+          onRemove={remove}
+        />
 
         <button
           type="button"
           className="plan-btn ghost add-row"
           onClick={() => {
-            setDraft((rows) => [
-              ...rows,
-              withId({
-                person: people[0]?.name ?? '',
-                from: localISODate(),
-                to: localISODate(),
-                kind: 'ooo',
-                note: '',
-              }),
-            ]);
+            const row = fresh({
+              person: people[0]?.name ?? '',
+              from: localISODate(),
+              to: localISODate(),
+              kind: 'ooo',
+              note: '',
+            });
+            setDraft((rows) => [...rows, row]);
             markDirty('entries');
           }}
         >
@@ -517,92 +482,285 @@ export function AvailabilityPage({ onOpenNote }: { onOpenNote: (path: string) =>
           </button>
         </div>
 
-        <h2 className="plan-h2">What this does to bandwidth</h2>
-        {impact.length === 0 ? (
-          <p className="health-empty">
-            Nothing in the table overlaps the sprints on the board yet.
-          </p>
-        ) : (
-          <div className="grid-wrap">
-            <table className="issue-table">
-              <thead>
-                <tr>
-                  <th>Sprint</th>
-                  <th>Person</th>
-                  <th>Away</th>
-                  <th>Available</th>
-                  <th>Bandwidth</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {impact.map((r) => (
-                  <tr key={`${r.sprint}:${r.person}`}>
-                    <td>{r.sprint}</td>
-                    <td>
-                      <button
-                        type="button"
-                        className="text-link"
-                        onClick={() => r.path && onOpenNote(r.path)}
-                      >
-                        {r.name}
-                      </button>
-                    </td>
-                    <td>
-                      {r.ooo > 0 && <span className="avail-chip ooo">{r.ooo}d out</span>}
-                      {r.holiday > 0 && (
-                        <span className="avail-chip holiday">{r.holiday}d holiday</span>
-                      )}
-                      {r.support > 0 && (
-                        <span className="avail-chip support">{r.support}d support</span>
-                      )}
-                    </td>
-                    <td>
-                      {r.available} of {r.total} days
-                    </td>
-                    <td>
-                      {r.capacity === null ? (
-                        <span className="muted">no bandwidth set</span>
-                      ) : (
-                        <>
-                          <span className="load-committed">{r.capacity}</span> → <b>{r.adjusted}</b>{' '}
-                          {data.unit}
-                          {r.overridden && (
-                            <span className="muted small"> (override in force)</span>
-                          )}
-                        </>
-                      )}
-                    </td>
-                    <td>
-                      {r.capacity !== null && !r.overridden && r.adjusted !== null && (
-                        <button
-                          type="button"
-                          className="plan-btn small"
-                          title="Write this into the person's per-sprint bandwidth override"
-                          onClick={() =>
-                            planApi
-                              .patchPerson({
-                                path: r.person,
-                                overrides: { [r.sprint]: r.adjusted as number },
-                              })
-                              .then(() => load())
-                              .catch((e: Error) => setError(e.message))
-                          }
-                        >
-                          pin it
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <ImpactTable data={data} onOpenNote={onOpenNote} onPinned={load} onError={setError} />
       </div>
     </div>
   );
 }
+
+// ------------------------------------------------------------ entries table
+
+/** One editable row. Memoized: typing in one row re-renders that row only. */
+const EntryRow = memo(function EntryRow({
+  e,
+  onEdit,
+  onRemove,
+}: {
+  e: DraftEntry;
+  onEdit: (rowId: string, patch: Partial<AvailabilityEntry>) => void;
+  onRemove: (rowId: string) => void;
+}) {
+  return (
+    <tr>
+      <td>
+        <input
+          className="cell-input"
+          list="avail-people"
+          aria-label="person"
+          value={e.person}
+          onChange={(ev) => onEdit(e.rowId, { person: ev.target.value })}
+        />
+      </td>
+      <td>
+        <input
+          className="cell-input"
+          type="date"
+          aria-label="from"
+          value={e.from}
+          onChange={(ev) => onEdit(e.rowId, { from: ev.target.value })}
+        />
+      </td>
+      <td>
+        <input
+          className="cell-input"
+          type="date"
+          aria-label="to"
+          value={e.to}
+          onChange={(ev) => onEdit(e.rowId, { to: ev.target.value })}
+        />
+      </td>
+      <td>
+        <select
+          className="cell-input"
+          aria-label="type"
+          value={e.kind}
+          onChange={(ev) => onEdit(e.rowId, { kind: ev.target.value as AvailabilityEntry['kind'] })}
+        >
+          <option value="ooo">out of office</option>
+          <option value="support">support rota</option>
+        </select>
+      </td>
+      <td>
+        <input
+          className="cell-input wide"
+          aria-label="note"
+          value={e.note}
+          onChange={(ev) => onEdit(e.rowId, { note: ev.target.value })}
+        />
+      </td>
+      <td>
+        <button
+          type="button"
+          className="row-del"
+          title="Remove this entry"
+          onClick={() => onRemove(e.rowId)}
+        >
+          ✕
+        </button>
+      </td>
+    </tr>
+  );
+});
+
+/**
+ * The table that is the source of truth. Entries that are already over are
+ * folded away until asked for (they stay in the note until archived), and a
+ * long table is built as it scrolls into reach: hundreds of rows of inputs
+ * otherwise froze the page on opening it.
+ */
+const EntriesTable = memo(function EntriesTable({
+  rows,
+  pastIds,
+  freshIds,
+  people,
+  onEdit,
+  onRemove,
+}: {
+  rows: DraftEntry[];
+  pastIds: ReadonlySet<string>;
+  freshIds: ReadonlySet<string>;
+  people: AvailabilityResponse['people'];
+  onEdit: (rowId: string, patch: Partial<AvailabilityEntry>) => void;
+  onRemove: (rowId: string) => void;
+}) {
+  const [showPast, setShowPast] = useState(false);
+  const past = useMemo(() => rows.filter((r) => pastIds.has(r.rowId)).length, [rows, pastIds]);
+  const listed = useMemo(
+    () => (showPast || past === 0 ? rows : rows.filter((r) => !pastIds.has(r.rowId))),
+    [rows, pastIds, showPast, past],
+  );
+  const { shown, sentinel } = useProgressive(listed.length, 60, showPast);
+  const visible = listed.length > shown ? listed.slice(0, shown) : listed;
+  // a row just added must not wait out of sight for the table to be scrolled through
+  const added =
+    listed.length > shown ? listed.slice(shown).filter((r) => freshIds.has(r.rowId)) : [];
+  const waiting = listed.length - visible.length - added.length;
+  return (
+    <>
+      <h2 className="plan-h2">
+        Entries
+        {past > 0 && (
+          <button
+            type="button"
+            className="text-link small avail-past-toggle"
+            aria-expanded={showPast}
+            onClick={() => setShowPast((v) => !v)}
+            title="Entries that are already over stay in the note until you archive them"
+          >
+            {showPast ? 'hide' : 'show'} {past} earlier entr{past === 1 ? 'y' : 'ies'}
+          </button>
+        )}
+      </h2>
+      <div className="grid-wrap">
+        <table className="issue-table avail-table">
+          <thead>
+            <tr>
+              <th>Person</th>
+              <th>From</th>
+              <th>To</th>
+              <th>Type</th>
+              <th>Note</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((e) => (
+              <EntryRow key={e.rowId} e={e} onEdit={onEdit} onRemove={onRemove} />
+            ))}
+            {listed.length === 0 && (
+              <tr>
+                <td colSpan={6} className="muted small">
+                  {past > 0 ? 'Nothing current or upcoming.' : 'No entries yet.'}
+                </td>
+              </tr>
+            )}
+            {visible.length < listed.length && (
+              <tr ref={sentinel as React.RefObject<HTMLTableRowElement>}>
+                <td colSpan={6} className="muted small">
+                  {waiting > 0 ? `${waiting} more…` : ''}
+                </td>
+              </tr>
+            )}
+            {added.map((e) => (
+              <EntryRow key={e.rowId} e={e} onEdit={onEdit} onRemove={onRemove} />
+            ))}
+          </tbody>
+        </table>
+        <datalist id="avail-people">
+          {people.map((p) => (
+            <option key={p.path} value={p.name} />
+          ))}
+        </datalist>
+      </div>
+    </>
+  );
+});
+
+/** What the table does to each sprint's bandwidth. It only changes with the server's data. */
+const ImpactTable = memo(function ImpactTable({
+  data,
+  onOpenNote,
+  onPinned,
+  onError,
+}: {
+  data: AvailabilityResponse;
+  onOpenNote: (path: string) => void;
+  onPinned: () => void;
+  onError: (message: string) => void;
+}) {
+  const impact = data.rows;
+  const { shown, sentinel } = useProgressive(impact.length, 60, impact);
+  const visible = impact.length > shown ? impact.slice(0, shown) : impact;
+  return (
+    <>
+      <h2 className="plan-h2">What this does to bandwidth</h2>
+      {impact.length === 0 ? (
+        <p className="health-empty">Nothing in the table overlaps the sprints on the board yet.</p>
+      ) : (
+        <div className="grid-wrap">
+          <table className="issue-table">
+            <thead>
+              <tr>
+                <th>Sprint</th>
+                <th>Person</th>
+                <th>Away</th>
+                <th>Available</th>
+                <th>Bandwidth</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r) => (
+                <tr key={`${r.sprint}:${r.person}`}>
+                  <td>{r.sprint}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="text-link"
+                      onClick={() => r.path && onOpenNote(r.path)}
+                    >
+                      {r.name}
+                    </button>
+                  </td>
+                  <td>
+                    {r.ooo > 0 && <span className="avail-chip ooo">{r.ooo}d out</span>}
+                    {r.holiday > 0 && (
+                      <span className="avail-chip holiday">{r.holiday}d holiday</span>
+                    )}
+                    {r.support > 0 && (
+                      <span className="avail-chip support">{r.support}d support</span>
+                    )}
+                  </td>
+                  <td>
+                    {r.available} of {r.total} days
+                  </td>
+                  <td>
+                    {r.capacity === null ? (
+                      <span className="muted">no bandwidth set</span>
+                    ) : (
+                      <>
+                        <span className="load-committed">{r.capacity}</span> → <b>{r.adjusted}</b>{' '}
+                        {data.unit}
+                        {r.overridden && <span className="muted small"> (override in force)</span>}
+                      </>
+                    )}
+                  </td>
+                  <td>
+                    {r.capacity !== null && !r.overridden && r.adjusted !== null && (
+                      <button
+                        type="button"
+                        className="plan-btn small"
+                        title="Write this into the person's per-sprint bandwidth override"
+                        onClick={() =>
+                          planApi
+                            .patchPerson({
+                              path: r.person,
+                              overrides: { [r.sprint]: r.adjusted as number },
+                            })
+                            .then(() => onPinned())
+                            .catch((e: Error) => onError(e.message))
+                        }
+                      >
+                        pin it
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {visible.length < impact.length && (
+                <tr ref={sentinel as React.RefObject<HTMLTableRowElement>}>
+                  <td colSpan={6} className="muted small">
+                    {impact.length - visible.length} more…
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+});
 
 // -------------------------------------------------------------- month grid
 
@@ -937,7 +1095,7 @@ const weekdayShort = (iso: string): string =>
  * and who is on support, with the days. Entries come from the draft so a
  * just-drawn absence shows at once.
  */
-function WeekStrip({
+const WeekStrip = memo(function WeekStrip({
   data,
   entries,
   onOpenNote,
@@ -953,14 +1111,18 @@ function WeekStrip({
   const first = days[0] as string;
   const last = days[4] as string;
   const norm = (x: string) => x.trim().toLowerCase();
-  const basename = (p: string) => (p.split('/').pop() ?? p).replace(/\.md$/i, '');
-  const personOf = (name: string) =>
-    data.people.find(
-      (p) =>
-        norm(p.name) === norm(name) ||
-        norm(p.path) === norm(name) ||
-        norm(basename(p.path)) === norm(name),
-    );
+  // by name, path or file name; the first person in board order wins, as a scan would find
+  const byName = useMemo(() => {
+    const m = new Map<string, AvailabilityResponse['people'][number]>();
+    const basename = (p: string) => (p.split('/').pop() ?? p).replace(/\.md$/i, '');
+    for (const p of data.people)
+      for (const key of [p.name, p.path, basename(p.path)]) {
+        const k = key.trim().toLowerCase();
+        if (!m.has(k)) m.set(k, p);
+      }
+    return m;
+  }, [data.people]);
+  const personOf = (name: string) => byName.get(norm(name));
   type Row = { path: string; name: string; days: string[] };
   const collect = (kinds: AvailabilityEntry['kind'][]): Row[] => {
     const m = new Map<string, Row>();
@@ -1029,4 +1191,4 @@ function WeekStrip({
       </span>
     </div>
   );
-}
+});
