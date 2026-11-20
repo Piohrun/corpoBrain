@@ -20,9 +20,24 @@ export function gitFor(root: string): GitService {
   return g;
 }
 
+/** how long a status is trusted while the vault is still: commits made outside the app show up after this */
+const STATUS_TTL_MS = 10 * 60_000;
+
 export class GitService {
   lastError: string | null = null;
   lastCommit: { hash: string; at: string; message: string } | null = null;
+  /** once the vault is a repository it stays one: no need to ask git again on every poll */
+  private knownRepo = false;
+  /** commits made through this service: each one changes HEAD and the dirty count */
+  private commits = 0;
+  /** what status() last found, and the vault write counter it was found at */
+  private lastStatus: {
+    seq: number;
+    commits: number;
+    at: number;
+    head: { hash: string; date: string; message: string } | null;
+    dirtyFiles: number;
+  } | null = null;
 
   constructor(readonly root: string) {}
 
@@ -98,7 +113,14 @@ export class GitService {
     }
   }
 
-  async status(): Promise<{
+  /**
+   * Repo state for the status bar, which asks every minute. `changeSeq` is the
+   * vault's write counter: while it has not moved (and nothing was committed
+   * here) the last answer still holds and git is not run at all — otherwise
+   * every open tab costs three git processes a minute, one of them a scan of
+   * the whole worktree, on a machine that may be doing nothing else.
+   */
+  async status(changeSeq?: number): Promise<{
     available: boolean;
     isRepo: boolean;
     head: { hash: string; date: string; message: string } | null;
@@ -108,14 +130,33 @@ export class GitService {
     const available = await this.available();
     if (!available)
       return { available, isRepo: false, head: null, dirtyFiles: 0, lastError: this.lastError };
-    const isRepo = await this.isRepo();
+    const isRepo = this.knownRepo || (await this.isRepo());
+    this.knownRepo = isRepo;
     let head = null;
     let dirtyFiles = 0;
     if (isRepo) {
+      const last = this.lastStatus;
+      if (
+        last &&
+        changeSeq !== undefined &&
+        last.seq === changeSeq &&
+        last.commits === this.commits &&
+        Date.now() - last.at < STATUS_TTL_MS
+      )
+        return {
+          available,
+          isRepo,
+          head: last.head,
+          dirtyFiles: last.dirtyFiles,
+          lastError: this.lastError,
+        };
+      const commits = this.commits;
       head = (await this.log(1))[0] ?? null;
       try {
         const st = await this.git('status', '--porcelain');
         dirtyFiles = st ? st.split('\n').length : 0;
+        if (changeSeq !== undefined)
+          this.lastStatus = { seq: changeSeq, commits, at: Date.now(), head, dirtyFiles };
       } catch (e) {
         this.lastError = (e as Error).message;
       }
@@ -136,6 +177,7 @@ export class GitService {
       '--no-verify',
       '--no-gpg-sign',
     );
+    this.commits++;
     return await this.git('rev-parse', '--short', 'HEAD');
   }
 

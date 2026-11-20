@@ -321,7 +321,7 @@ export function createApp(vault?: VaultService) {
   app.get('/api/git/status', async (c) => {
     const git = gitFor(v.root);
     return c.json({
-      ...(await git.status()),
+      ...(await git.status(v.changeSeq)),
       autoCommit: v.config.git.autoCommit,
       intervalMinutes: v.config.git.intervalMinutes,
     });

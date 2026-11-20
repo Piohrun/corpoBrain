@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GitService } from '../src/git-service.ts';
 
 let root: string;
@@ -72,6 +72,39 @@ describe('git status and error tracking', () => {
     expect((await git.status()).dirtyFiles).toBe(1);
     await git.commitAll('vault: change');
     expect(git.lastCommit?.message).toBe('vault: change');
+  });
+});
+
+describe('git status for the status bar', () => {
+  it('given the vault write counter, asks git again only when something changed', async () => {
+    const git = new GitService(root);
+    writeFileSync(join(root, 'a.md'), 'x\n');
+    await git.ensureRepo();
+    let seq = 1;
+    expect((await git.status(seq)).dirtyFiles).toBe(0);
+    // an edit the counter did not see: the remembered answer, git is not run
+    writeFileSync(join(root, 'b.md'), 'y\n');
+    expect((await git.status(seq)).dirtyFiles).toBe(0);
+    // the counter moves: looked at again
+    seq++;
+    expect((await git.status(seq)).dirtyFiles).toBe(1);
+    // a commit made here changes HEAD and the count without any new write
+    await git.commitAll('vault: change');
+    const committed = await git.status(seq);
+    expect(committed.dirtyFiles).toBe(0);
+    expect(committed.head?.message).toBe('vault: change');
+    // without the counter every call looks, as before
+    writeFileSync(join(root, 'c.md'), 'z\n');
+    expect((await git.status(seq)).dirtyFiles).toBe(0);
+    expect((await git.status()).dirtyFiles).toBe(1);
+    // and an answer older than ten minutes is not trusted: commits made outside the app show up
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(Date.now() + 11 * 60_000);
+      expect((await git.status(seq)).dirtyFiles).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
