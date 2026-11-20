@@ -4626,9 +4626,24 @@ button.prop-chip {
 .work-age.quiet {
   color: var(--link-unresolved);
 }
-.health-badge.work-mine-count {
-  color: var(--danger);
+.work-git-note {
+  flex: none;
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 12%, transparent);
 }
+.work-git-note.warn {
+  color: var(--link-unresolved);
+  background: color-mix(in srgb, var(--link-unresolved) 14%, transparent);
+}
+.work-mine-count {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .home-time {
   flex: none;
   min-width: 110px;

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { WorkItem } from '../../core/src/work-model.ts';
-import { ageLabel, isQuiet, needsYou, quietDays, workInProgress } from '../src/work.ts';
+import type { WorkGitFacts, WorkItem } from '../../core/src/work-model.ts';
+import {
+  ageLabel,
+  gitNotes,
+  isQuiet,
+  needsYou,
+  quietDays,
+  suggestedStage,
+  workInProgress,
+} from '../src/work.ts';
 
 const now = Date.parse('2026-11-20T12:00:00Z');
 const item = (title: string, o: Partial<WorkItem> = {}): WorkItem => ({
@@ -59,5 +67,52 @@ describe('work in progress', () => {
     expect(age('2026-11-11T12:00:00Z')).toBe('9 days ago');
     expect(age(null)).toBe('');
     expect(age('not a date')).toBe('');
+  });
+});
+
+describe('what git adds', () => {
+  const facts = (o: Partial<WorkGitFacts> = {}): WorkGitFacts => ({
+    path: 'work/a.md',
+    available: true,
+    local: true,
+    checkedOut: true,
+    dirty: 0,
+    upstream: 'origin/a',
+    ahead: 0,
+    behind: 0,
+    lastCommit: null,
+    mergedInto: [],
+    inUat: null,
+    inRelease: null,
+    ...o,
+  });
+
+  it('warns about work that exists only on this machine', () => {
+    expect(gitNotes(undefined)).toEqual([]);
+    expect(gitNotes(facts({ available: false, dirty: 3 }))).toEqual([]);
+    expect(gitNotes(facts())).toEqual([]);
+    expect(gitNotes(facts({ dirty: 2, ahead: 3, behind: 1 })).map((n) => [n.text, n.tone])).toEqual(
+      [
+        ['2 uncommitted', 'warn'],
+        ['3 unpushed', 'warn'],
+        ['1 behind', 'info'],
+      ],
+    );
+    expect(gitNotes(facts({ upstream: null, ahead: null })).map((n) => n.text)).toEqual([
+      'not pushed',
+    ]);
+    // only the remote copy is left: nothing local to lose
+    expect(gitNotes(facts({ local: false, upstream: null, ahead: null }))).toEqual([]);
+  });
+
+  it('suggests the stage git shows, only for branches the note names', () => {
+    expect(suggestedStage(item('a'), facts())).toBeNull();
+    expect(suggestedStage(item('a'), facts({ inUat: true }))).toBe('in-uat-branch');
+    expect(suggestedStage(item('a', { stage: 'on-uat' }), facts({ inUat: true }))).toBeNull();
+    expect(suggestedStage(item('a', { stage: 'pr-open' }), facts({ inRelease: true }))).toBe(
+      'released',
+    );
+    expect(suggestedStage(item('a', { stage: 'released' }), facts({ inRelease: true }))).toBeNull();
+    expect(suggestedStage(item('a'), facts({ available: false, inUat: true }))).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 /** How the work log (core/work.ts) is read on screen: what needs you, what has gone quiet. */
-import type { WorkItem, WorkStage } from '../../core/src/work-model.ts';
+import type { WorkGitFacts, WorkItem, WorkStage } from '../../core/src/work-model.ts';
 
 export const STAGE_SHORT: Record<WorkStage, string> = {
   dev: 'dev',
@@ -48,4 +48,54 @@ export function workInProgress(items: WorkItem[], now = Date.now()): WorkItem[] 
         (b.updated ?? '').localeCompare(a.updated ?? '') ||
         a.title.localeCompare(b.title),
     );
+}
+
+export interface GitNote {
+  text: string;
+  /** warn: work that exists only on this machine */
+  tone: 'warn' | 'info';
+  title: string;
+}
+
+/** What the clone adds to a branch's row, the things that can be lost first. */
+export function gitNotes(facts: WorkGitFacts | undefined): GitNote[] {
+  if (!facts?.available) return [];
+  const notes: GitNote[] = [];
+  if (facts.dirty)
+    notes.push({
+      text: `${facts.dirty} uncommitted`,
+      tone: 'warn',
+      title: 'Files changed in the clone but not committed',
+    });
+  if (facts.local && facts.upstream === null)
+    notes.push({
+      text: 'not pushed',
+      tone: 'warn',
+      title: 'The branch has no upstream: it exists only in the local clone',
+    });
+  if (facts.ahead)
+    notes.push({
+      text: `${facts.ahead} unpushed`,
+      tone: 'warn',
+      title: `Commits that are not on ${facts.upstream ?? 'the remote'} yet`,
+    });
+  if (facts.behind)
+    notes.push({
+      text: `${facts.behind} behind`,
+      tone: 'info',
+      title: `${facts.upstream ?? 'The remote'} has commits this clone does not`,
+    });
+  return notes;
+}
+
+/**
+ * The stage git says the branch has reached, when the note is behind it:
+ * contained in its release branch, or in its UAT branch while still "dev".
+ * Only for branches the note names — nothing is guessed from branch names.
+ */
+export function suggestedStage(item: WorkItem, facts: WorkGitFacts | undefined): WorkStage | null {
+  if (!facts?.available || !isActive(item)) return null;
+  if (facts.inRelease) return 'released';
+  if (facts.inUat && item.stage === 'dev') return 'in-uat-branch';
+  return null;
 }

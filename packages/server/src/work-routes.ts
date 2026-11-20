@@ -20,6 +20,7 @@ import {
 } from '@corpobrain/core';
 import { Hono } from 'hono';
 import { HttpError, type VaultService } from './vault-service.ts';
+import { WorkGit } from './work-git.ts';
 
 /** Every work note, from the index. */
 export function listWork(v: VaultService): WorkItem[] {
@@ -47,10 +48,21 @@ export function cliPath(): string {
     : join(here, '..', '..', 'cli', 'src', 'index.ts');
 }
 
-export function workRoutes(v: VaultService): Hono {
+export function workRoutes(v: VaultService, git = new WorkGit()): Hono {
   const app = new Hono();
 
   app.get('/', (c) => c.json(listWork(v)));
+
+  /**
+   * What the local clones say about the branches in progress: uncommitted and
+   * unpushed work, and the branches that already contain each one. Slow next
+   * to the list (it runs git), so pages ask for it separately; `fresh=1`
+   * looks again instead of trusting the last minute's answer.
+   */
+  app.get('/git', async (c) => {
+    const open = listWork(v).filter((w) => w.stage !== 'released' && w.stage !== 'parked');
+    return c.json(await git.all(open, c.req.query('fresh') === '1'));
+  });
 
   /** What to paste into a repository's agent instructions, with this machine's paths. */
   app.get('/instructions', (c) =>

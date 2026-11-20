@@ -1,6 +1,6 @@
 /** Typed client for the corpobrain server API. */
 import type { OrgKind, OrgModel } from '../../core/src/organization.ts';
-import type { WorkItem, WorkStage, WorkWaiting } from '../../core/src/work-model.ts';
+import type { WorkGitFacts, WorkItem, WorkStage, WorkWaiting } from '../../core/src/work-model.ts';
 
 export const organizationApi = {
   get: () => req<OrgModel>('/api/organization'),
@@ -528,6 +528,8 @@ export const workApi = {
     },
   ) => req<WorkItem>('/api/work', { method: 'PUT', body: JSON.stringify({ path, ...patch }) }),
   instructions: () => req<{ text: string; cli: string; vault: string }>('/api/work/instructions'),
+  /** what the local clones say about the branches in progress; `fresh` looks again now */
+  git: (fresh = false) => req<WorkGitFacts[]>(`/api/work/git${fresh ? '?fresh=1' : ''}`),
 };
 
 export const homeApi = {

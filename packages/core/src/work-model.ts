@@ -83,6 +83,35 @@ export interface WorkItem {
   clone: string | null;
 }
 
+/**
+ * What the local clone says about a branch (server/work-git.ts). Read from
+ * the refs that are there: nothing is fetched.
+ */
+export interface WorkGitFacts {
+  /** the work note these facts belong to */
+  path: string;
+  /** false: nothing could be read, and `reason` says why */
+  available: boolean;
+  reason?: string;
+  /** the branch exists in the clone itself (false: only its remote copy is left) */
+  local: boolean;
+  /** the clone currently has this branch checked out */
+  checkedOut: boolean;
+  /** files changed but not committed; only known while the branch is checked out */
+  dirty: number | null;
+  /** the remote branch it tracks; null: never pushed with an upstream */
+  upstream: string | null;
+  /** commits not pushed / not pulled, against the upstream */
+  ahead: number | null;
+  behind: number | null;
+  lastCommit: { hash: string; date: string; subject: string } | null;
+  /** every other branch, local or remote, that already contains this branch's head */
+  mergedInto: string[];
+  /** contained in the note's uat_branch / release_branch (null: none named) */
+  inUat: boolean | null;
+  inRelease: boolean | null;
+}
+
 export function isWorkStage(v: unknown): v is WorkStage {
   return typeof v === 'string' && (WORK_STAGES as readonly string[]).includes(v);
 }

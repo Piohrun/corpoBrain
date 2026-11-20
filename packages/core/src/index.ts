@@ -256,6 +256,7 @@ export {
   WORK_STAGES,
   WORK_WAITING,
   WorkError,
+  type WorkGitFacts,
   type WorkItem,
   type WorkPatch,
   type WorkReport,

@@ -141,6 +141,11 @@ is next and whose move it is, with a log of every report above the
 in progress, the ones that need you first and the ones nobody has reported on
 for a week marked.
 
+What an agent never told you, git still knows: for branches reported from a
+clone on this machine, Home also marks uncommitted files, unpushed commits and
+branches that were never pushed at all. Only the refs already in the clone are
+read — nothing is fetched, no credentials are involved.
+
 Agents report by running one command from the repository they work in
 (repository and branch are taken from the folder):
 

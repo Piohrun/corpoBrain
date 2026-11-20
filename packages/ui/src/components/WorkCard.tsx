@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
-import { WORK_STAGE_LABEL, type WorkItem } from '../../../core/src/work-model.ts';
+import {
+  WORK_STAGE_LABEL,
+  type WorkGitFacts,
+  type WorkItem,
+} from '../../../core/src/work-model.ts';
 import { workApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { useVaultEvents } from '../hooks.ts';
-import { ageLabel, isQuiet, needsYou, STAGE_SHORT, workInProgress } from '../work.ts';
+import { ageLabel, gitNotes, isQuiet, needsYou, STAGE_SHORT, workInProgress } from '../work.ts';
 
 /** Copy what a repository's agents need in their instructions to keep the work log. */
 export function useCopyAgentInstructions(): () => void {
@@ -24,12 +28,15 @@ export function useCopyAgentInstructions(): () => void {
 /** One branch: where it is, what is next, how long since anything was reported. */
 export function WorkRow({
   item,
+  facts,
   onOpenNote,
 }: {
   item: WorkItem;
+  facts?: WorkGitFacts | undefined;
   onOpenNote: (path: string) => void;
 }) {
   const quiet = isQuiet(item);
+  const warnings = gitNotes(facts).filter((n) => n.tone === 'warn');
   return (
     <li data-path={item.path} className={needsYou(item) ? 'work-mine' : undefined}>
       <span className={`work-stage ${item.stage}`} title={WORK_STAGE_LABEL[item.stage]}>
@@ -46,6 +53,11 @@ export function WorkRow({
       <span className="work-next muted small" title={item.next ?? item.state ?? ''}>
         {item.next ? `next: ${item.next}` : (item.state ?? '')}
       </span>
+      {warnings.map((n) => (
+        <span key={n.text} className="work-git-note warn small" title={n.title}>
+          {n.text}
+        </span>
+      ))}
       {item.waitingOn !== 'nobody' && (
         <span className={`work-waiting small${needsYou(item) ? ' me' : ''}`}>
           {needsYou(item) ? 'needs you' : `waiting on ${item.waitingOn}`}
@@ -68,6 +80,7 @@ export function WorkRow({
  */
 export function WorkCard({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const [items, setItems] = useState<WorkItem[] | null>(null);
+  const [git, setGit] = useState<Map<string, WorkGitFacts>>(new Map());
   const load = useCallback(() => {
     workApi
       .list()
@@ -76,6 +89,16 @@ export function WorkCard({ onOpenNote }: { onOpenNote: (path: string) => void })
   }, []);
   useEffect(load, [load]);
   useVaultEvents(load);
+  // what the clones say arrives after the list: it runs git
+  const any = (items?.length ?? 0) > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch when the list changes
+  useEffect(() => {
+    if (!any) return;
+    workApi
+      .git()
+      .then((facts) => setGit(new Map(facts.map((f) => [f.path, f]))))
+      .catch(() => {});
+  }, [any, items]);
   const copy = useCopyAgentInstructions();
   if (!items) return null;
   const open = workInProgress(items);
@@ -104,7 +127,7 @@ export function WorkCard({ onOpenNote }: { onOpenNote: (path: string) => void })
       ) : (
         <ul className="home-list work-list">
           {open.map((w) => (
-            <WorkRow key={w.path} item={w} onOpenNote={onOpenNote} />
+            <WorkRow key={w.path} item={w} facts={git.get(w.path)} onOpenNote={onOpenNote} />
           ))}
         </ul>
       )}
