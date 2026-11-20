@@ -98,6 +98,48 @@ describe('buildBoard', () => {
   });
 });
 
+describe('GET /api/plan/board', () => {
+  it('answers 304 until a planning input changes; other notes do not count', async () => {
+    const first = await app.request('/api/plan/board');
+    const etag = first.headers.get('etag') as string;
+    expect(etag).toBeTruthy();
+    expect(first.headers.get('content-type')).toContain('application/json');
+    const full = (await first.json()) as { issues: { key: string }[] };
+    expect(full.issues.map((i) => i.key).sort()).toEqual(['EXEC-1', 'EXEC-2']);
+    const conditional = () =>
+      app.request('/api/plan/board', { headers: { 'If-None-Match': etag } });
+    expect((await conditional()).status).toBe(304);
+
+    // a note that is not a planning input: still the same board
+    vault.create('notes/x.md', 'X', '# X\n');
+    expect((await conditional()).status).toBe(304);
+
+    // a plan edit: a new board under a new tag
+    await app.request('/api/plan/issue/EXEC-1', {
+      method: 'PUT',
+      body: JSON.stringify({ sprint: 'Sprint 38' }),
+    });
+    const moved = await conditional();
+    expect(moved.status).toBe(200);
+    expect(moved.headers.get('etag')).not.toBe(etag);
+    const board = (await moved.json()) as {
+      issues: { key: string; effectiveSprint: string }[];
+    };
+    expect(board.issues.find((i) => i.key === 'EXEC-1')?.effectiveSprint).toBe('Sprint 38');
+  });
+
+  it('Settings gets the unit, thresholds and hub notes without the issues', async () => {
+    writeFileSync(
+      join(root, 'people', 'EMEA.md'),
+      '---\ntype: person\ntitle: EMEA\nregion: EMEA\nactive: false\n---\n',
+    );
+    vault.indexer.update();
+    const res = (await (await app.request('/api/plan/settings')).json()) as Record<string, unknown>;
+    expect(Object.keys(res).sort()).toEqual(['defaultCapacity', 'health', 'hubs', 'unit']);
+    expect((res.hubs as { name: string }[]).map((h) => h.name)).toEqual(['EMEA']);
+  });
+});
+
 describe('plan writes', () => {
   it('PUT /api/plan/issue/:key patches plan frontmatter and preserves user region', async () => {
     const res = await app.request('/api/plan/issue/EXEC-2', {

@@ -90,10 +90,10 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
   useEffect(loadList, [loadList]);
   useEffect(loadTimeline, [loadTimeline]);
   useEffect(loadBoard, [loadBoard]);
-  useVaultEvents(() => {
+  useVaultEvents((_paths, change) => {
     loadList();
     loadTimeline();
-    loadBoard();
+    if (change.planning) loadBoard();
   });
 
   const refresh = useCallback(() => {

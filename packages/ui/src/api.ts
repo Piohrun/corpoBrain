@@ -93,9 +93,11 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 /**
  * GET a JSON list that is refetched often but rarely changes. When the body is
  * byte-identical to the last answer, the previous parsed object is returned,
- * so `setState` sees the same reference and React skips the re-render.
+ * so `setState` sees the same reference and React skips the re-render — and
+ * megabytes of JSON are not parsed again. Callers must treat the value as
+ * read-only. One answer is kept per endpoint (a new query replaces the last).
  */
-const lastBody = new Map<string, { text: string; value: unknown }>();
+const lastBody = new Map<string, { url: string; text: string; value: unknown }>();
 async function reqStable<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -103,10 +105,11 @@ async function reqStable<T>(url: string): Promise<T> {
     throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
   }
   const text = await res.text();
-  const last = lastBody.get(url);
-  if (last && last.text === text) return last.value as T;
+  const endpoint = url.split('?')[0] as string;
+  const last = lastBody.get(endpoint);
+  if (last && last.url === url && last.text === text) return last.value as T;
   const value = JSON.parse(text) as T;
-  lastBody.set(url, { text, value });
+  lastBody.set(endpoint, { url, text, value });
   return value;
 }
 
@@ -182,7 +185,7 @@ export const api = {
     req<{ path: string; title: string }[]>(`/api/tag?tag=${encodeURIComponent(tag)}`),
   /** done: false = open tasks only (much smaller); omitted = open and done */
   tasks: (done?: boolean) =>
-    req<TaskItem[]>(done === undefined ? '/api/tasks' : `/api/tasks?done=${done}`),
+    reqStable<TaskItem[]>(done === undefined ? '/api/tasks' : `/api/tasks?done=${done}`),
   captureFollowUp: (source: string, text: string, due: string) =>
     req<{ path: string }>('/api/follow-up', {
       method: 'POST',
@@ -996,7 +999,13 @@ export const digestApi = {
 };
 
 export const planApi = {
-  board: () => req<BoardModel>('/api/plan/board'),
+  /** about 2 MB on a big vault: answered 304 and kept as the same object while nothing moved */
+  board: () => reqStable<BoardModel>('/api/plan/board'),
+  /** the little of the board that Settings shows */
+  settings: () =>
+    reqStable<Pick<BoardModel, 'unit' | 'health' | 'defaultCapacity'> & { hubs: BoardPerson[] }>(
+      '/api/plan/settings',
+    ),
   health: (sprint?: string) =>
     req<HealthReport>(`/api/plan/health${sprint ? `?sprint=${encodeURIComponent(sprint)}` : ''}`),
   patchIssue: (key: string, patch: PlanPatch) =>
@@ -1041,7 +1050,7 @@ export interface SavedView {
 }
 
 export const viewApi = {
-  list: () => req<SavedView[]>('/api/plan/views'),
+  list: () => reqStable<SavedView[]>('/api/plan/views'),
   save: (title: string, filter: SavedView['filter']) =>
     req<{ ok: boolean; path: string }>('/api/plan/views', {
       method: 'POST',
@@ -1159,8 +1168,9 @@ export interface ObjectRow {
 }
 
 export const objectsApi = {
-  types: () => req<TypeCount[]>('/api/objects/types'),
-  list: (type: string) => req<ObjectRow[]>(`/api/objects/list?type=${encodeURIComponent(type)}`),
+  types: () => reqStable<TypeCount[]>('/api/objects/types'),
+  list: (type: string) =>
+    reqStable<ObjectRow[]>(`/api/objects/list?type=${encodeURIComponent(type)}`),
 };
 
 export type TrackKind = 'commitment' | 'decision' | 'risk' | 'assumption';
@@ -1318,7 +1328,7 @@ export const jiraApi = {
         }
       | { ok: false; key: string; reason: string }
     >('/api/jira/devstatus/probe', { method: 'POST', body: JSON.stringify({ key }) }),
-  issues: () => req<JiraIssueRow[]>('/api/jira/issues'),
+  issues: () => reqStable<JiraIssueRow[]>('/api/jira/issues'),
   sprints: () => req<SprintRow[]>('/api/jira/sprints'),
   boards: (project?: string) =>
     req<{ id: number; name: string; type: string }[]>(

@@ -109,6 +109,9 @@ export function createApp(vault?: VaultService) {
     '/api/unresolved',
     '/api/organization',
     '/api/tasks',
+    '/api/jira/issues',
+    '/api/objects/types',
+    '/api/objects/list',
   ]);
   app.use('/api/*', async (c, next) => {
     if (c.req.method !== 'GET' || !VERSIONED.has(c.req.path)) return next();
@@ -359,8 +362,11 @@ export function createApp(vault?: VaultService) {
     const stream = new ReadableStream({
       start(controller) {
         const enc = new TextEncoder();
+        // `pv` lets pages that only show planning data ignore every other change
         const send = (paths: string[]) =>
-          controller.enqueue(enc.encode(`data: ${JSON.stringify({ paths })}\n\n`));
+          controller.enqueue(
+            enc.encode(`data: ${JSON.stringify({ paths, pv: v.indexer.planningVersion })}\n\n`),
+          );
         controller.enqueue(enc.encode(': connected\n\n'));
         const off = v.onChange(send);
         const ping = setInterval(() => controller.enqueue(enc.encode(': ping\n\n')), 30000);

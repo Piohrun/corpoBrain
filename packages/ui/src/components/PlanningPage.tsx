@@ -72,7 +72,15 @@ export function PlanningPage({ onOpenNote }: Props) {
       .catch(() => {});
   }, []);
   useEffect(refresh, [refresh]);
-  useVaultEvents(() => {
+  useVaultEvents((_paths, change) => {
+    // saved views are ordinary notes; everything else here follows the planning inputs
+    if (!change.planning) {
+      viewApi
+        .list()
+        .then(setViews)
+        .catch(() => {});
+      return;
+    }
     refresh();
     setReloadKey((k) => k + 1);
   });

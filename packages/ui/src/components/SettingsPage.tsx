@@ -35,9 +35,9 @@ export function SettingsPage() {
   } | null>(null);
   const refreshHubs = useCallback(() => {
     planApi
-      .board()
+      .settings()
       .then((b) => {
-        setHubs(b.people.filter((p) => p.name === p.region || p.name === p.team));
+        setHubs(b.hubs);
         setPlanCfg({ unit: b.unit, defaultCapacity: b.defaultCapacity, health: b.health });
       })
       .catch(() => {});

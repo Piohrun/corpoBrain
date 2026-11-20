@@ -191,6 +191,33 @@ describe('server API', () => {
     expect(r2.created).toBe(false);
   });
 
+  it('change events carry the planning version, which ordinary notes do not move', async () => {
+    const res = await app.request('/api/events');
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+    const dec = new TextDecoder();
+    const nextEvent = async (): Promise<{ paths: string[]; pv: number }> => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error('event stream ended');
+        const m = /^data: (.*)$/m.exec(dec.decode(value));
+        if (m) return JSON.parse(m[1] as string) as { paths: string[]; pv: number };
+      }
+    };
+    try {
+      const before = vault.indexer.planningVersion;
+      vault.create('notes/plain.md', 'Plain', '# Plain\n');
+      vault.notifyPathsChanged(['notes/plain.md']);
+      expect(await nextEvent()).toEqual({ paths: ['notes/plain.md'], pv: before });
+      vault.create('people/zed.md', 'Zed', '---\ntype: person\ntitle: Zed\n---\n');
+      vault.notifyPathsChanged(['people/zed.md']);
+      const moved = await nextEvent();
+      expect(moved.paths).toEqual(['people/zed.md']);
+      expect(moved.pv).toBeGreaterThan(before);
+    } finally {
+      await reader.cancel();
+    }
+  });
+
   it('asking where the daily note lives does not create it', async () => {
     const where = (await json(await app.request('/api/daily'))) as {
       path: string;

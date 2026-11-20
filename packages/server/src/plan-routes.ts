@@ -1,4 +1,5 @@
 /** Planning workbench API: board model, plan writes, person capacity. */
+import { randomUUID } from 'node:crypto';
 import {
   type Absence,
   adjustCapacity,
@@ -142,8 +143,13 @@ function peopleTreeRank(v: VaultService): Map<string, number> {
  */
 const boardCache = new WeakMap<VaultService, { key: string; board: BoardModel }>();
 
+/** What the board is a function of: the planning inputs' version, and the day. */
+export function boardKey(v: VaultService, now = new Date()): string {
+  return `${v.indexer.planningVersion}|${now.toISOString().slice(0, 10)}`;
+}
+
 export function buildBoard(v: VaultService, now = new Date()): BoardModel {
-  const key = `${v.indexer.planningVersion}|${now.toISOString().slice(0, 10)}`;
+  const key = boardKey(v, now);
   const hit = boardCache.get(v);
   if (hit && hit.key === key) return hit.board;
   const board = computeBoard(v, now);
@@ -489,7 +495,31 @@ export function applyPlanPatch(
 export function planRoutes(v: VaultService): Hono {
   const app = new Hono();
 
-  app.get('/board', (c) => c.json(buildBoard(v)));
+  // The board is about 2 MB at 3,000 issues and every planning page asks for
+  // it again after each change in the vault: answer 304 while its inputs have
+  // not moved, and serialise it once per version rather than once per request.
+  // The boot id keeps a tag from before a restart from matching new data.
+  const boot = randomUUID().slice(0, 8);
+  let boardBody: { key: string; json: string } | null = null;
+  app.get('/board', (c) => {
+    const key = boardKey(v);
+    const etag = `W/"${boot}-${key}"`;
+    const headers = { ETag: etag, 'Cache-Control': 'no-cache' };
+    if (c.req.header('if-none-match') === etag) return c.body(null, 304, headers);
+    if (boardBody?.key !== key) boardBody = { key, json: JSON.stringify(buildBoard(v)) };
+    return c.body(boardBody.json, 200, { ...headers, 'Content-Type': 'application/json' });
+  });
+
+  /** What Settings needs of the board: the unit, the thresholds and the hub notes — no issues. */
+  app.get('/settings', (c) => {
+    const board = buildBoard(v);
+    return c.json({
+      unit: board.unit,
+      defaultCapacity: board.defaultCapacity,
+      health: board.health,
+      hubs: board.people.filter((p) => p.name === p.region || p.name === p.team),
+    });
+  });
 
   /** Problems in one sprint (default: the active one). */
   app.get('/health', (c) => {

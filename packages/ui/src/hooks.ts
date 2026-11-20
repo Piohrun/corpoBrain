@@ -2,7 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { type JiraStatus, planApi } from './api.ts';
 import { watchJiraSync } from './jira-sync-poller.ts';
 
-type PathsListener = (paths: string[]) => void;
+/** What a batch of changes means for pages that do not care about every note. */
+export interface VaultChange {
+  /**
+   * Planning inputs moved (Jira issues, people, sprints, availability,
+   * settings) — or may have: a change this tab reported itself, or the first
+   * batch after connecting, is taken as "yes".
+   */
+  planning: boolean;
+}
+type PathsListener = (paths: string[], change: VaultChange) => void;
 
 /**
  * One EventSource for the whole tab. Every page and panel subscribes here;
@@ -13,8 +22,11 @@ const listeners = new Set<PathsListener>();
 let stream: EventSource | null = null;
 
 /** Tell mounted views about an API write without opening another event stream. */
-export function notifyVaultChanges(paths: string[]): void {
-  for (const fn of [...listeners]) fn(paths);
+export function notifyVaultChanges(
+  paths: string[],
+  change: VaultChange = { planning: true },
+): void {
+  for (const fn of [...listeners]) fn(paths, change);
 }
 
 /**
@@ -24,30 +36,38 @@ export function notifyVaultChanges(paths: string[]): void {
  */
 const COALESCE_MS = 100;
 let pendingPaths: Set<string> | null = null;
-function queueVaultChanges(paths: string[]): void {
+/** the server's planning version: as of the batch being collected, and as last delivered */
+let pendingPlanning: number | undefined;
+let seenPlanning: number | undefined;
+function queueVaultChanges(paths: string[], planningVersion?: number): void {
   if (!pendingPaths) {
     pendingPaths = new Set();
+    pendingPlanning = undefined;
     setTimeout(() => {
       const batch = [...(pendingPaths ?? [])];
       pendingPaths = null;
-      if (batch.length) notifyVaultChanges(batch);
+      // an older server sends no version: then every change may be a planning one
+      const planning = pendingPlanning === undefined || pendingPlanning !== seenPlanning;
+      seenPlanning = pendingPlanning;
+      if (batch.length) notifyVaultChanges(batch, { planning });
     }, COALESCE_MS);
   }
   for (const p of paths) pendingPaths.add(p);
+  if (planningVersion !== undefined) pendingPlanning = planningVersion;
 }
 
 function ensureStream(): void {
   if (stream) return;
   stream = new EventSource('/api/events'); // reconnects on its own after errors
   stream.onmessage = (ev) => {
-    let paths: string[] | undefined;
+    let msg: { paths?: string[]; pv?: number };
     try {
-      paths = (JSON.parse(ev.data as string) as { paths?: string[] }).paths;
+      msg = JSON.parse(ev.data as string) as { paths?: string[]; pv?: number };
     } catch {
       return;
     }
-    if (!paths?.length) return;
-    queueVaultChanges(paths);
+    if (!msg.paths?.length) return;
+    queueVaultChanges(msg.paths, typeof msg.pv === 'number' ? msg.pv : undefined);
   };
 }
 
@@ -67,7 +87,7 @@ function subscribe(fn: PathsListener): () => void {
 export function useVaultEvents(onPaths: PathsListener): void {
   const cb = useRef(onPaths);
   cb.current = onPaths;
-  useEffect(() => subscribe((paths) => cb.current(paths)), []);
+  useEffect(() => subscribe((paths, change) => cb.current(paths, change)), []);
 }
 
 /**
