@@ -1043,6 +1043,26 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+/* a column heading that sorts: looks like the heading it is */
+.th-sort {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.th-sort:hover,
+.th-sort.active {
+  color: var(--fg);
+}
+.th-sort:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.th-sort-arrow {
+  font-size: 9px;
+  min-width: 9px;
+}
 .summary-cell {
   max-width: 340px;
   overflow: hidden;

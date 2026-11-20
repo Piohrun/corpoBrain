@@ -10,7 +10,38 @@ import { type TitleFor, useNoteTitle } from '../note-titles.tsx';
 import { naturalCompare } from '../sort.ts';
 import { useProgressive } from './progressive.tsx';
 
-const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira']);
+/** bookkeeping, not something to read in a table (`order` is the sidebar's drag position) */
+const HIDDEN_KEYS = new Set(['id', 'type', 'title', 'jira', 'order']);
+
+/** which column the table is sorted by; null: by title, as the server sends it */
+type Sort = { key: string; dir: 1 | -1 } | null;
+const TITLE = '\u0000title';
+
+/** numbers by value, everything else as people read it; rows without a value last either way */
+function compareCells(a: unknown, b: unknown, textOf: (v: unknown) => string): number {
+  const ta = textOf(a);
+  const tb = textOf(b);
+  if (!ta || !tb) return ta ? -1 : tb ? 1 : 0;
+  const na = typeof a === 'number' ? a : Number.NaN;
+  const nb = typeof b === 'number' ? b : Number.NaN;
+  if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+  return naturalCompare(ta, tb);
+}
+export function sortRows(
+  rows: ObjectRow[],
+  sort: Sort,
+  textOf: (v: unknown) => string,
+): ObjectRow[] {
+  if (!sort) return rows;
+  const value = (r: ObjectRow) => (sort.key === TITLE ? r.title : r.frontmatter[sort.key]);
+  // empty cells stay at the end whichever way the column is sorted
+  return [...rows].sort((x, y) => {
+    const a = value(x);
+    const b = value(y);
+    const empty = Number(!textOf(a)) - Number(!textOf(b));
+    return empty || sort.dir * compareCells(a, b, textOf) || naturalCompare(x.title, y.title);
+  });
+}
 
 export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void }) {
   const titleFor = useNoteTitle();
@@ -19,7 +50,13 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
   const [selected, setSelected] = useState<string | null>(null);
   const [rows, setRows] = useState<ObjectRow[]>([]);
   const [groupBy, setGroupBy] = useState<string>('');
+  const [sort, setSort] = useState<Sort>(null);
   const [error, setError] = useState<string | null>(null);
+  // a click sorts ascending, a second descending, a third gives the title order back
+  const sortBy = (key: string) =>
+    setSort((cur) =>
+      cur?.key !== key ? { key, dir: 1 } : cur.dir === 1 ? { key, dir: -1 } : null,
+    );
 
   const refresh = useCallback(() => {
     objectsApi
@@ -33,6 +70,10 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
   }, []);
   useEffect(refresh, [refresh]);
   useVaultEvents(refresh);
+
+  // another type has other columns
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset when the type changes
+  useEffect(() => setSort(null), [selected]);
 
   useEffect(() => {
     if (!selected) return;
@@ -227,16 +268,17 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
   useFinderSections('objects', finderSections);
 
   const groups = useMemo(() => {
-    if (!groupBy) return [['', rows]] as [string, ObjectRow[]][];
+    const sorted = sortRows(rows, sort, (v) => formatValue(v, titleFor));
+    if (!groupBy) return [['', sorted]] as [string, ObjectRow[]][];
     const m = new Map<string, ObjectRow[]>();
-    for (const r of rows) {
+    for (const r of sorted) {
       const key = formatValue(r.frontmatter[groupBy], titleFor) || '(none)';
       const arr = m.get(key) ?? [];
       arr.push(r);
       m.set(key, arr);
     }
     return [...m.entries()].sort(([a], [b]) => naturalCompare(a, b));
-  }, [rows, groupBy, titleFor]);
+  }, [rows, groupBy, sort, titleFor]);
 
   // Thousands of objects (every Jira issue): rows arrive as the table scrolls
   // into view; one budget across the groups, in display order.
@@ -326,12 +368,28 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
               <table className="issue-table">
                 <thead>
                   <tr>
-                    <th>Title</th>
-                    {columns.map((c) => (
-                      <th key={c} title={c}>
-                        {columnLabel(c)}
-                      </th>
-                    ))}
+                    {[TITLE, ...columns].map((c) => {
+                      const dir = sort?.key === c ? sort.dir : 0;
+                      return (
+                        <th
+                          key={c}
+                          title={c === TITLE ? undefined : c}
+                          aria-sort={dir === 1 ? 'ascending' : dir === -1 ? 'descending' : 'none'}
+                        >
+                          <button
+                            type="button"
+                            className={`th-sort${dir ? ' active' : ''}`}
+                            onClick={() => sortBy(c)}
+                            title="Sort by this column"
+                          >
+                            {c === TITLE ? 'Title' : columnLabel(c)}
+                            <span className="th-sort-arrow">
+                              {dir === 1 ? '▲' : dir === -1 ? '▼' : ''}
+                            </span>
+                          </button>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -347,7 +405,15 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
                         </button>
                       </td>
                       {columns.map((c) => {
-                        const text = formatValue(r.frontmatter[c], titleFor);
+                        const value = r.frontmatter[c];
+                        const text = formatValue(value, titleFor);
+                        // a yes/no property is a mark to scan down the column, not a word
+                        if (typeof value === 'boolean')
+                          return (
+                            <td key={c} className="muted nowrap bool-cell" title={text}>
+                              {value ? '✓' : '–'}
+                            </td>
+                          );
                         // short values (statuses, sprints, dates) stay on one line
                         return (
                           <td key={c} className={text.length <= 18 ? 'muted nowrap' : 'muted'}>
@@ -398,6 +464,13 @@ function formatValue(v: unknown, titleFor: TitleFor): string {
     return m[2]?.trim() || titleFor(target) || target;
   }
   if (Array.isArray(v)) return v.map((x) => formatValue(x, titleFor)).join(', ');
-  if (typeof v === 'object') return JSON.stringify(v);
+  if (typeof v === 'boolean') return v ? 'yes' : 'no';
+  if (typeof v === 'object') {
+    // a small mapping (`capacity_overrides`) reads as "Sprint 38: 3", not as JSON
+    const entries = Object.entries(v as Record<string, unknown>);
+    return entries.every(([, x]) => x === null || typeof x !== 'object')
+      ? entries.map(([k, x]) => `${k}: ${formatValue(x, titleFor)}`).join(', ')
+      : JSON.stringify(v);
+  }
   return String(v);
 }
