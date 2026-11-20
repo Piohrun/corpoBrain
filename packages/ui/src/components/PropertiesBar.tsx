@@ -1,6 +1,7 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import type { NoteResponse } from '../api.ts';
 import { useNoteTitle } from '../note-titles.tsx';
+import { lsGet, lsSet } from '../storage.ts';
 
 /** keys that are bookkeeping, not something a person wants to read */
 const HIDDEN = new Set([
@@ -31,12 +32,34 @@ const WORK_STATUS_KEYS = new Set([
   'pr',
 ]);
 
+/**
+ * A mirrored Jira issue says these elsewhere: key and summary are its title,
+ * the rest is bookkeeping of the sync.
+ */
+const JIRA_QUIET_KEYS = new Set(['key', 'summary', 'status_category', 'sprint_id', 'updated']);
+
+/** chips shown before "+N more": a long frontmatter block should not push the note down */
+const SHOWN_FIRST = 6;
+
+/** does the note start with a frontmatter block? (without one there is no bar) */
+export const hasFrontmatterBlock = (content: string): boolean =>
+  /^\ufeff?---[ \t]*\r?\n/.test(content);
+
 const fmt = (v: unknown): string => {
   if (v === null || v === undefined) return '';
   if (Array.isArray(v)) return v.map(fmt).filter(Boolean).join(', ');
-  if (typeof v === 'object') return JSON.stringify(v);
+  if (typeof v === 'object') {
+    // `capacity_overrides: {Sprint 38: 3}` reads as "Sprint 38: 3", not as JSON
+    const entries = Object.entries(v as Record<string, unknown>);
+    return entries.every(([, x]) => x === null || typeof x !== 'object')
+      ? entries.map(([k, x]) => `${k}: ${fmt(x)}`).join(', ')
+      : JSON.stringify(v);
+  }
   return String(v);
 };
+
+const webLink = (v: unknown): string | null =>
+  typeof v === 'string' && /^https?:\/\/\S+$/.test(v.trim()) ? v.trim() : null;
 
 const link = (v: unknown): string | null => linkOf(v)?.target ?? null;
 
@@ -76,8 +99,11 @@ export const PropertiesBar = memo(function PropertiesBar({
   /** what a link shows: its alias, else the linked note's title, else the target */
   const shown = (l: { target: string; label: string }) =>
     l.label !== l.target ? l.label : (titleFor(l.target) ?? l.target);
+  // the same choice for every note: someone who wants every chip sets it once
+  const [showAll, setShowAll] = useState(() => lsGet('cb.props.all') === 'yes');
+  useEffect(() => lsSet('cb.props.all', showAll ? 'yes' : 'no'), [showAll]);
   // a note without a frontmatter block gets no bar at all
-  if (!/^\ufeff?---[ \t]*\r?\n/.test(note.content)) return null;
+  if (!hasFrontmatterBlock(note.content)) return null;
   const type = typeof fm.type === 'string' ? fm.type : null;
   const created = typeof fm.created === 'string' ? fm.created.slice(0, 10) : null;
   const parent = link(fm.parent);
@@ -86,11 +112,16 @@ export const PropertiesBar = memo(function PropertiesBar({
     ([k, v]) =>
       !HIDDEN.has(k) &&
       !(type === 'work' && WORK_STATUS_KEYS.has(k)) &&
+      !(type === 'jira' && JIRA_QUIET_KEYS.has(k)) &&
       !['type', 'tags', 'created', 'parent', 'aliases', 'plan'].includes(k) &&
       v !== null &&
       v !== '' &&
       !(Array.isArray(v) && v.length === 0),
   );
+  // the first few in the order they were written; a link out (open in Jira) is never folded away
+  let room = SHOWN_FIRST;
+  const visible = showAll ? rest : rest.filter(([, v]) => webLink(v) !== null || room-- > 0);
+  const hiddenKeys = rest.filter((e) => !visible.includes(e)).map(([k]) => k);
   const hasAny =
     type !== null ||
     note.tags.length > 0 ||
@@ -153,7 +184,21 @@ export const PropertiesBar = memo(function PropertiesBar({
           {created}
         </span>
       )}
-      {rest.map(([k, v]) => {
+      {visible.map(([k, v]) => {
+        const web = webLink(v);
+        if (web)
+          return (
+            <a
+              key={k}
+              className="prop-chip link"
+              href={web}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={web}
+            >
+              {type === 'jira' && k === 'url' ? 'open in Jira' : k} ↗
+            </a>
+          );
         const single = linkOf(v);
         const many = Array.isArray(v) && v.length > 0 ? v.map(linkOf) : null;
         if (many?.every(Boolean)) {
@@ -198,6 +243,17 @@ export const PropertiesBar = memo(function PropertiesBar({
           </button>
         );
       })}
+      {(showAll ? rest.length > SHOWN_FIRST : hiddenKeys.length > 0) && (
+        <button
+          type="button"
+          className="prop-chip more"
+          aria-expanded={showAll}
+          onClick={() => setShowAll((v) => !v)}
+          title={showAll ? 'Show only the first properties' : hiddenKeys.join(', ')}
+        >
+          {showAll ? 'fewer' : `+${hiddenKeys.length} more`}
+        </button>
+      )}
       <span className="spacer" />
       <button
         type="button"

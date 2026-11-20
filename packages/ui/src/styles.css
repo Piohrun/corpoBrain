@@ -4116,6 +4116,14 @@ button.prop-chip {
 .prop-chip.muted {
   color: var(--fg-muted);
 }
+.prop-chip.more {
+  border-style: dashed;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+a.prop-chip {
+  text-decoration: none;
+}
 .prop-key {
   color: var(--fg-muted);
   margin-right: 2px;

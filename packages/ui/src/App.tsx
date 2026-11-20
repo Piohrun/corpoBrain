@@ -21,7 +21,7 @@ import { ContextDock } from './components/ContextDock.tsx';
 import { Editor, type EditorApi } from './components/Editor.tsx';
 import { Icon } from './components/Icon.tsx';
 import { PersonPanel } from './components/PersonPanel.tsx';
-import { PropertiesBar } from './components/PropertiesBar.tsx';
+import { hasFrontmatterBlock, PropertiesBar } from './components/PropertiesBar.tsx';
 import { RightPanel } from './components/RightPanel.tsx';
 import { ShortcutHelp } from './components/ShortcutHelp.tsx';
 import { Sidebar } from './components/Sidebar.tsx';
@@ -1415,20 +1415,22 @@ function AppShell() {
                             onFind={openFinder}
                             foldFrontmatter={foldFrontmatter}
                           />
-                          {note.tags.length > 0 && (
-                            <div className="tag-footer">
-                              {note.tags.map((t) => (
-                                <button
-                                  type="button"
-                                  key={t}
-                                  className="tag-row clickable"
-                                  onClick={() => openTag(t)}
-                                >
-                                  #{t}
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                          {/* the properties bar lists the tags when it shows chips: not twice */}
+                          {note.tags.length > 0 &&
+                            !(foldFrontmatter && hasFrontmatterBlock(note.content)) && (
+                              <div className="tag-footer">
+                                {note.tags.map((t) => (
+                                  <button
+                                    type="button"
+                                    key={t}
+                                    className="tag-row clickable"
+                                    onClick={() => openTag(t)}
+                                  >
+                                    #{t}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                         </>
                       ) : (
                         <div className="empty-state">
