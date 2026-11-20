@@ -2,10 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { type PersonOverview, personApi } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { useVaultEvents } from '../hooks.ts';
+import { useNoteTitle } from '../note-titles.tsx';
+import { plainMarkdown } from '../plain-markdown.ts';
 import { lsGet, lsSet } from '../storage.ts';
 
 export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: string) => void }) {
   const [data, setData] = useState<PersonOverview | null>(null);
+  // rows here are buttons: links in their text cannot be live, so show what they say
+  const titleFor = useNoteTitle();
+  const plain = (text: string) => plainMarkdown(text, titleFor);
   const [open, setOpen] = useState(() => lsGet('cb.personPanel') !== 'closed');
 
   // not every person note has an overview (hubs, brand-new notes): a failed
@@ -120,7 +125,7 @@ export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: str
                   className="backlink"
                   onClick={() => onOpen(t.path)}
                 >
-                  ☐ {t.text}
+                  ☐ {plain(t.text)}
                   {t.due && <span className="due-chip"> {t.due}</span>}
                 </button>
               ))}
@@ -141,7 +146,7 @@ export function PersonPanel({ path, onOpen }: { path: string; onOpen: (path: str
                     {new Date(m.mtime).toISOString().slice(0, 10)}
                   </span>{' '}
                   {m.srcTitle}
-                  {m.snippet && <div className="muted">{m.snippet}</div>}
+                  {m.snippet && <div className="muted">{plain(m.snippet)}</div>}
                 </button>
               ))}
             </div>
