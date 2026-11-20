@@ -9,7 +9,6 @@ import {
   pickedCompletion,
 } from '@codemirror/autocomplete';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language';
 import { findNext, findPrevious, highlightSelectionMatches } from '@codemirror/search';
 import type { EditorState, Extension } from '@codemirror/state';
@@ -18,6 +17,7 @@ import type { SyntaxNode } from '@lezer/common';
 import { tags } from '@lezer/highlight';
 import { findExtension } from './find.ts';
 import { frontmatterRange, livePreview } from './livePreview.ts';
+import { markdownSupport } from './markdown.ts';
 import { htmlToMarkdown } from './richPaste.ts';
 import { findTables, htmlTableToMarkdown, tsvToMarkdownTable } from './tables.ts';
 
@@ -187,7 +187,7 @@ export function editorExtensions(cfg: EditorConfig): Extension {
     history(),
     drawSelection(),
     EditorView.lineWrapping,
-    markdown({ base: markdownLanguage }),
+    markdownSupport(),
     syntaxHighlighting(mdHighlight),
     highlightSelectionMatches(),
     findExtension(),

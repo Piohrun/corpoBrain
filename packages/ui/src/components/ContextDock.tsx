@@ -1,10 +1,10 @@
-import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { type Dispatch, useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api, type NoteResponse } from '../api.ts';
 import { statusColor } from '../colors.ts';
 import { livePreview } from '../editor/livePreview.ts';
+import { markdownSupport } from '../editor/markdown.ts';
 import { notifyVaultChanges, useVaultEvents } from '../hooks.ts';
 import {
   type PreviewAction,
@@ -38,7 +38,7 @@ function PreviewDocument({
           EditorView.lineWrapping,
           EditorState.transactionFilter.of((tr) => (tr.docChanged ? [] : tr)),
           EditorView.contentAttributes.of({ 'aria-label': 'Note preview' }),
-          markdown({ base: markdownLanguage }),
+          markdownSupport(),
           livePreview({
             onNavigate: (target) => navigate.current(target),
             onOpenExternal: (href) => window.open(href, '_blank', 'noopener,noreferrer'),
