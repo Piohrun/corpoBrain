@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -137,6 +137,32 @@ describe('server-owned Jira jobs', () => {
       expect(service.history[0]?.outcome).toBe('success');
     },
   );
+
+  it('a sync that finds nothing new invalidates nothing, but still reports that it ran', async () => {
+    // the sprint cache as an earlier sync left it: every run loads it again
+    mkdirSync(join(root, '.corpobrain', 'jira-cache'), { recursive: true });
+    writeFileSync(
+      join(root, '.corpobrain', 'jira-cache', 'sprints.json'),
+      JSON.stringify([{ id: 5, name: 'Sprint 5', state: 'active', startDate: '2026-11-16' }]),
+    );
+    const service = syncService(vault);
+    await service.start().completion;
+    expect(vault.indexer.db.prepare('SELECT key FROM jira').all()).toEqual([{ key: 'EXEC-1' }]);
+    expect(vault.indexer.db.prepare('SELECT name FROM sprints').all()).toEqual([
+      { name: 'Sprint 5' },
+    ]);
+    const versions = () => [vault.indexer.version, vault.indexer.planningVersion];
+    const settled = versions();
+    const events: string[][] = [];
+    const off = vault.onChange((paths) => events.push(paths));
+    const reports = await service.start().completion;
+    off();
+    expect(reports[0]).toMatchObject({ created: [], updated: [] });
+    // the lists and the board keep their ETags: open pages revalidate instead of refetching
+    expect(versions()).toEqual(settled);
+    // the status bar still hears about the run ("synced 10:42")
+    expect(events).toEqual([['jira/*']]);
+  });
 
   it('keeps completed profiles indexed when the next profile fails, and redacts errors', async () => {
     vault.config.jira.profiles.push({

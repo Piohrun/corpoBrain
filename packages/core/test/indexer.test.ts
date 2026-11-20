@@ -49,6 +49,45 @@ afterEach(() => {
 });
 
 describe('Indexer', () => {
+  it('reloading the same sprints moves no version; a changed sprint does', () => {
+    const sprints = [
+      { id: 1, name: 'Sprint 1', state: 'closed', startDate: '2026-08-10', endDate: '2026-08-21' },
+      { id: 2, name: 'Sprint 2', state: 'active', startDate: '2026-08-24' },
+    ];
+    const save = () => write('.corpobrain/jira-cache/sprints.json', JSON.stringify(sprints));
+    const versions = () => [indexer.version, indexer.planningVersion];
+    const names = () =>
+      indexer.db.prepare("SELECT name, state FROM sprints WHERE source = 'jira' ORDER BY id").all();
+    save();
+    const before = versions();
+    expect(indexer.loadSprints()).toBe(2);
+    const loaded = versions();
+    expect(loaded).toEqual([(before[0] as number) + 1, (before[1] as number) + 1]);
+
+    // what every sync run does when Jira has nothing new
+    expect(indexer.loadSprints()).toBe(2);
+    expect(indexer.loadSprints()).toBe(2);
+    expect(versions()).toEqual(loaded);
+
+    // a sprint closes, another appears
+    (sprints[1] as { state: string }).state = 'closed';
+    sprints.push({ id: 3, name: 'Sprint 3', state: 'future', startDate: '2026-09-07' });
+    save();
+    expect(indexer.loadSprints()).toBe(3);
+    expect(versions()).toEqual([(loaded[0] as number) + 1, (loaded[1] as number) + 1]);
+    expect(names()).toEqual([
+      { name: 'Sprint 1', state: 'closed' },
+      { name: 'Sprint 2', state: 'closed' },
+      { name: 'Sprint 3', state: 'future' },
+    ]);
+
+    // a sprint disappears from the board
+    sprints.shift();
+    save();
+    indexer.loadSprints();
+    expect(names().map((r) => (r as { name: string }).name)).toEqual(['Sprint 2', 'Sprint 3']);
+  });
+
   it('rebuild indexes notes, links, tags, tasks', () => {
     const s = indexer.rebuild();
     expect(s.indexed).toHaveLength(5);

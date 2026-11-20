@@ -193,7 +193,12 @@ export class Indexer {
     return summary;
   }
 
-  /** Sprints live in .corpobrain/jira-cache/sprints.json (written by sync). */
+  /**
+   * Sprints live in .corpobrain/jira-cache/sprints.json (written by sync).
+   * Every sync run reloads them; the versions move only when a sprint actually
+   * changed, so a scheduled sync that found nothing new does not make every
+   * open page fetch the notes, the tree and the board again.
+   */
   loadSprints(): number {
     const file = join(this.root, '.corpobrain', 'jira-cache', 'sprints.json');
     let sprints: {
@@ -210,15 +215,19 @@ export class Indexer {
     } catch {
       return 0;
     }
-    this.db.exec("DELETE FROM sprints WHERE source = 'jira'");
-    this.version++;
-    this.planningVersion++;
-    const ins = this.db.prepare(
-      `INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal, source, path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'jira', NULL)`,
-    );
-    for (const s of sprints) {
-      ins.run(
+    type Row = [
+      number,
+      string,
+      string | null,
+      string | null,
+      string | null,
+      number | null,
+      string | null,
+    ];
+    // by id, later entries winning, exactly as INSERT OR REPLACE would leave them
+    const rows = new Map<number, Row>();
+    for (const s of sprints)
+      rows.set(s.id, [
         s.id,
         s.name,
         s.state ?? null,
@@ -226,8 +235,40 @@ export class Indexer {
         s.endDate ?? null,
         s.originBoardId ?? null,
         s.goal ?? null,
-      );
-    }
+      ]);
+    const current = this.db
+      .prepare(
+        "SELECT id, name, state, start, end, board_id, goal FROM sprints WHERE source = 'jira'",
+      )
+      .all() as {
+      id: number;
+      name: string;
+      state: string | null;
+      start: string | null;
+      end: string | null;
+      board_id: number | null;
+      goal: string | null;
+    }[];
+    const unchanged =
+      current.length === rows.size &&
+      current.every((r) => {
+        const next = rows.get(r.id);
+        return (
+          next !== undefined &&
+          JSON.stringify(next) ===
+            JSON.stringify([r.id, r.name, r.state, r.start, r.end, r.board_id, r.goal])
+        );
+      });
+    if (unchanged) return sprints.length;
+
+    this.db.exec("DELETE FROM sprints WHERE source = 'jira'");
+    this.version++;
+    this.planningVersion++;
+    const ins = this.db.prepare(
+      `INSERT OR REPLACE INTO sprints(id, name, state, start, end, board_id, goal, source, path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'jira', NULL)`,
+    );
+    for (const row of rows.values()) ins.run(...row);
     return sprints.length;
   }
 
