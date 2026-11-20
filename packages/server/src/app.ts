@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   generateUlid,
   isCalendarDay,
@@ -222,6 +224,15 @@ export function createApp(vault?: VaultService) {
     const target = c.req.query('target');
     if (!target) throw new HttpError(400, 'target required');
     return c.json(v.resolve(target));
+  });
+
+  /** Where a day's note lives and whether it exists yet: only POST creates it. */
+  app.get('/api/daily', (c) => {
+    const date = c.req.query('date');
+    if (date !== undefined && !isCalendarDay(date))
+      throw new HttpError(400, 'date must be YYYY-MM-DD');
+    const path = v.safePath(v.dailyPath(date));
+    return c.json({ path, exists: existsSync(join(v.root, path)) });
   });
 
   app.post('/api/daily', async (c) => {

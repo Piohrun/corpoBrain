@@ -80,10 +80,11 @@ export function TasksPage({
     lsGet('cb.tasks.group', 'due') === 'note' ? 'note' : 'due',
   );
   useEffect(() => lsSet('cb.tasks.group', groupMode), [groupMode]);
+  // only to hide "→ today" on tasks already there: looking must not create the note
   const todayPath = useRef<string | null>(null);
   useEffect(() => {
     api
-      .daily()
+      .dailyPath()
       .then((d) => {
         todayPath.current = d.path;
       })

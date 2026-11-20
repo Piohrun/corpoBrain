@@ -191,6 +191,21 @@ describe('server API', () => {
     expect(r2.created).toBe(false);
   });
 
+  it('asking where the daily note lives does not create it', async () => {
+    const where = (await json(await app.request('/api/daily'))) as {
+      path: string;
+      exists: boolean;
+    };
+    expect(where.exists).toBe(false);
+    expect(vault.list().some((n) => n.path === where.path)).toBe(false);
+    const made = (await json(await app.request('/api/daily', { method: 'POST', body: '{}' }))) as {
+      path: string;
+    };
+    expect(made.path).toBe(where.path);
+    expect(await json(await app.request('/api/daily'))).toEqual({ path: where.path, exists: true });
+    expect((await app.request('/api/daily?date=../../x')).status).toBe(400);
+  });
+
   it('resolves basenames with indexer precedence and keeps ambiguous links unresolved', async () => {
     const resolve = async (target: string) =>
       await json(await app.request(`/api/resolve?target=${encodeURIComponent(target)}`));

@@ -166,6 +166,10 @@ export const api = {
     if (!r.exists) await api.create(r.path, target);
     return { path: r.path, created: !r.exists };
   },
+  /** where a day's note lives, without creating it */
+  dailyPath: (date?: string) =>
+    req<{ path: string; exists: boolean }>(`/api/daily${date ? `?date=${date}` : ''}`),
+  /** a day's note, created from the template if it is missing */
   daily: (date?: string) =>
     req<{ path: string; created: boolean }>('/api/daily', {
       method: 'POST',
