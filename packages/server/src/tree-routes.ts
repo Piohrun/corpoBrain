@@ -615,8 +615,8 @@ export function treeRoutes(v: VaultService): Hono {
   /**
    * Place a note at a position: under a parent note (nesting) or as a root of
    * a folder group (optionally moving the file into that folder), at `index`
-   * among its new siblings. Siblings are renumbered (order = 10, 20, …) so the
-   * position sticks.
+   * among its new siblings. Only the `order` values that have to change for
+   * the position to stick are written (see planPlacement).
    */
   app.post('/place', async (c) => {
     const body = (await c.req.json()) as {
@@ -665,25 +665,100 @@ export function treeRoutes(v: VaultService): Hono {
       v.patchNote(path, (content) => deleteFrontmatterKey(content, 'parent'));
     }
 
-    // renumber: siblings minus the moved note, insert at index
+    // siblings minus the moved note, insert at index: write only the orders that must change
     const list = siblings.filter((s) => s.path !== body.path && s.path !== path);
     const idx = Math.max(0, Math.min(body.index ?? list.length, list.length));
-    const ordered = [
-      ...list.slice(0, idx).map((n) => n.path),
-      path,
-      ...list.slice(idx).map((n) => n.path),
-    ];
-    const orderOf = new Map(siblings.map((n) => [n.path, n.order]));
-    for (let i = 0; i < ordered.length; i++) {
-      const p = ordered[i] as string;
-      const want = (i + 1) * 10;
-      if (orderOf.get(p) === want) continue;
-      v.patchNote(p, (content) => setFrontmatterKey(content, 'order', want));
-    }
+    const plan = planPlacement(
+      list,
+      { path, title: moving.title, order: moving.order },
+      idx,
+      naturalCompare,
+    );
+    for (const [p, order] of plan)
+      v.patchNote(p, (content) =>
+        order === null
+          ? deleteFrontmatterKey(content, 'order')
+          : setFrontmatterKey(content, 'order', order),
+      );
     return c.json({ ok: true, path, index: idx });
   });
 
   return app;
+}
+
+/** One note as the tree sorts it: by `order`, then by title; no order sorts last. */
+export interface Placed {
+  path: string;
+  title: string;
+  order: number | null;
+}
+
+/**
+ * The `order` values to write so that `moved` shows at `index` among
+ * `siblings` (in display order, without the moved note). `null` removes the key.
+ *
+ * Only what has to change is returned. Notes without an order keep sorting by
+ * title after the ordered ones, so a drop touches the moved note, plus — when
+ * it lands among title-sorted notes — the ones now in front of it, which have
+ * to be pinned for the position to hold. Everything after the drop is left
+ * alone: renumbering every sibling rewrote a whole folder for a single drag.
+ */
+export function planPlacement(
+  siblings: Placed[],
+  moved: Placed,
+  index: number,
+  compareTitles: (a: string, b: string) => number,
+): Map<string, number | null> {
+  const out = new Map<string, number | null>();
+  const idx = Math.max(0, Math.min(index, siblings.length));
+  const set = (note: Placed, order: number | null) => {
+    if (note.order !== order) out.set(note.path, order);
+  };
+  // ordered notes sort first, so they are a prefix of the list
+  let ordered = 0;
+  while (ordered < siblings.length && (siblings[ordered] as Placed).order !== null) ordered++;
+  const orderAt = (i: number) => (siblings[i] as Placed).order as number;
+
+  if (idx >= ordered) {
+    // Among the title-sorted notes. Where its own title puts it, no order is needed.
+    const byTitle = siblings
+      .slice(ordered)
+      .filter((n) => compareTitles(n.title, moved.title) < 0).length;
+    if (byTitle === idx - ordered) {
+      set(moved, null);
+      return out;
+    }
+    let last = ordered > 0 ? orderAt(ordered - 1) : 0;
+    for (let i = ordered; i < idx; i++) {
+      last += 10;
+      set(siblings[i] as Placed, last);
+    }
+    set(moved, last + 10);
+    return out;
+  }
+
+  // Between two ordered notes, or before the first: take a free number if there is one.
+  const hi = orderAt(idx);
+  const lo = idx > 0 ? orderAt(idx - 1) : Number.NEGATIVE_INFINITY;
+  if (moved.order !== null && moved.order > lo && moved.order < hi) return out; // already there
+  let free: number | null = null;
+  if (idx === 0) {
+    if (hi > 10) free = hi - 10;
+    else if (hi > 1) free = Math.floor(hi / 2);
+  } else {
+    if (hi - lo > 20) free = lo + 10;
+    else if (hi - lo >= 2) free = lo + Math.floor((hi - lo) / 2);
+  }
+  if (free !== null) {
+    set(moved, free);
+    return out;
+  }
+  // No room left: renumber the ordered notes (never the title-sorted rest).
+  const sequence = [...siblings.slice(0, idx), moved, ...siblings.slice(idx, ordered)];
+  sequence.forEach((note, i) => {
+    set(note, (i + 1) * 10);
+  });
+  return out;
 }
 
 /** Tree moves share the organization editor's parent-kind and cycle checks. */

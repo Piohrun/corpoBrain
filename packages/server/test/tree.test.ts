@@ -1,9 +1,9 @@
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.ts';
-import { buildTree, type TreeModel } from '../src/tree-routes.ts';
+import { buildTree, planPlacement, type TreeModel } from '../src/tree-routes.ts';
 import { VaultService } from '../src/vault-service.ts';
 
 let root: string;
@@ -181,6 +181,95 @@ describe('POST /api/tree/place', () => {
     // and back to the end
     await place({ path: 'notes/projects.md', folder: 'notes', index: 5 });
     expect(rootsOf('notes')).toEqual(['Loose note', 'Projects']);
+  });
+
+  it('a drop rewrites only the notes its position depends on, not the whole folder', async () => {
+    for (const t of ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo'])
+      writeFileSync(join(root, 'notes', `${t.toLowerCase()}.md`), note(t));
+    vault.indexer.update();
+    const files = () =>
+      new Map(
+        readdirSync(join(root, 'notes')).map((f) => [
+          f,
+          readFileSync(join(root, 'notes', f), 'utf8'),
+        ]),
+      );
+    let before = files();
+    const changed = () => {
+      const now = files();
+      const out = [...now].filter(([f, text]) => before.get(f) !== text).map(([f]) => f);
+      before = now;
+      return out.sort();
+    };
+
+    // to the top of a title-sorted folder: one file
+    await place({ path: 'notes/echo.md', folder: 'notes', index: 0 });
+    expect(rootsOf('notes')).toEqual([
+      'Echo',
+      'Alpha',
+      'Bravo',
+      'Charlie',
+      'Delta',
+      'Loose note',
+      'Projects',
+    ]);
+    expect(changed()).toEqual(['echo.md']);
+
+    // into the middle: the notes in front of it are pinned, the rest stay title-sorted
+    await place({ path: 'notes/projects.md', folder: 'notes', index: 2 });
+    expect(rootsOf('notes')).toEqual([
+      'Echo',
+      'Alpha',
+      'Projects',
+      'Bravo',
+      'Charlie',
+      'Delta',
+      'Loose note',
+    ]);
+    expect(changed()).toEqual(['alpha.md', 'projects.md']);
+
+    // between two ordered notes: a free number, nothing else moves
+    await place({ path: 'notes/delta.md', folder: 'notes', index: 1 });
+    expect(rootsOf('notes').slice(0, 4)).toEqual(['Echo', 'Delta', 'Alpha', 'Projects']);
+    expect(changed()).toEqual(['delta.md']);
+
+    // back to where its title puts it: the order is dropped again
+    await place({ path: 'notes/projects.md', folder: 'notes', index: 99 });
+    expect(rootsOf('notes')).toEqual([
+      'Echo',
+      'Delta',
+      'Alpha',
+      'Bravo',
+      'Charlie',
+      'Loose note',
+      'Projects',
+    ]);
+    expect(changed()).toEqual(['projects.md']);
+    expect(readFileSync(join(root, 'notes', 'projects.md'), 'utf8')).not.toContain('order:');
+
+    // dropped where it already is: nothing is written
+    await place({ path: 'notes/delta.md', folder: 'notes', index: 1 });
+    expect(changed()).toEqual([]);
+  });
+
+  it('renumbers the ordered notes only when no number is free between two of them', () => {
+    const n = (title: string, order: number | null) => ({ path: `${title}.md`, title, order });
+    const cmp = (a: string, b: string) => a.localeCompare(b);
+    const plan = (siblings: ReturnType<typeof n>[], moved: ReturnType<typeof n>, index: number) =>
+      Object.fromEntries(planPlacement(siblings, moved, index, cmp));
+    // 1 and 2 leave no room: the ordered three are renumbered, the title-sorted tail is not
+    expect(plan([n('a', 1), n('b', 2), n('y', null), n('z', null)], n('m', null), 1)).toEqual({
+      'a.md': 10,
+      'm.md': 20,
+      'b.md': 30,
+    });
+    // before the first ordered note
+    expect(plan([n('a', 30), n('b', 40)], n('m', null), 0)).toEqual({ 'm.md': 20 });
+    expect(plan([n('a', 10), n('b', 20)], n('m', null), 0)).toEqual({ 'm.md': 5 });
+    // right after the last ordered note, before the title-sorted ones
+    expect(plan([n('a', 10), n('b', 20), n('c', null)], n('z', null), 2)).toEqual({ 'z.md': 30 });
+    // an empty list
+    expect(plan([], n('m', 7), 0)).toEqual({ 'm.md': null });
   });
 
   it('nesting onto a parent in another category pulls the child over', async () => {
