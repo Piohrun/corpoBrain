@@ -137,14 +137,19 @@ Ctrl+D) is what opens today's daily note and creates it if it is missing.
 on gets one note under `work/`: where it stands (in development → in the UAT
 branch → on UAT → PR to release → released), where the last chat stopped, what
 is next and whose move it is, with a log of every report above the
-`<!-- work:end -->` line and your own notes below it. Home lists the branches
-in progress, the ones that need you first and the ones nobody has reported on
-for a week marked.
+`<!-- work:end -->` line and your own notes below it. **Work** (`g w`) is the
+board: one column per stage, a card per branch; drag a card to move it, set
+whose move it is and the next step on the card. Home lists the same branches,
+the ones that need you first and the ones nobody has reported on for a week
+marked.
 
 What an agent never told you, git still knows: for branches reported from a
-clone on this machine, Home also marks uncommitted files, unpushed commits and
-branches that were never pushed at all. Only the refs already in the clone are
-read — nothing is fetched, no credentials are involved.
+clone on this machine the cards also show uncommitted files, unpushed commits
+(or "not pushed" at all) and every branch that already contains the work
+("in origin/…"). When a note names its UAT or release branch and git shows the
+work is in it, the card offers the move in one click. Only the refs already in
+the clone are read — nothing is fetched, no credentials are involved — and
+`↻ git` looks again.
 
 Agents report by running one command from the repository they work in
 (repository and branch are taken from the folder):
@@ -239,6 +244,7 @@ Esc to back out. Prefixes: `/` this note only, `#` tags, `>` commands.
 | Notes | matches in this note (highlighted live), notes by title then body text, create a note, insert a `[[link]]` or wrap the selection, commands |
 | Projects | Jira issues to add in bulk (clicking an empty calendar day opens it aimed at that day), epics and labels as project rules, people for the roster |
 | Planning | issues with *move to sprint…* / *assign to…* follow-ups, people (jump to row), sprints (filter) |
+| Work | branches: open the note, move to a stage, say whose move it is |
 | Availability | people: jump to their row, add time off or support for today |
 | Organization | people and groups: inspect relationships or preview the note |
 | Tracked | items: open the record or its source, filter the list |
@@ -252,7 +258,7 @@ bindings come from. The ones worth knowing:
 | Alt+Shift+↑ / ↓ | open the note above / below in the sidebar |
 | Alt+← / Alt+→ | back / forward through panels and notes (⌘[ / ⌘] on a Mac) |
 | Ctrl+D | today's daily note |
-| g then h / n / p / j / a / t / k … | go to Home / Notes / Planning / Projects / Availability / Tasks / Tracked…; g e focuses the editor |
+| g then h / n / p / j / w / a / t / k … | go to Home / Notes / Planning / Projects / Work / Availability / Tasks / Tracked…; g e focuses the editor |
 | F3 | next match of the last find, inside the editor |
 
 Bare keys and `g` sequences only fire when you are not typing; modifier chords work

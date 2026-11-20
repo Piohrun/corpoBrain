@@ -7,6 +7,7 @@ const paths = {
   planning: 'M3 3h18v18H3z M3 9h18 M9 9v12 M15 9v12',
   projects: 'm12 3 10 5-10 5L2 8z M2 12l10 5 10-5 M2 16l10 5 10-5',
   availability: 'M4 5h16v16H4z M8 3v4 M16 3v4 M4 10h16 M8 14h3 M8 17h6',
+  work: 'M6 3v12 M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6 M18 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6 M18 9a9 9 0 0 1-9 9',
   digest: 'M3 12h4l3-8 4 16 3-8h4',
   tasks: 'M9 5h12 M9 12h12 M9 19h12 M2 4l2 2 3-3 M2 11l2 2 3-3 M2 18l2 2 3-3',
   tracked: 'M4 21V3h13l-2 4 2 4H4',

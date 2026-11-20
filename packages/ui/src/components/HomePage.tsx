@@ -322,7 +322,7 @@ export function HomePage({
               onCreated={refresh}
             />
 
-            <WorkCard onOpenNote={onOpenNote} />
+            <WorkCard onOpenNote={onOpenNote} onView={onView} />
 
             <section className="home-card">
               <h2 className="plan-h2">

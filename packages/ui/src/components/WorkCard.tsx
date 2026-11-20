@@ -8,6 +8,7 @@ import { workApi } from '../api.ts';
 import { useDialogs } from '../dialogs.tsx';
 import { useVaultEvents } from '../hooks.ts';
 import { ageLabel, gitNotes, isQuiet, needsYou, STAGE_SHORT, workInProgress } from '../work.ts';
+import type { View } from './WorkspaceNav.tsx';
 
 /** Copy what a repository's agents need in their instructions to keep the work log. */
 export function useCopyAgentInstructions(): () => void {
@@ -78,7 +79,13 @@ export function WorkRow({
  * their reports through the CLI or the MCP server (core/work.ts); this only
  * reads them.
  */
-export function WorkCard({ onOpenNote }: { onOpenNote: (path: string) => void }) {
+export function WorkCard({
+  onOpenNote,
+  onView,
+}: {
+  onOpenNote: (path: string) => void;
+  onView: (view: View) => void;
+}) {
   const [items, setItems] = useState<WorkItem[] | null>(null);
   const [git, setGit] = useState<Map<string, WorkGitFacts>>(new Map());
   const load = useCallback(() => {
@@ -109,6 +116,11 @@ export function WorkCard({ onOpenNote }: { onOpenNote: (path: string) => void })
         Work in progress <span className="health-badge">{open.length}</span>
         {mine > 0 && <span className="health-badge work-mine-count">{mine} need you</span>}
         <span className="spacer" />
+        {open.length > 0 && (
+          <button type="button" className="text-link small" onClick={() => onView('work')}>
+            board
+          </button>
+        )}
         <button
           type="button"
           className="text-link small"

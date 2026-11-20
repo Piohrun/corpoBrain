@@ -96,6 +96,9 @@ const TasksPage = memo(
 const TrackedPage = memo(
   lazy(() => import('./components/TrackedPage.tsx').then((m) => ({ default: m.TrackedPage }))),
 );
+const WorkPage = memo(
+  lazy(() => import('./components/WorkPage.tsx').then((m) => ({ default: m.WorkPage }))),
+);
 
 /** True when two loads of the same note differ in nothing but the body text. */
 function sameExceptContent(a: NoteResponse, b: NoteResponse): boolean {
@@ -1254,6 +1257,8 @@ function AppShell() {
                   <PlanningPage onOpenNote={openFromPlanning} />
                 ) : view === 'projects' ? (
                   <ProjectsPage onOpenNote={openFromPlanning} />
+                ) : view === 'work' ? (
+                  <WorkPage onOpenNote={openFromPlanning} />
                 ) : view === 'availability' ? (
                   <AvailabilityPage onOpenNote={openFromPlanning} />
                 ) : view === 'organization' ? (
