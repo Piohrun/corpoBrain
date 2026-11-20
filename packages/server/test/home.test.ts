@@ -72,6 +72,27 @@ const home = async (day: string) =>
   (await (await createApp(vault).request(`/api/home?day=${day}`)).json()) as HomeResponse;
 
 describe('Home', () => {
+  it('a long overdue backlog never crowds out today: its newest few, then today, then the week', async () => {
+    const lines = ['# Backlog'];
+    for (let d = 1; d <= 30; d++)
+      lines.push(`- [ ] old ${d} 📅 2026-09-${String(d).padStart(2, '0')}`);
+    for (let i = 0; i < 120; i++) lines.push(`- [ ] ancient ${i} 📅 2025-03-01`);
+    write('notes/backlog.md', lines.join('\n'));
+    vault.indexer.update();
+    const h = await home('2026-10-07');
+    expect(h.overdueCount).toBe(151);
+    expect(h.tasks.map((t) => t.text)).toEqual([
+      // the five most recently due, newest first
+      'overdue thing',
+      'old 30',
+      'old 29',
+      'old 28',
+      'old 27',
+      'due today',
+      'next week',
+    ]);
+  });
+
   it('collects the day: meetings, tasks due, tracked items, who is away, the sprint', async () => {
     const h = await home('2026-10-07');
     expect(h.meetings.map((m) => m.title)).toEqual(['Early one', 'Late one']);

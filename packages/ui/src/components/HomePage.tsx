@@ -335,20 +335,29 @@ export function HomePage({
               {data.tasks.length === 0 && (
                 <p className="muted small">Nothing due in the next 7 days.</p>
               )}
-              {overdue.length > 0 && (
-                <>
-                  <h3 className="home-h3 overdue">
-                    Overdue <span className="health-badge">{data.overdueCount}</span>
-                  </h3>
-                  {taskList(overdue, true)}
-                </>
-              )}
               {dueToday.length > 0 && (
                 <>
                   <h3 className="home-h3">
                     Today <span className="health-badge">{dueToday.length}</span>
                   </h3>
                   {taskList(dueToday, false)}
+                </>
+              )}
+              {overdue.length > 0 && (
+                <>
+                  <h3 className="home-h3 overdue">
+                    Overdue <span className="health-badge">{data.overdueCount}</span>
+                  </h3>
+                  {taskList(overdue, true)}
+                  {data.overdueCount > overdue.length && (
+                    <button
+                      type="button"
+                      className="text-link small home-more"
+                      onClick={() => onView('tasks')}
+                    >
+                      {data.overdueCount - overdue.length} older overdue → all tasks
+                    </button>
+                  )}
                 </>
               )}
               {soon.length > 0 && (

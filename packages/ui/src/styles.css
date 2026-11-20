@@ -4847,6 +4847,10 @@ button.prop-chip {
   color: var(--fg-muted);
   white-space: nowrap;
 }
+.home-more {
+  display: inline-block;
+  margin: 2px 0 0 28px;
+}
 .home-tasks .task-row {
   min-width: 0;
 }

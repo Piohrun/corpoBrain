@@ -30,6 +30,8 @@ const INITIAL_STATUS: Record<string, string> = {
 /** tasks and tracked items due within this many days count as coming up */
 const SOON_DAYS = 7;
 const TASK_LIMIT = 100;
+/** Home shows this many overdue tasks, the most recently due; the Tasks page has them all */
+const OVERDUE_SHOWN = 5;
 
 export interface HomeResponse {
   day: string;
@@ -42,7 +44,12 @@ export interface HomeResponse {
     location: string | null;
     cancelled: boolean;
   }[];
+  /**
+   * Overdue first — only the few most recently due, newest first — then
+   * today's and the coming days' by date.
+   */
   tasks: { path: string; line: number; text: string; due: string; title: string; kind: string }[];
+  /** every overdue task, including the ones not listed */
   overdueCount: number;
   tracked: {
     path: string;
@@ -110,14 +117,18 @@ export function homeModel(v: VaultService, day: string): HomeResponse {
     );
 
   const soon = addDays(day, SOON_DAYS);
-  const tasks = db
-    .prepare(
-      `SELECT t.path, t.line, t.text, t.due, t.kind, n.title
+  // Two reads: one oldest-first list with one limit let a long overdue backlog
+  // push today's tasks off the end of it — and off Home.
+  const select = `SELECT t.path, t.line, t.text, t.due, t.kind, n.title
        FROM tasks t JOIN notes n ON n.path = t.path
-       WHERE t.done = 0 AND t.due IS NOT NULL AND t.due <= ? AND n.protected = 0
-       ORDER BY t.due, t.path, t.line LIMIT ?`,
-    )
-    .all(soon, TASK_LIMIT) as HomeResponse['tasks'];
+       WHERE t.done = 0 AND t.due IS NOT NULL AND n.protected = 0`;
+  const overdue = db
+    .prepare(`${select} AND t.due < ? ORDER BY t.due DESC, t.path, t.line LIMIT ?`)
+    .all(day, OVERDUE_SHOWN) as HomeResponse['tasks'];
+  const dueNow = db
+    .prepare(`${select} AND t.due >= ? AND t.due <= ? ORDER BY t.due, t.path, t.line LIMIT ?`)
+    .all(day, soon, TASK_LIMIT) as HomeResponse['tasks'];
+  const tasks = [...overdue, ...dueNow];
   const { n: overdueCount } = db
     .prepare(
       `SELECT COUNT(*) AS n FROM tasks t JOIN notes n ON n.path = t.path
