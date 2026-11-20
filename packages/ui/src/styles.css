@@ -682,6 +682,36 @@ button {
 .cm-cb-codeblock-bg {
   background: var(--bg-panel);
 }
+/* the ``` lines of a block that is not being edited: a thin edge, the language as a label */
+.cm-cb-codefence {
+  font-size: 0.68em;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+.cm-cb-fence-lang {
+  letter-spacing: 0.04em;
+}
+/* a list marker while its line is not being edited */
+.cm-cb-bullet {
+  color: var(--fg-muted);
+}
+/* where a mirrored note changes hands: tool-owned above, yours below */
+.cm-cb-owner-divider {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.cm-cb-owner-divider::before,
+.cm-cb-owner-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
 .cm-cb-quote {
   color: var(--fg-muted);
   border-left: 3px solid var(--border);

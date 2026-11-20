@@ -105,6 +105,78 @@ class TrackBadgeWidget extends WidgetType {
   }
 }
 
+/** A list item's `-`, `*` or `+`, shown as a bullet while the line is not being edited. */
+class BulletWidget extends WidgetType {
+  override eq() {
+    return true;
+  }
+  toDOM() {
+    const dot = document.createElement('span');
+    dot.className = 'cm-cb-bullet';
+    dot.textContent = '•';
+    return dot;
+  }
+  /** a click on it is a click in the text: the cursor goes there and the marker shows */
+  override ignoreEvent() {
+    return false;
+  }
+}
+const BULLET = new BulletWidget();
+
+/** The language of a fenced code block, in place of its ``` line. */
+class FenceLabelWidget extends WidgetType {
+  constructor(readonly info: string) {
+    super();
+  }
+  override eq(other: FenceLabelWidget) {
+    return other.info === this.info;
+  }
+  toDOM() {
+    const label = document.createElement('span');
+    label.className = 'cm-cb-fence-lang';
+    label.textContent = this.info;
+    return label;
+  }
+  override ignoreEvent() {
+    return false;
+  }
+}
+
+/**
+ * `<!-- jira:end -->` and its siblings split a note between its two owners
+ * (SPEC §6): the tool rewrites what is above, the user owns what is below.
+ * Shown as a ruled label saying so, instead of as an HTML comment.
+ */
+const OWNER_MARKER = /^\s*<!--\s*(jira|outlook|work):end\s*-->\s*$/;
+const OWNER_LABEL: Record<string, string> = {
+  jira: 'synced from Jira above · your notes below',
+  outlook: 'from Outlook above · your notes below',
+  work: 'reported by agents above · your notes below',
+};
+class OwnerDividerWidget extends WidgetType {
+  constructor(readonly owner: string) {
+    super();
+  }
+  override eq(other: OwnerDividerWidget) {
+    return other.owner === this.owner;
+  }
+  toDOM() {
+    const rule = document.createElement('span');
+    rule.className = 'cm-cb-owner-divider';
+    const label = document.createElement('span');
+    label.textContent = OWNER_LABEL[this.owner] ?? '';
+    rule.append(label);
+    return rule;
+  }
+  /** the rule fills its line: without this no click could put the cursor on the marker */
+  override ignoreEvent() {
+    return false;
+  }
+}
+
+/** fenced blocks that other fields draw as a whole (diagrams.ts, the secret fence below) */
+const DRAWN_FENCES = new Set(['mermaid', 'secret']);
+
 class CheckboxWidget extends WidgetType {
   constructor(
     readonly checked: boolean,
@@ -236,6 +308,11 @@ function buildDecorations(view: EditorView): DecorationSet {
   const codeLines = new Set<number>();
   const quoteLines = new Set<number>();
   const emphasis: { from: number; to: number; cls: string; marks: [number, number][] }[] = [];
+  /** line → the bullet list marker on it */
+  const bullets = new Map<number, [number, number]>();
+  /** line → the ``` line of a fenced block it is, and whether the cursor is in that block */
+  const fenceLines = new Map<number, { role: 'open' | 'close'; info: string; editing: boolean }>();
+  const cursorLine = cursor >= 0 ? doc.lineAt(cursor).number : -1;
 
   for (const { from, to } of view.visibleRanges) {
     tree.iterate({
@@ -255,6 +332,22 @@ function buildDecorations(view: EditorView): DecorationSet {
           const first = doc.lineAt(node.from).number;
           const last = doc.lineAt(node.to).number;
           for (let l = first; l <= last; l++) codeLines.add(l);
+          if (name === 'FencedCode') {
+            const marks = node.node.getChildren('CodeMark');
+            const infoNode = node.node.getChild('CodeInfo');
+            const info = infoNode ? doc.sliceString(infoNode.from, infoNode.to).trim() : '';
+            const editing = cursorLine >= first && cursorLine <= last;
+            const open = marks[0];
+            const close = marks.length > 1 ? marks[marks.length - 1] : undefined;
+            if (open && doc.lineAt(open.from).number === first)
+              fenceLines.set(first, { role: 'open', info, editing });
+            // an unclosed fence ends in code, not in a ``` line
+            if (close && doc.lineAt(close.from).number === last && last > first)
+              fenceLines.set(last, { role: 'close', info, editing });
+          }
+        } else if (name === 'ListMark') {
+          if (node.node.parent?.parent?.name === 'BulletList')
+            bullets.set(doc.lineAt(node.from).number, [node.from, node.to]);
         } else if (name === 'Blockquote') {
           const first = doc.lineAt(node.from).number;
           const last = doc.lineAt(node.to).number;
@@ -307,11 +400,31 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (fmEnd >= 0 && line.number <= fmEnd) {
         builder.add(line.from, line.from, Decoration.line({ class: 'cm-cb-frontmatter' }));
       } else if (ctx.inCodeBlock) {
+        // The ``` lines are scaffolding: outside the block they shrink to a thin
+        // edge, the opening one keeping the language as a label. With the
+        // cursor anywhere in the block they are plain text again.
+        const fence = fenceLines.get(line.number);
+        const quiet =
+          fence !== undefined &&
+          !fence.editing &&
+          !DRAWN_FENCES.has((fence.info.split(/\s/)[0] ?? '').toLowerCase());
         builder.add(
           line.from,
           line.from,
-          Decoration.line({ class: 'cm-cb-codeblock cm-cb-codeblock-bg' }),
+          Decoration.line({
+            class: `cm-cb-codeblock cm-cb-codeblock-bg${quiet ? ` cm-cb-codefence ${fence.role}` : ''}`,
+          }),
         );
+        if (quiet && line.to > line.from)
+          inline.push({
+            from: line.from,
+            to: line.to,
+            deco: Decoration.replace(
+              fence.role === 'open' && fence.info
+                ? { widget: new FenceLabelWidget(fence.info) }
+                : {},
+            ),
+          });
       } else {
         const h = headings.get(line.number);
         if (h) {
@@ -363,7 +476,37 @@ function buildDecorations(view: EditorView): DecorationSet {
         }
       }
 
-      if (!ctx.inCodeBlock && (fmEnd < 0 || line.number > fmEnd)) {
+      const prose = !ctx.inCodeBlock && (fmEnd < 0 || line.number > fmEnd);
+      const owner = prose && !ctx.cursorTouches ? OWNER_MARKER.exec(line.text) : null;
+      if (owner) {
+        builder.add(line.from, line.from, Decoration.line({ class: 'cm-cb-owner-line' }));
+        inline.push({
+          from: line.from,
+          to: line.to,
+          deco: Decoration.replace({ widget: new OwnerDividerWidget(owner[1] as string) }),
+          priority: 6,
+        });
+      }
+      const bullet = prose && !ctx.cursorTouches ? bullets.get(line.number) : undefined;
+      if (bullet) {
+        // a task shows its checkbox in place of the marker; any other item a bullet
+        if (CHECKBOX.test(line.text))
+          inline.push({
+            from: bullet[0],
+            to: Math.min(bullet[1] + 1, line.to),
+            deco: Decoration.replace({}),
+            priority: 5,
+          });
+        else
+          inline.push({
+            from: bullet[0],
+            to: bullet[1],
+            deco: Decoration.replace({ widget: BULLET }),
+            priority: 5,
+          });
+      }
+
+      if (prose && !owner) {
         collectInline(
           line.from,
           line.text,
