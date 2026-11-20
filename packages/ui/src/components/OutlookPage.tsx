@@ -411,7 +411,7 @@ export function OutlookPage({
         <span className="spacer" />
         <button
           type="button"
-          className="risk-chip"
+          className="plan-btn ghost"
           onClick={() => {
             setMsg({ ok: true, text: 'asking Outlook…' });
             outlookApi

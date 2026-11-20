@@ -52,7 +52,11 @@ export function SyncHistory({ status }: { status: JiraStatus | null }) {
                 <strong>
                   {run.outcome} · {run.profiles.join(', ') || 'no profile'}
                 </strong>
-                <button type="button" className="risk-chip" onClick={() => void copy(run)}>
+                <button
+                  type="button"
+                  className="plan-btn ghost small"
+                  onClick={() => void copy(run)}
+                >
                   {copied === run.id ? 'Copied' : 'Copy diagnostics'}
                 </button>
               </div>

@@ -9,6 +9,22 @@ const SCOPE_LABEL: Record<ShortcutScope, string> = {
   lists: 'In lists and trees',
 };
 
+/**
+ * One row per thing a key does: several bindings of the same action (Ctrl+F,
+ * Ctrl+P and Ctrl+K all open Find) share a row instead of repeating it.
+ */
+export function mergeByLabel(
+  shortcuts: readonly Shortcut[],
+): { id: string; label: string; keys: string[] }[] {
+  const rows = new Map<string, { id: string; label: string; keys: string[] }>();
+  for (const k of shortcuts) {
+    const row = rows.get(k.label);
+    if (row) row.keys.push(k.keys);
+    else rows.set(k.label, { id: k.id, label: k.label, keys: [k.keys] });
+  }
+  return [...rows.values()];
+}
+
 /** Rendered from the shortcut registry, so it can never drift from the bindings. */
 export function ShortcutHelp({
   shortcuts,
@@ -40,14 +56,16 @@ export function ShortcutHelp({
           {scopes.map((scope) => (
             <section key={scope} className="help-scope">
               <h3>{SCOPE_LABEL[scope]}</h3>
-              {shortcuts
-                .filter((k) => k.scope === scope)
-                .map((k) => (
-                  <div key={k.id} className="help-row">
-                    <span>{k.label}</span>
-                    <kbd>{keyLabel(k.keys)}</kbd>
-                  </div>
-                ))}
+              {mergeByLabel(shortcuts.filter((k) => k.scope === scope)).map((row) => (
+                <div key={row.id} className="help-row">
+                  <span>{row.label}</span>
+                  <span className="help-keys">
+                    {row.keys.map((keys) => (
+                      <kbd key={keys}>{keyLabel(keys)}</kbd>
+                    ))}
+                  </span>
+                </div>
+              ))}
             </section>
           ))}
         </div>

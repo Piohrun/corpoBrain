@@ -463,7 +463,9 @@ export function ProjectsPage({ onOpenNote }: { onOpenNote: (path: string) => voi
                 >
                   −
                 </button>
-                <span className="muted small">{day}px</span>
+                <span className="muted small" title="Zoom of the calendar">
+                  {Math.round((day / DEFAULT_DAY) * 100)}%
+                </span>
                 <button
                   type="button"
                   className="plan-btn ghost"

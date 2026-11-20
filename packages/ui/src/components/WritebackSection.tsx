@@ -202,7 +202,7 @@ export function WritebackSection({
                 </span>
                 <button
                   type="button"
-                  className="risk-chip"
+                  className="plan-btn ghost small"
                   disabled={busy || mode === 'off'}
                   title={
                     mode === 'off'
@@ -238,7 +238,7 @@ export function WritebackSection({
       <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
         <button
           type="button"
-          className="risk-chip"
+          className="plan-btn ghost small"
           disabled={busy || mode === 'off' || writable.length === 0}
           title={
             mode === 'off'
@@ -256,7 +256,12 @@ export function WritebackSection({
           </button>
         )}
         {lastRealBatch && (
-          <button type="button" className="risk-chip clear" disabled={busy} onClick={doUndo}>
+          <button
+            type="button"
+            className="plan-btn ghost small clear"
+            disabled={busy}
+            onClick={doUndo}
+          >
             Undo last batch
           </button>
         )}

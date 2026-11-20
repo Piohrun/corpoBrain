@@ -310,7 +310,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
         ))}
         <button
           type="button"
-          className="risk-chip"
+          className="plan-btn ghost small"
           title="Create a category: the first note of a new type"
           onClick={async () => {
             const type = await dlg.prompt(
@@ -334,7 +334,7 @@ export function ObjectsPage({ onOpenNote }: { onOpenNote: (path: string) => void
         {selected && (
           <button
             type="button"
-            className="risk-chip"
+            className="plan-btn ghost small"
             onClick={async () => {
               const title = await dlg.prompt(`Title of the new ${selected} note:`);
               if (!title?.trim()) return;

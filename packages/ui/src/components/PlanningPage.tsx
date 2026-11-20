@@ -461,7 +461,7 @@ export function PlanningPage({ onOpenNote }: Props) {
         {(filter || flagFilter || sprintFilter) && (
           <button
             type="button"
-            className="risk-chip"
+            className="plan-btn ghost small"
             onClick={async () => {
               const title = await dlg.prompt('Save current filter as view:');
               if (!title) return;

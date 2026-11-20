@@ -37,7 +37,7 @@ export function SyncProgressBar({
         {onCancel && (
           <button
             type="button"
-            className="risk-chip"
+            className="plan-btn ghost small"
             disabled={cancelling || !status.runId}
             onClick={onCancel}
           >

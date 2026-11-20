@@ -68,7 +68,7 @@ export function JiraPage({ onOpenNote }: { onOpenNote: (path: string) => void })
         )}
         <button
           type="button"
-          className="risk-chip"
+          className="plan-btn ghost"
           disabled={syncing}
           title="Ignore the incremental watermark: re-fetch and re-map every issue matching the profile JQL. Use after mapping/logic changes or when things look stale."
           onClick={() => sync(true)}
@@ -373,7 +373,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
               />
               <button
                 type="button"
-                className="risk-chip clear"
+                className="plan-btn ghost small clear"
                 title="Remove this profile"
                 onClick={() => {
                   setProfiles((rows) => rows.filter((r) => r.rowId !== p.rowId));
@@ -386,7 +386,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
           ))}
           <button
             type="button"
-            className="risk-chip"
+            className="plan-btn ghost small"
             onClick={() => {
               setProbe('looking up boards…');
               setProbeOk(false);
@@ -407,7 +407,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
           </button>
           <button
             type="button"
-            className="risk-chip"
+            className="plan-btn ghost small"
             onClick={() => {
               setProfiles((rows) => [
                 ...rows,
@@ -432,7 +432,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
             </button>
             <button
               type="button"
-              className="risk-chip"
+              className="plan-btn ghost"
               style={{ marginLeft: 8 }}
               onClick={testConnection}
             >
@@ -443,7 +443,7 @@ function SettingsCard({ config, onSaved }: { config: JiraConfig; onSaved: () => 
           <div style={{ marginTop: 8, display: 'flex', alignItems: 'center' }}>
             <button
               type="button"
-              className="risk-chip"
+              className="plan-btn ghost"
               onClick={testDevIntegration}
               title="Check whether this Jira exposes branches, commits and pull requests per issue (GitHub / Bitbucket integration)"
             >

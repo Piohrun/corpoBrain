@@ -107,6 +107,9 @@ function sameExceptContent(a: NoteResponse, b: NoteResponse): boolean {
   return JSON.stringify(restA) === JSON.stringify(restB);
 }
 
+/** the three keys that open Find share this label, and so one row in the help */
+const FIND_LABEL = 'Find: in this note, notes, Jira, commands — or what the page offers';
+
 /** Clears the editor's in-note find highlights when the Finder closes. */
 function ClearFindOnClose({ editorApi }: { editorApi: React.RefObject<EditorApi | null> }) {
   const { isOpen } = useFinder();
@@ -546,7 +549,7 @@ function AppShell() {
       {
         id: 'finder',
         keys: 'Mod+F',
-        label: 'Find: in this note, notes, Jira, commands — or what the page offers',
+        label: FIND_LABEL,
         scope: 'global',
         inInputs: true,
         run: () => finder.open(),
@@ -554,7 +557,7 @@ function AppShell() {
       {
         id: 'finder-alt',
         keys: 'Mod+P',
-        label: 'Find (same as Ctrl+F)',
+        label: FIND_LABEL,
         scope: 'global',
         inInputs: true,
         run: () => finder.open(),
@@ -562,7 +565,7 @@ function AppShell() {
       {
         id: 'finder-alt2',
         keys: 'Mod+K',
-        label: 'Find (same as Ctrl+F)',
+        label: FIND_LABEL,
         scope: 'global',
         inInputs: true,
         passive: false,

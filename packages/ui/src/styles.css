@@ -3941,6 +3941,14 @@ tr.wb-conflict td {
   font-size: 13px;
   padding: 3px 0;
 }
+.help-keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: none;
+  max-width: 55%;
+}
 .chord-pending {
   position: fixed;
   bottom: 12px;
@@ -4042,6 +4050,10 @@ tr.wb-conflict td {
 .plan-btn.ghost:not(:disabled):hover {
   background: var(--bg-hover);
   filter: none;
+}
+/* a ghost button that removes or undoes something */
+.plan-btn.ghost.clear {
+  color: var(--danger);
 }
 /* a ghost toggle that is on */
 .plan-btn.ghost.active {

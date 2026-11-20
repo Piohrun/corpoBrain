@@ -34,7 +34,7 @@ export const ChangesPanel = memo(function ChangesPanel({
         <span className="muted small">local only — push to Jira from the ⚙ page (write-back)</span>
         <button
           type="button"
-          className="risk-chip clear"
+          className="plan-btn ghost small clear"
           onClick={async () => {
             if (await dlg.confirm(`Revert all ${changes.length} local changes?`)) {
               for (const i of changes)
@@ -74,7 +74,7 @@ export const ChangesPanel = memo(function ChangesPanel({
             </span>
             <button
               type="button"
-              className="risk-chip clear"
+              className="plan-btn ghost small clear"
               title="Clear local sprint/assignee/effort for this issue"
               onClick={() => onPatch(i.key, { sprint: null, assignee: null, effort: null })}
             >
