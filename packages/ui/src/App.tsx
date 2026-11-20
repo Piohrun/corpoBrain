@@ -265,6 +265,18 @@ function AppShell() {
   const [view, setView] = useState<View>(initialView);
   const viewRef = useRef<View>('notes');
   viewRef.current = view;
+  // The tab says where you are: with several corpoBrain tabs open, or in the
+  // browser's history, "corpoBrain" for every one of them told nothing.
+  const openTitle = note
+    ? (note.meta?.title ?? note.path.replace(/^.*\//, '').replace(/\.md$/, ''))
+    : null;
+  useEffect(() => {
+    const where =
+      view === 'notes'
+        ? (openTitle ?? 'Notes')
+        : (VIEW_KEYS.find((v) => v.view === view)?.label ?? null);
+    document.title = where ? `${where} · corpoBrain` : 'corpoBrain';
+  }, [view, openTitle]);
   const noteRef = useRef<NoteResponse | null>(null);
   noteRef.current = note;
   /** true while a delete is in flight, so the editor drops its pending save */
