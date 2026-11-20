@@ -1,5 +1,5 @@
 import type React from 'react';
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { api, type TagCount, type TreeModel } from '../api.ts';
 import { lsGet, lsSet } from '../storage.ts';
 import { Icon } from './Icon.tsx';
@@ -64,6 +64,25 @@ export const Sidebar = memo(function Sidebar({
       .catch(() => setTagged([]));
   }, [tagFilter]);
 
+  // Opening a note adds the previous one to Recent, which pushes the tree
+  // down — away from under the pointer that just clicked a row in it. While
+  // the pointer is over the sidebar the list keeps the rows it had (a note
+  // opened from it stays where it was, highlighted) and catches up on leaving.
+  // Keyboard navigation never hovers, so it sees every change at once.
+  const [hovering, setHovering] = useState(false);
+  const [held, setHeld] = useState(recent);
+  useEffect(() => {
+    if (!hovering) setHeld(recent);
+  }, [recent, hovering]);
+  const shownRecent = useMemo(() => {
+    if (!hovering) return recent;
+    // held rows that are still notes: deleted ones go, renamed ones follow
+    const now = new Map(recent.map((n) => [n.path, n.title]));
+    return held
+      .filter((n) => now.has(n.path) || n.path === currentPath)
+      .map((n) => ({ path: n.path, title: now.get(n.path) ?? n.title }));
+  }, [hovering, held, recent, currentPath]);
+
   // folded quick sections, remembered per browser
   const [folded, setFolded] = useState(() => ({
     pinned: lsGet('cb.sidebar.pinned') === 'folded',
@@ -76,7 +95,12 @@ export const Sidebar = memo(function Sidebar({
     });
 
   return (
-    <div className="sidebar">
+    // biome-ignore lint/a11y/noStaticElementInteractions: only tracks whether the pointer is over the sidebar
+    <div
+      className="sidebar"
+      onMouseEnter={() => setHovering(true)}
+      onMouseLeave={() => setHovering(false)}
+    >
       <div className="notebook-heading">
         <Icon name="notes" />
         <strong>Your notebook</strong>
@@ -151,16 +175,16 @@ export const Sidebar = memo(function Sidebar({
                   ))}
               </>
             )}
-            {recent.length > 0 && (
+            {shownRecent.length > 0 && (
               <>
                 <FoldHeading
                   label="Recent"
-                  count={recent.length}
+                  count={shownRecent.length}
                   open={!folded.recent}
                   onToggle={() => toggleFold('recent')}
                 />
                 {!folded.recent &&
-                  recent.map((n) => (
+                  shownRecent.map((n) => (
                     <button
                       type="button"
                       key={`r${n.path}`}

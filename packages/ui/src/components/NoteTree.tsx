@@ -42,6 +42,28 @@ function reallyLeft(e: React.DragEvent): boolean {
   return !related || !(e.currentTarget as HTMLElement).contains(related);
 }
 
+/**
+ * The type most notes of a folder have, when that is more than half of them:
+ * the folder's own kind. A pill repeating it on every row (`person` on each
+ * of forty people) says nothing; a note of another type among them still
+ * gets its pill.
+ */
+export function nativeType(roots: readonly TreeNode[]): string | null {
+  const counts = new Map<string, number>();
+  let total = 0;
+  const walk = (nodes: readonly TreeNode[]) => {
+    for (const n of nodes) {
+      counts.set(n.type, (counts.get(n.type) ?? 0) + 1);
+      total++;
+      walk(n.children);
+    }
+  };
+  walk(roots);
+  let best: string | null = null;
+  for (const [type, n] of counts) if (best === null || n > (counts.get(best) ?? 0)) best = type;
+  return best !== null && (counts.get(best) ?? 0) * 2 > total ? best : null;
+}
+
 const loadCollapsed = (): Set<string> => new Set(lsJson<string[]>(LS_KEY, []));
 const loadExpanded = (): Set<string> => new Set(lsJson<string[]>(LS_EXPANDED, []));
 
@@ -66,6 +88,10 @@ export const NoteTree = memo(function NoteTree({
         ...folder,
         daily: groupDailyNotes(folder.roots, tree.dailyFolder),
       })),
+    [tree],
+  );
+  const nativeTypes = useMemo(
+    () => new Map(tree.folders.map((f) => [f.folder, nativeType(f.roots)])),
     [tree],
   );
   const revealFolder = folders.find(
@@ -249,7 +275,9 @@ export const NoteTree = memo(function NoteTree({
             title={`${node.path}${node.type !== 'note' ? ` · ${node.type}` : ''}`}
           >
             {node.title}
-            {node.type !== 'note' && <span className="type-chip">{node.type}</span>}
+            {node.type !== 'note' && node.type !== nativeTypes.get(folder) && (
+              <span className="type-chip">{node.type}</span>
+            )}
             {hasKids && isCollapsed && <span className="muted"> ({countDesc(node)})</span>}
           </button>
         </div>
