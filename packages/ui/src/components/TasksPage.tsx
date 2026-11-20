@@ -255,19 +255,29 @@ export function TasksPage({
                       {t.due}
                     </button>
                   )}
-                  {!t.done && t.path !== todayPath.current && (
-                    <button
-                      type="button"
-                      className="task-pull"
-                      title="Copy into today’s daily note and tick it off here"
-                      onClick={() => pullToToday(t)}
-                    >
-                      → today
-                    </button>
-                  )}
-                  <button type="button" className="text-link" onClick={() => onOpenNote(t.path)}>
-                    {t.title}
-                  </button>
+                  {/* the end of the row lines up down the column, whatever the task's length */}
+                  <span className="task-end">
+                    {!t.done && t.path !== todayPath.current && (
+                      <button
+                        type="button"
+                        className="task-pull"
+                        title="Copy into today’s daily note and tick it off here"
+                        onClick={() => pullToToday(t)}
+                      >
+                        → today
+                      </button>
+                    )}
+                    {groupMode !== 'note' && (
+                      <button
+                        type="button"
+                        className="text-link task-source"
+                        title={t.title}
+                        onClick={() => onOpenNote(t.path)}
+                      >
+                        {t.title}
+                      </button>
+                    )}
+                  </span>
                 </div>
               ))}
             </div>
@@ -306,7 +316,8 @@ export function TasksPage({
           </button>
         </div>
         <input
-          className="plan-filter"
+          className="plan-filter task-add"
+          aria-label="Quick add"
           placeholder={
             newKind === 'jira'
               ? 'Jira to create → today’s daily note…'

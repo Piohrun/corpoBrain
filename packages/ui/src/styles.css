@@ -1281,6 +1281,8 @@ button {
   color: var(--accent);
   cursor: pointer;
   font: inherit;
+  /* a long link title that wraps reads as text, not as a centred block */
+  text-align: left;
 }
 .wiki-inline:hover {
   text-decoration: underline;
@@ -4399,6 +4401,34 @@ button.prop-chip {
 }
 .nudge-input {
   width: 64px;
+}
+
+/* Tasks page rows: the task and its due date on the left; "→ today" and the
+   note it lives in at the right edge, in one line down the column */
+.task-col .task-row > span:not(.task-end):not(.due-chip) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.task-end {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-left: 8px;
+}
+.task-source {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+/* the quick-add box takes the room the header has, so its placeholder is readable */
+.plan-filter.task-add {
+  flex: 1 1 260px;
+  max-width: 460px;
+  min-width: 160px;
 }
 
 /* ---- tasks: pull into today ---- */
